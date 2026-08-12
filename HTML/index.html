@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>CurricuLogic — Subject Recommendation System</title>
+    <meta name="description" content="Check which subjects you are eligible to enrol in, see why others are locked, and plan your term with confidence.">
+
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../CSS/index.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+
+<a href="#main" class="skip-link">Skip to content</a>
+
+<header class="site-header">
+    <div class="header-inner">
+
+        <a href="index.html" class="brand" aria-label="CurricuLogic home">
+            <img src="../Images/CurriculogicLogo.png"
+            alt="" class="brand-mark" width="1024" height="576" decoding="async">
+            <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+        </a>
+
+        <nav class="main-nav" id="main-nav" aria-label="Main navigation">
+            <a href="index.html">Home</a>
+            <a href="#about">About</a>
+            <a href="#contact">Contact</a>
+        </nav>
+
+        <div class="header-actions">
+            <a href="login.html" class="btn-outline">Login</a>
+            <a href="register.html" class="btn-accent">Get Started</a>
+        </div>
+
+        <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="main-nav">
+            <span></span><span></span><span></span>
+        </button>
+
+    </div>
+</header>
+
+<main id="main">
+    <section class="hero">
+    <div class="hero-inner">
+
+        <div class="hero-copy">
+            <h1 class="hero-title"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></h1>
+            <p class="hero-lead">
+                Know exactly which subjects you can enrol in this term — and why the rest are locked.
+            </p>
+            <p class="hero-sub">
+                CurricuLogic reads your academic record against the BSIT prospectus, checks every
+                prerequisite chain, and explains each result in plain language.
+            </p>
+            <div class="hero-cta">
+                <a href="register.html" class="btn-accent">Get Started</a>
+                <a href="#how-it-works" class="btn-ghost">See how it works</a>
+            </div>
+        </div>
+
+        <div class="hero-panel">
+            <div class="panel-head">
+                <span class="panel-title">Subject eligibility</span>
+                <span class="panel-term">1st Sem · AY 2026-2027</span>
+            </div>
+
+            <ul class="elig-list">
+                <li class="elig ok">
+                    <span class="mark">✓</span>
+                    <div class="elig-body">
+                        <span class="code">IT-SAD</span>
+                        <span class="name">Information Systems Analysis and Design</span>
+                    </div>
+                    <span class="tag tag-ok">Eligible</span>
+                </li>
+
+                <li class="elig no">
+                    <span class="mark">✕</span>
+                    <div class="elig-body">
+                        <span class="code">COMPROG-11</span>
+                        <span class="name">Computer Programming 1</span>
+                    </div>
+                    <span class="tag tag-no">Not met</span>
+                </li>
+
+                <li class="elig ok">
+                    <span class="mark">✓</span>
+                    <div class="elig-body">
+                        <span class="code">DIGILOG-31</span>
+                        <span class="name">Digital Logic</span>
+                    </div>
+                    <span class="tag tag-ok">Eligible</span>
+                </li>
+            </ul>
+
+            <p class="reason-label">Why COMPROG-11 is locked</p>
+
+            <ul class="reason-list">
+                <li class="reason">
+                <i class="fa-solid fa-lock fa-beat-fade" style="color: rgb(247, 113, 113);"></i>
+                    <span><strong>IT-NETWORKING</strong> — Networking 2 · not yet taken</span>
+                </li>
+                <li class="reason">
+                    <i class="fa-solid fa-lock fa-beat-fade" style="color: rgb(247, 113, 113);"></i>
+                    <span><strong>SYS-ADM</strong> — System Administration · not yet taken</span>
+                </li>
+            </ul>
+        </div>
+
+    </div>
+</section>
+
+<section class="features" id="features">
+    <div class="features-inner">
+
+        <header class="sec-head">
+            <span class="sec-eyebrow">Features</span>
+            <h2 class="sec-title">Built around how enrolment actually works</h2>
+            <p class="sec-sub">
+                Three things the system does before you ever queue at the registrar.
+            </p>
+        </header>
+
+        <div class="feat-grid">
+
+            <article class="feat-card">
+                <span class="feat-ico">
+                <i class="fa-regular fa-circle-check fa-xl" style="color: rgba(15, 138, 95, 1);"></i>
+                </span>
+                <h3 class="feat-title">Prerequisite verification</h3>
+                <p class="feat-body">
+                    Every subject in your prospectus is checked against your academic record
+                    before enrolment — so nothing gets rejected at the counter.
+                </p>
+            </article>
+
+            <article class="feat-card">
+                <span class="feat-ico">
+                <img src="../Images/CurriculogicLogo.png" alt="Lock icon" width="26" height="26">
+                </span>
+                <h3 class="feat-title">Explained results</h3>
+                <p class="feat-body">
+                    When a subject is locked, you see the exact reason — which prerequisite is
+                    missing, which year standing is required, and what to take first.
+                </p>
+            </article>
+
+            <article class="feat-card">
+                <span class="feat-ico">
+            <i class="fa-solid fa-thumbs-up fa-xl" style="color: rgba(15, 138, 95, 1);"></i>
+                </span>
+                <h3 class="feat-title">Term recommendations</h3>
+                <p class="feat-body">
+                    A suggested subject load for the coming term that respects unit limits,
+                    sequencing, and what you still need to graduate on time.
+                </p>
+            </article>
+
+        </div>
+    </div>
+</section>
+
+<section class="how" id="how-it-works">
+    <div class="how-inner">
+
+        <div class="how-copy">
+            <span class="sec-eyebrow">How it works</span>
+            <h2 class="sec-title how-title">We bring the pieces together so enrolment stops being guesswork</h2>
+
+            <ol class="steps">
+
+                <li class="step">
+                    <span class="step-num">1</span>
+                    <div class="step-body">
+                        <h3>Your record goes in</h3>
+                        <p>
+                            The registrar uploads grades, or you check what's already on file.
+                            Subjects taken, passed, failed, and in progress are all read.
+                        </p>
+                    </div>
+                </li>
+
+                <li class="step">
+                    <span class="step-num">2</span>
+                    <div class="step-body">
+                        <h3>Rules are matched against the prospectus</h3>
+                        <p>
+                            Every prerequisite chain, year standing, and elective group in the
+                            BSIT curriculum is checked — subject by subject.
+                        </p>
+                    </div>
+                </li>
+
+                <li class="step">
+                    <span class="step-num">3</span>
+                    <div class="step-body">
+                        <h3>You get a result and a reason</h3>
+                        <p>
+                            Eligible, locked, or already taken — with the specific requirement
+                            behind every locked subject spelled out.
+                        </p>
+                    </div>
+                </li>
+
+                <li class="step">
+                    <span class="step-num">4</span>
+                    <div class="step-body">
+                        <h3>Enrolment gets easier</h3>
+                        <p>
+                            Bring a load you already know will clear. Faculty and registrar review
+                            the same result you're looking at.
+                        </p>
+                    </div>
+                </li>
+
+            </ol>
+        </div>
+
+        <div class="how-visual">
+            <div class="shot">
+                <div class="shot-bar">
+                    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+                    <span class="shot-url">curriculogic.uc.edu.ph</span>
+                </div>
+
+                <div class="shot-body">
+                    <div class="shot-head">
+                        <div>
+                            <span class="shot-name">Althea M. Villanueva</span>
+                            <span class="shot-meta">2024-01187 · BSIT · 2nd Year</span>
+                        </div>
+                        <span class="shot-term">1st Sem · AY 2026–2027</span>
+                    </div>
+
+                    <div class="shot-stats">
+                        <div class="stat"><b>9</b><span>Eligible</span></div>
+                        <div class="stat"><b>4</b><span>Locked</span></div>
+                        <div class="stat"><b>18</b><span>Units</span></div>
+                    </div>
+
+                    <div class="shot-rows">
+                        <div class="shot-row ok"><span class="c">IT 311</span><span class="n">Information Management 2</span><span class="t">Eligible</span></div>
+                        <div class="shot-row ok"><span class="c">IT 318</span><span class="n">Web Systems &amp; Technologies</span><span class="t">Eligible</span></div>
+                        <div class="shot-row ok"><span class="c">IT 315</span><span class="n">Quantitative Methods</span><span class="t">Eligible</span></div>
+                        <div class="shot-row no"><span class="c">IT 324</span><span class="n">Systems Integration</span><span class="t">Locked</span></div>
+                        <div class="shot-row no"><span class="c">IT 401</span><span class="n">Capstone Project 1</span><span class="t">Locked</span></div>
+                    </div>
+
+                    <div class="shot-fade"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</section>
+
+</main>
+
+<footer class="site-footer" id="contact">
+    <div class="footer-inner">
+
+        <div class="foot-brand">
+            <a href="index.html" class="brand" aria-label="CurricuLogic home">
+                <img src="../Images/CurriculogicLogo.png" alt="" class="brand-mark" width="1024" height="576" decoding="async">
+                <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+            </a>
+            <p class="foot-blurb">
+                Prerequisite verification and subject recommendation for
+                University of Cebu students.
+            </p>
+            <p class="foot-pilot">Pilot — College of Computer Studies</p>
+        </div>
+
+        <nav class="foot-col" aria-labelledby="foot-company">
+            <h3 class="foot-head" id="foot-company">Company</h3>
+            <ul>
+                <li><a href="#about">About us</a></li>
+                <li><a href="#why">Why CurricuLogic</a></li>
+                <li><a href="#team">The team</a></li>
+            </ul>
+        </nav>
+
+        <nav class="foot-col" aria-labelledby="foot-product">
+            <h3 class="foot-head" id="foot-product">Product</h3>
+            <ul>
+                <li><a href="#features">Features</a></li>
+                <li><a href="#how-it-works">How it works</a></li>
+                <li><a href="register.html">Get started</a></li>
+            </ul>
+        </nav>
+
+        <nav class="foot-col" aria-labelledby="foot-touch">
+            <h3 class="foot-head" id="foot-touch">Get in touch</h3>
+            <ul>
+                <li><a href="mailto:support@curriculogic.uc.edu.ph">Contact</a></li>
+                <li><a href="#help">Help centre</a></li>
+                <li><a href="#privacy">Privacy</a></li>
+            </ul>
+        </nav>
+
+    </div>
+
+    <div class="footer-bottom">
+        <div class="footer-bottom-inner">
+            <p>&copy; 2026 CurricuLogic · University of Cebu</p>
+            <p class="foot-note">A capstone project of the College of Computer Studies</p>
+        </div>
+    </div>
+</footer>
+
+</main>
+
+<script src="../JS/app.js"></script>
+</body>
+</html>
