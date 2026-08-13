@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Log in — CurricuLogic</title>
+    <meta name="description" content="Log in to CurricuLogic to check your subject eligibility and plan your term.">
+
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../CSS/loginpage.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+
+<div class="auth-shell">
+
+    <!-- ============ LEFT PANEL ============ -->
+    <aside class="auth-aside">
+        <div class="aside-inner">
+
+            <a href="index.html" class="aside-back">
+                <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                <span>Back to home</span>
+            </a>
+
+            <h2 class="aside-head">
+                About <span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span>
+            </h2>
+
+            <div class="aside-about">
+                <img src="../Images/CurriculogicLogo.png" alt="" class="aside-logo" width="1024" height="576">
+                <p>
+                    A prerequisite verification and subject recommendation tool for
+                    University of Cebu students. It checks your academic record against
+                    the BSIT prospectus and explains every result — so planning your
+                    load stops being guesswork.
+                </p>
+            </div>
+
+            <h3 class="aside-head sm">Features</h3>
+
+            <ol class="aside-feats">
+                <li>
+                    <span class="fnum">1</span>
+                    <div>
+                        <h4>Prerequisite checking</h4>
+                        <p>Every chain, year standing, and elective rule matched against your record.</p>
+                    </div>
+                </li>
+                <li>
+                    <span class="fnum">2</span>
+                    <div>
+                        <h4>Explained results</h4>
+                        <p>See the exact requirement behind every subject you can't take yet.</p>
+                    </div>
+                </li>
+                <li>
+                    <span class="fnum">3</span>
+                    <div>
+                        <h4>Load planning</h4>
+                        <p>A suggested set of subjects that fits within your allowable units.</p>
+                    </div>
+                </li>
+            </ol>
+
+            <p class="aside-foot">University of Cebu · College of Computer Studies</p>
+
+        </div>
+    </aside>
+
+    <!-- ============ RIGHT PANEL ============ -->
+    <main class="auth-main">
+        <div class="auth-card">
+
+            <a href="index.html" class="brand auth-brand" aria-label="CurricuLogic home">
+                <img src="../Images/CurriculogicLogo.png" alt="" class="brand-mark" width="1024" height="576">
+                <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+            </a>
+
+            <h1 class="auth-title">Welcome back</h1>
+            <p class="auth-sub">Log in with your university account to continue.</p>
+
+            <div id="msg" class="msg" role="status"></div>
+
+            <div class="field">
+                <label for="identifier">Username</label>
+                <div class="input-wrap">
+                    <i class="fa-solid fa-user lead" aria-hidden="true"></i>
+                    <input type="text" id="identifier" placeholder="ID number or school email" autocomplete="username" required>
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="password">Password</label>
+                <div class="input-wrap">
+                    <i class="fa-solid fa-lock lead" aria-hidden="true"></i>
+                    <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password" required>
+                    <button type="button" class="toggle-pw" data-target="password" aria-label="Show password">
+                        <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+
+            <button class="btn-submit" id="login-btn">Log in</button>
+
+            <div class="form-row">
+                <label class="check">
+                    <input type="checkbox" id="remember">
+                    <span>Remember me</span>
+                </label>
+                <a href="#forgot" class="link-quiet">Forgot password?</a>
+            </div>
+
+            <div class="rule"><span>or</span></div>
+
+            <p class="auth-alt">
+                Not a student? <a href="staff-login.html">Staff login</a>
+            </p>
+
+            <p class="auth-alt">
+                Don't have an account? <a href="register.html">Sign up</a>
+            </p>
+
+            <nav class="auth-links" aria-label="Help links">
+                <a href="index.html#features">Features</a>
+                <span class="sep">|</span>
+                <a href="index.html#how-it-works">How it works</a>
+                <span class="sep">|</span>
+                <a href="mailto:support@curriculogic.uc.edu.ph">Support</a>
+            </nav>
+
+            <p class="copyright">&copy; 2026 CurricuLogic. All rights reserved.</p>
+
+        </div>
+    </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/auth.js"></script>
+</body>
+</html>
