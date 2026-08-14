@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+
+    <title>Administrator access — CurricuLogic</title>
+
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../CSS/adminloginpage.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+
+<main class="admin-shell">
+    <div class="admin-card">
+
+        <div class="admin-brand">
+            <img src="../Images/CurriculogicLogo.png" alt="" class="brand-mark" width="1024" height="576">
+            <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+        </div>
+
+        <span class="admin-badge">
+            <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+            Administrator access
+        </span>
+
+        <h1 class="admin-title">Restricted portal</h1>
+        <p class="admin-sub">
+            This portal is limited to provisioned System Administrator accounts.
+            All access is logged.
+        </p>
+
+        <div id="msg" class="msg" role="status"></div>
+
+        <div class="field">
+            <label for="identifier">Username</label>
+            <div class="input-wrap">
+                <i class="fa-solid fa-user lead" aria-hidden="true"></i>
+                <input type="text" id="identifier" placeholder="Username" autocomplete="username" required>
+            </div>
+        </div>
+
+        <div class="field">
+            <label for="password">Password</label>
+            <div class="input-wrap">
+                <i class="fa-solid fa-lock lead" aria-hidden="true"></i>
+                <input type="password" id="password" placeholder="Password" autocomplete="current-password" required>
+                <button type="button" class="toggle-pw" data-target="password" aria-label="Show password">
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                </button>
+            </div>
+        </div>
+
+        <button class="btn-submit" id="login-btn">Log in</button>
+
+        <div class="form-row">
+            <span class="session-note">
+                <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+                Session ends when you close the browser
+            </span>
+        </div>
+
+        <p class="admin-note">
+            Administrator accounts are provisioned by the College of Computer Studies.
+            They cannot be self-registered. If you require access, contact IT support.
+        </p>
+
+        <p class="admin-foot">University of Cebu · College of Computer Studies</p>
+
+    </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/auth.js"></script>
+</body>
+</html>
