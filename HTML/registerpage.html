@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Request an account — CurricuLogic</title>
+    <meta name="description" content="Request a CurricuLogic account. New students register; students with an existing academic record claim their account.">
+
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../CSS/registerpage.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+
+<div class="auth-shell">
+
+    <!-- ============ LEFT PANEL ============ -->
+    <aside class="auth-aside">
+        <div class="aside-inner">
+
+            <a href="index.html" class="aside-back">
+                <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                <span>Back to home</span>
+            </a>
+
+            <h2 class="aside-head">How registration works</h2>
+
+            <p class="aside-lead">
+                Accounts are not created instantly. Every request is checked against
+                university records before access is granted.
+            </p>
+
+            <ol class="aside-feats">
+                <li>
+                    <span class="fnum">1</span>
+                    <div>
+                        <h4>You submit a request</h4>
+                        <p>New students provide their details. Students with an existing record only need their student ID.</p>
+                    </div>
+                </li>
+                <li>
+                    <span class="fnum">2</span>
+                    <div>
+                        <h4>The Registrar verifies it</h4>
+                        <p>Your details are matched against the official student list. Your program, year level, and prospectus are set from institutional records.</p>
+                    </div>
+                </li>
+                <li>
+                    <span class="fnum">3</span>
+                    <div>
+                        <h4>You are notified</h4>
+                        <p>Once verified, you can sign in and see your subject eligibility for the coming term.</p>
+                    </div>
+                </li>
+            </ol>
+
+            <p class="aside-callout">
+                <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                <span>
+                    Use your official university email. Requests that cannot be matched
+                    to a student record are declined.
+                </span>
+            </p>
+
+            <p class="aside-foot">University of Cebu · College of Computer Studies</p>
+
+        </div>
+    </aside>
+
+    <!-- ============ RIGHT PANEL ============ -->
+    <main class="auth-main">
+        <div class="auth-card">
+
+            <a href="index.html" class="brand auth-brand" aria-label="CurricuLogic home">
+                <img src="../Images/CurriculogicLogo.png" alt="" class="brand-mark" width="1024" height="576">
+                <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+            </a>
+
+            <h1 class="auth-title">Request an account</h1>
+            <p class="auth-sub">Tell us where you are in your programme.</p>
+
+            <div id="msg" class="msg" role="status"></div>
+
+            <!-- ---- path choice ---- -->
+            <fieldset class="path-choice">
+                <legend class="sr-only">Account type</legend>
+
+                <label class="path selected">
+                    <input type="radio" name="path" value="new" checked>
+                    <span class="path-body">
+                        <span class="path-title">I am a new student</span>
+                        <span class="path-desc">This is my first term at University of Cebu</span>
+                    </span>
+                    <i class="fa-solid fa-circle-check path-tick" aria-hidden="true"></i>
+                </label>
+
+                <label class="path">
+                    <input type="radio" name="path" value="existing">
+                    <span class="path-body">
+                        <span class="path-title">I already have a record at UC</span>
+                        <span class="path-desc">Continuing, returnee, transferee, or shiftee</span>
+                    </span>
+                    <i class="fa-solid fa-circle-check path-tick" aria-hidden="true"></i>
+                </label>
+            </fieldset>
+
+            <!-- ---- NEW STUDENT ---- -->
+            <div class="pane" id="pane-new">
+
+                <div class="field-row">
+                    <div class="field">
+                        <label for="first-name">First name</label>
+                        <div class="input-wrap">
+                            <input type="text" id="first-name" placeholder="Althea" autocomplete="given-name">
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label for="last-name">Last name</label>
+                        <div class="input-wrap">
+                            <input type="text" id="last-name" placeholder="Villanueva" autocomplete="family-name">
+                        </div>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="program">Programme</label>
+                    <div class="input-wrap">
+                        <select id="program">
+                            <option value="BSIT">BS Information Technology</option>
+                        </select>
+                    </div>
+                    <p class="hint">Only BSIT is available during the pilot.</p>
+                </div>
+
+                <div class="field">
+                    <label for="student-id-new">Student ID <span class="opt">optional</span></label>
+                    <div class="input-wrap">
+                        <i class="fa-solid fa-hashtag lead" aria-hidden="true"></i>
+                        <input type="text" id="student-id-new" placeholder="2026-01187">
+                    </div>
+                    <p class="hint">Leave blank if your ID has not been issued yet.</p>
+                </div>
+
+            </div>
+
+            <!-- ---- EXISTING STUDENT ---- -->
+            <div class="pane" id="pane-existing" hidden>
+
+                <div class="field">
+                    <label for="student-id">Student ID</label>
+                    <div class="input-wrap">
+                        <i class="fa-solid fa-hashtag lead" aria-hidden="true"></i>
+                        <input type="text" id="student-id" placeholder="2024-01187">
+                    </div>
+                    <p class="hint">
+                        Your programme, year level, and prospectus are taken from
+                        university records — you do not need to enter them.
+                    </p>
+                </div>
+
+            </div>
+
+            <!-- ---- SHARED ---- -->
+            <div class="field">
+                <label for="email">University email</label>
+                <div class="input-wrap">
+                    <i class="fa-solid fa-envelope lead" aria-hidden="true"></i>
+                    <input type="email" id="email" placeholder="you@uc.edu.ph" autocomplete="email">
+                </div>
+                <p class="hint" id="email-hint">
+                    Must be the address on file with the university.
+                </p>
+            </div>
+
+            <div class="field">
+                <label for="password">Password</label>
+                <div class="input-wrap">
+                    <i class="fa-solid fa-lock lead" aria-hidden="true"></i>
+                    <input type="password" id="password" placeholder="At least 8 characters" autocomplete="new-password">
+                    <button type="button" class="toggle-pw" data-target="password" aria-label="Show password">
+                        <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="confirm">Confirm password</label>
+                <div class="input-wrap">
+                    <i class="fa-solid fa-lock lead" aria-hidden="true"></i>
+                    <input type="password" id="confirm" placeholder="Re-enter your password" autocomplete="new-password">
+                    <button type="button" class="toggle-pw" data-target="confirm" aria-label="Show password">
+                        <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+
+            <label class="consent">
+                <input type="checkbox" id="consent">
+                <span>
+                    I confirm the information above is accurate and I agree to the
+                    university's <a href="#privacy">data privacy notice</a>.
+                </span>
+            </label>
+
+            <button class="btn-submit" id="register-btn">Submit request</button>
+
+            <p class="pending-note">
+                <i class="fa-solid fa-clock" aria-hidden="true"></i>
+                Your request goes to the Office of the Registrar for verification.
+                You will be notified once it is reviewed.
+            </p>
+
+            <div class="rule"><span>or</span></div>
+
+            <p class="auth-alt">
+                Already have an account? <a href="loginpage.html">Log in</a>
+            </p>
+
+            <p class="auth-alt">
+                Faculty or staff? <a href="staffloginpage.html">Staff login</a>
+            </p>
+
+            <nav class="auth-links" aria-label="Help links">
+                <a href="index.html#features">Features</a>
+                <span class="sep">|</span>
+                <a href="index.html#how-it-works">How it works</a>
+                <span class="sep">|</span>
+                <a href="mailto:support@curriculogic.uc.edu.ph">Support</a>
+            </nav>
+
+            <p class="copyright">&copy; 2026 CurricuLogic. All rights reserved.</p>
+
+        </div>
+    </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/register.js"></script>
+</body>
+</html>
