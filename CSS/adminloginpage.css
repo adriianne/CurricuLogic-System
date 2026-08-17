@@ -1,7 +1,4 @@
-/* ============================================
-   CurricuLogic — Administrator Portal (login)
-   Unlisted. Provisioned accounts only.
-   ============================================ */
+/* Admin Login */
 
 :root {
     --indigo:      #4f46e5;
@@ -22,8 +19,7 @@
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-                 'Helvetica Neue', Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     color: var(--ink);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -38,8 +34,6 @@ img { max-width: 100%; }
     border-radius: 4px;
 }
 
-
-/* ---------- Shell ---------- */
 
 .admin-shell {
     display: flex;
@@ -65,9 +59,6 @@ img { max-width: 100%; }
     padding: var(--s5) var(--s4) var(--s4);
     box-shadow: 0 24px 56px rgba(15, 23, 42, 0.1);
 }
-
-
-/* ---------- Brand + badge ---------- */
 
 .admin-brand {
     display: flex;
@@ -106,7 +97,7 @@ img { max-width: 100%; }
 .admin-badge i { font-size: 0.7rem; }
 
 
-/* ---------- Headings ---------- */
+/* Headings */
 
 .admin-title {
     font-size: 1.62rem;
@@ -122,9 +113,6 @@ img { max-width: 100%; }
     color: var(--slate);
     margin-bottom: var(--s4);
 }
-
-
-/* ---------- Fields ---------- */
 
 .field { margin-bottom: var(--s2); }
 
@@ -192,7 +180,7 @@ img { max-width: 100%; }
 .toggle-pw:hover { color: var(--indigo); background: var(--canvas); }
 
 
-/* ---------- Submit ---------- */
+/*  Submit  */
 
 .btn-submit {
     width: 100%;
@@ -243,7 +231,7 @@ img { max-width: 100%; }
 .session-note i { color: var(--indigo); font-size: 0.75rem; }
 
 
-/* ---------- Note + footer ---------- */
+/*  Note + footer  */
 
 .admin-note {
     margin-top: var(--s4);
@@ -268,7 +256,7 @@ img { max-width: 100%; }
 }
 
 
-/* ---------- Messages ---------- */
+/*  Messages  */
 
 .msg {
     display: none;
@@ -283,7 +271,7 @@ img { max-width: 100%; }
 .msg.success { display: block; background: #ecfdf5; color: #047857; border-left: 3px solid #10b981; }
 
 
-/* ---------- Responsive ---------- */
+/*  Responsive  */
 
 @media (max-width: 480px) {
     .admin-shell { padding: var(--s3); }

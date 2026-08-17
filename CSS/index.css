@@ -1,7 +1,4 @@
-/* ============================================
-   CurricuLogic — Landing Page
-   Section: Header
-   ============================================ */
+/* Landing Page */
 
 :root {
     --indigo:      #4f46e5;
@@ -28,8 +25,7 @@ html {
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-                 'Helvetica Neue', Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto 'Helvetica Neue', Arial, sans-serif;
     color: var(--ink);
     background: var(--canvas);
     -webkit-font-smoothing: antialiased;
@@ -69,9 +65,7 @@ img {
 }
 
 
-/* ============================================
-   HEADER
-   ============================================ */
+/* Header */
 
 .site-header {
     position: sticky;
@@ -90,8 +84,6 @@ img {
     align-items: center;
 }
 
-
-/* ---------- Brand ---------- */
 
 .brand {
     display: flex;
@@ -125,8 +117,6 @@ img {
 .brand-c     { color: var(--green); }
 .brand-logic { color: var(--indigo); }
 
-
-/* ---------- Navigation (centred) ---------- */
 
 .main-nav {
     display: flex;
@@ -162,9 +152,6 @@ img {
 .main-nav a:hover::after {
     width: 100%;
 }
-
-
-/* ---------- Header actions ---------- */
 
 .header-actions {
     display: flex;
@@ -221,8 +208,6 @@ img {
 }
 
 
-/* ---------- Hamburger ---------- */
-
 .nav-toggle {
     display: none;
     flex-direction: column;
@@ -257,11 +242,6 @@ img {
 .nav-toggle.open span:nth-child(3) {
     transform: translateY(-7px) rotate(-45deg);
 }
-
-
-/* ============================================
-   RESPONSIVE
-   ============================================ */
 
 @media (max-width: 1040px) {
     .header-inner { padding: 0 1.75rem; }
@@ -326,7 +306,7 @@ img {
 }
 
 
-/* ---------- Reduced motion ---------- */
+/*  Reduced motion  */
 
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
@@ -339,9 +319,7 @@ img {
     }
 }
 
-/* ============================================
-   HERO
-   ============================================ */
+/*  HERO */
 
 .hero {
     background: #fff;
@@ -366,7 +344,7 @@ img {
 }
 
 
-/* ---------- Left column ---------- */
+/* Left column */
 
 .hero-copy {
     grid-column: 1;
@@ -431,7 +409,7 @@ img {
 }
 
 
-/* ---------- Right panel ---------- */
+/* Right panel  */
 
 .hero-panel {
     grid-column: 3;
@@ -563,7 +541,7 @@ img {
 }
 
 
-/* ---------- Hero responsive ---------- */
+/*  Hero responsive */
 
 @media (max-width: 1040px) {
     .hero-inner { padding: 4rem 1.75rem; gap: 2.5rem; }
@@ -590,9 +568,7 @@ img {
     .reason { margin-left: 0.75rem; }
 }
 
-/* =============
-    FEATURES
-   ============== */
+/* FEATURES */
 
 .features {
     background: var(--canvas);
@@ -691,7 +667,7 @@ img {
 }
 
 
-/* ---------- Features responsive ---------- */
+/*  Features responsive */
 
 @media (max-width: 1040px) {
     .features-inner { padding: 4rem 1.75rem; }
@@ -706,9 +682,7 @@ img {
     .sec-head { margin-bottom: 2rem; }
 }
 
-/* ============================================
-   HOW IT WORKS
-   ============================================ */
+/*  HOW IT WORKS */
 
 .how {
     background: #fff;
@@ -726,7 +700,7 @@ img {
 }
 
 
-/* ---------- Left: steps ---------- */
+/* Left: steps  */
 
 .how-title {
     font-size: 1.95rem;
@@ -799,8 +773,6 @@ img {
     max-width: 44ch;
 }
 
-
-/* ---------- Right: screenshot ---------- */
 
 .how-visual { position: relative; }
 
@@ -963,7 +935,7 @@ img {
 }
 
 
-/* ---------- How responsive ---------- */
+/* How responsive  */
 
 @media (max-width: 1040px) {
     .how-inner { padding: 4rem 1.75rem; gap: 2.5rem; }
@@ -984,9 +956,7 @@ img {
     .shot-stats { gap: 0.45rem; }
 }
 
-/* ============================================
-   FOOTER
-   ============================================ */
+/* Footer */
 
 .site-footer {
     background: var(--canvas);
@@ -1002,7 +972,7 @@ img {
 }
 
 
-/* ---------- Brand column ---------- */
+/* Brand column */
 
 .foot-brand .brand { margin-bottom: 1rem; }
 
@@ -1025,7 +995,7 @@ img {
 }
 
 
-/* ---------- Link columns ---------- */
+/*  Link columns */
 
 .foot-head {
     font-size: 0.78rem;
@@ -1052,7 +1022,7 @@ img {
 }
 
 
-/* ---------- Bottom bar ---------- */
+/* Bottom bar */
 
 .footer-bottom {
     border-top: 1px solid var(--line);
@@ -1077,7 +1047,7 @@ img {
 .foot-note { color: #94a3b8; }
 
 
-/* ---------- Footer responsive ---------- */
+/* Footer responsive */
 
 @media (max-width: 1040px) {
     .footer-inner {

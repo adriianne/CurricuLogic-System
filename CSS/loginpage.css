@@ -141,9 +141,7 @@ img { max-width: 100%; }
 }
 
 
-/* ============================================
-   RIGHT PANEL — form
-   ============================================ */
+/* Right Panel — form */
 
 .auth-main {
     display: flex;
@@ -200,7 +198,7 @@ img { max-width: 100%; }
     }
 
 
-/* ---------- Fields ---------- */
+/* Fields */
 
 .field { margin-bottom: 1.1rem; }
 
@@ -262,9 +260,6 @@ img { max-width: 100%; }
 }
 
 .toggle-pw:hover { color: var(--indigo); }
-
-
-/* ---------- Submit + row ---------- */
 
 .btn-submit {
     width: 100%;
@@ -328,8 +323,6 @@ img { max-width: 100%; }
 .link-quiet:hover { text-decoration: underline; }
 
 
-/* ---------- Divider + alt links ---------- */
-
 .rule {
     display: flex;
     align-items: center;
@@ -386,8 +379,6 @@ img { max-width: 100%; }
 }
 
 
-/* ---------- Messages ---------- */
-
 .msg {
     display: none;
     padding: 0.72rem 0.9rem;
@@ -401,9 +392,7 @@ img { max-width: 100%; }
 .msg.success { display: block; background: #ecfdf5; color: #047857; border-left: 3px solid #10b981; }
 
 
-/* ============================================
-   RESPONSIVE
-   ============================================ */
+/* Responsive */
 
 @media (max-width: 1040px) {
     .auth-aside { padding: 2.5rem 2rem; }

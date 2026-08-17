@@ -39,9 +39,7 @@
     }
 
 
-    /* ============================================
-    LEFT PANEL
-    ============================================ */
+    /* Left pannel */
 
     .auth-aside {
         background: var(--canvas);
@@ -142,9 +140,7 @@
     }
 
 
-    /* ============================================
-    RIGHT PANEL
-    ============================================ */
+    /* Right panel */
 
     .auth-main {
         display: flex;
@@ -223,7 +219,7 @@
     }
 
 
-    /* ---------- Headings ---------- */
+    /* Headings */
 
     .auth-title {
         font-size: 1.75rem;
@@ -240,7 +236,7 @@
     }
 
 
-    /* ---------- Fields ---------- */
+    /*  Fields */
 
     .field { margin-bottom: 1.1rem; }
 
@@ -303,8 +299,6 @@
 
     .toggle-pw:hover { color: var(--indigo); }
 
-
-    /* ---------- Submit + row ---------- */
 
     .btn-submit {
         width: 100%;
@@ -378,8 +372,6 @@
     .link-quiet:hover { text-decoration: underline; }
 
 
-    /* ---------- Divider, alt links, note ---------- */
-
     .rule {
         display: flex;
         align-items: center;
@@ -441,8 +433,6 @@
     }
 
 
-    /* ---------- Messages ---------- */
-
     .msg {
         display: none;
         padding: 0.72rem 0.9rem;
@@ -456,9 +446,7 @@
     .msg.success { display: block; background: #ecfdf5; color: #047857; border-left: 3px solid #10b981; }
 
 
-    /* ============================================
-    RESPONSIVE
-    ============================================ */
+    /* Responsive */
 
     @media (max-width: 1040px) {
         .auth-aside { padding: 2.5rem 2rem; }
@@ -499,8 +487,6 @@
             animation-duration: 0.01ms !important;
         }
     }
-
-    /* ---------- Request account CTA ---------- */
 
 .btn-request {
     display: flex;
