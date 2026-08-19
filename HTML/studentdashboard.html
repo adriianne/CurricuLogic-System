@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+
+    <title>Dashboard — CurricuLogic</title>
+
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../CSS/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+
+<div class="shell" id="shell">
+
+    <div class="scrim" id="scrim"></div>
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar">
+
+        <div class="side-brand">
+            <img src="../Images/CurriculogicLogo.png" alt="" width="1024" height="576">
+            <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+        </div>
+
+        <p class="side-role">University Student</p>
+
+        <nav class="side-nav" aria-label="Main">
+            <a href="studentdashboard.html" class="active">
+                <i class="fa-solid fa-gauge" aria-hidden="true"></i> Dashboard
+            </a>
+            <a href="#prospectus">
+                <i class="fa-solid fa-diagram-project" aria-hidden="true"></i> My prospectus
+            </a>
+            <a href="#record">
+                <i class="fa-solid fa-file-lines" aria-hidden="true"></i> Academic record
+            </a>
+            <a href="#requests">
+                <i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Advising requests
+            </a>
+            <a href="#profile">
+                <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
+            </a>
+        </nav>
+
+        <p class="side-foot">
+            University of Cebu<br>College of Computer Studies
+        </p>
+
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <div class="main">
+
+        <header class="topbar">
+            <button class="menu-toggle" id="menu-toggle" aria-label="Open menu">
+                <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
+
+            <span class="topbar-title">Dashboard</span>
+            <span class="topbar-term">1st Sem · AY 2026–2027</span>
+
+            <div class="topbar-user">
+                <span class="avatar" id="avatar">–</span>
+                <span class="user-meta">
+                    <span class="user-name" id="user-name"><span class="skeleton"></span></span>
+                    <span class="user-sub" id="user-sub"></span>
+                </span>
+                <button class="btn-logout" id="logout">
+                    <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+                    <span>Log out</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="content">
+
+            <div class="page-head">
+                <h1 class="page-title" id="greeting">Welcome back</h1>
+                <p class="page-sub">
+                    Your subject eligibility for the coming term, and the reason behind
+                    every subject that is not yet available.
+                </p>
+            </div>
+
+            <!-- status notice, swapped by JS -->
+            <div id="status-notice"></div>
+
+            <!-- summary tiles -->
+            <div class="stats">
+                <div class="stat">
+                    <span class="stat-label">Eligible</span>
+                    <span class="stat-value muted" id="stat-eligible">—</span>
+                    <span class="stat-hint">Subjects you can take</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Not yet available</span>
+                    <span class="stat-value muted" id="stat-locked">—</span>
+                    <span class="stat-hint">Prerequisites unmet</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Completed</span>
+                    <span class="stat-value muted" id="stat-done">—</span>
+                    <span class="stat-hint">Subjects passed</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Suggested load</span>
+                    <span class="stat-value muted" id="stat-units">—</span>
+                    <span class="stat-hint">Within your unit limit</span>
+                </div>
+            </div>
+
+            <!-- eligibility -->
+            <section class="card">
+                <div class="card-head">
+                    <span class="card-title">Subject eligibility</span>
+                    <span class="card-note" id="elig-note"></span>
+                </div>
+                <div class="card-body" id="elig-body">
+                    <div class="empty">
+                        <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                        <h3>Loading</h3>
+                        <p>Checking your account.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- account details -->
+            <section class="card">
+                <div class="card-head">
+                    <span class="card-title">Account details</span>
+                </div>
+                <div class="card-body">
+                    <dl id="details">
+                        <div class="detail">
+                            <dt>Name</dt>
+                            <dd id="d-name"><span class="skeleton"></span></dd>
+                        </div>
+                        <div class="detail">
+                            <dt>Student ID</dt>
+                            <dd class="mono" id="d-sid"><span class="skeleton"></span></dd>
+                        </div>
+                        <div class="detail">
+                            <dt>University email</dt>
+                            <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
+                        </div>
+                        <div class="detail">
+                            <dt>Programme</dt>
+                            <dd id="d-program"><span class="skeleton"></span></dd>
+                        </div>
+                        <div class="detail">
+                            <dt>Year level</dt>
+                            <dd id="d-year"><span class="skeleton"></span></dd>
+                        </div>
+                        <div class="detail">
+                            <dt>Account status</dt>
+                            <dd id="d-status"><span class="skeleton"></span></dd>
+                        </div>
+                        <div class="detail">
+                            <dt>Record verification</dt>
+                            <dd id="d-verified"><span class="skeleton"></span></dd>
+                        </div>
+                    </dl>
+                </div>
+            </section>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/studentdashboard.js"></script>
+</body>
+</html>

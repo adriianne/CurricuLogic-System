@@ -17,7 +17,7 @@ const $ = (id) => document.getElementById(id);
 
 /* Lookup order. `home` targets must exist or login lands on a 404. */
 const ROLES = {
-    university_student:   { label: 'University Student',   table: 'university_student',   home: 'student-dashboard.html' },
+    university_student:   { label: 'University Student',   table: 'university_student',   home: 'studentdashboard.html' },
     faculty_staff:        { label: 'Faculty Staff',        table: 'faculty_staff',        home: 'faculty-dashboard.html' },
     registrar_staff:      { label: 'Registrar Staff',      table: 'registrar_staff',      home: 'registrar-dashboard.html' },
     department_staff:     { label: 'Department Staff',     table: 'department_staff',     home: 'department-dashboard.html' },
