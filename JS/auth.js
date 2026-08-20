@@ -1,30 +1,39 @@
 // auth.js — shared by loginpage, staffloginpage, adminloginpage
 // One handleLogin(). Role comes from the database, never from the page.
+//
+// Requires config.js to be loaded first.
 
 (function () {
 'use strict';
 
 console.log('auth.js loaded');
 
-const SUPABASE_URL = 'https://kibleqlooeaetpbelhve.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYmxlcWxvb2VhZXRwYmVsaHZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzOTM1NjMsImV4cCI6MjEwMTk2OTU2M30.9XPjRgJh3rEuuX-fV0ZrtRiUnahfP8yl8yerzoSsnLk';
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
 
-const supabase = window.supabase
+const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
 
+if (!supabase) console.error('auth.js: Supabase client not created. Is config.js loaded?');
+
 const $ = (id) => document.getElementById(id);
 
-/* Lookup order. `home` targets must exist or login lands on a 404. */
+/* Lookup order. `home` targets must match the actual filenames on disk.
+   Only studentdashboard.html exists so far — the other four will 404
+   until those pages are built. */
 const ROLES = {
-    university_student:   { label: 'University Student',   table: 'university_student',   home: 'student-dashboard.html' },
-    faculty_staff:        { label: 'Faculty Staff',        table: 'faculty_staff',        home: 'faculty-dashboard.html' },
-    registrar_staff:      { label: 'Registrar Staff',      table: 'registrar_staff',      home: 'registrar-dashboard.html' },
-    department_staff:     { label: 'Department Staff',     table: 'department_staff',     home: 'department-dashboard.html' },
-    system_administrator: { label: 'System Administrator', table: 'system_administrator', home: 'admin-dashboard.html' },
+    university_student:   { label: 'University Student',   table: 'university_student',   home: 'studentdashboard.html' },
+    faculty_staff:        { label: 'Faculty Staff',        table: 'faculty_staff',        home: 'facultydashboard.html' },
+    registrar_staff:      { label: 'Registrar Staff',      table: 'registrar_staff',      home: 'registrardashboard.html' },
+    department_staff:     { label: 'Department Staff',     table: 'department_staff',     home: 'departmentdashboard.html' },
+    system_administrator: { label: 'System Administrator', table: 'system_administrator', home: 'admindashboard.html' },
 };
 
-/* Roles that never get a persistent session. */
+/* Roles that never get a persistent session.
+   NOTE: this currently only affects what is written to sessionStorage.
+   Supabase itself still persists the session in localStorage. Either
+   implement a non-persisting client on the admin page, or correct the
+   "session ends when you close the browser" copy on adminloginpage.html. */
 const NO_PERSIST = ['registrar_staff', 'department_staff', 'system_administrator'];
 
 /* One failure message. Never varies by cause. */
@@ -65,9 +74,12 @@ document.querySelectorAll('.toggle-pw').forEach((btn) => {
 
 async function resolveRole(userId) {
     for (const [key, role] of Object.entries(ROLES)) {
+        // Select only columns known to exist. Selecting a missing column
+        // errors the whole query, which used to fall through to a
+        // misleading "Invalid username or password."
         const { data, error } = await supabase
             .from(role.table)
-            .select('id, is_approved')
+            .select('user_id, is_approved')
             .eq('user_id', userId)
             .maybeSingle();
 
