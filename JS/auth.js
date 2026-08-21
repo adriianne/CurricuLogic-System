@@ -1,7 +1,3 @@
-// auth.js — shared by loginpage, staffloginpage, adminloginpage
-// One handleLogin(). Role comes from the database, never from the page.
-//
-// Requires config.js to be loaded first.
 
 (function () {
 'use strict';
@@ -17,10 +13,6 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 if (!supabase) console.error('auth.js: Supabase client not created. Is config.js loaded?');
 
 const $ = (id) => document.getElementById(id);
-
-/* Lookup order. `home` targets must match the actual filenames on disk.
-   Only studentdashboard.html exists so far — the other four will 404
-   until those pages are built. */
 const ROLES = {
     university_student:   { label: 'University Student',   table: 'university_student',   home: 'studentdashboard.html' },
     faculty_staff:        { label: 'Faculty Staff',        table: 'faculty_staff',        home: 'facultydashboard.html' },
@@ -29,18 +21,13 @@ const ROLES = {
     system_administrator: { label: 'System Administrator', table: 'system_administrator', home: 'admindashboard.html' },
 };
 
-/* Roles that never get a persistent session.
-   NOTE: this currently only affects what is written to sessionStorage.
-   Supabase itself still persists the session in localStorage. Either
-   implement a non-persisting client on the admin page, or correct the
-   "session ends when you close the browser" copy on adminloginpage.html. */
 const NO_PERSIST = ['registrar_staff', 'department_staff', 'system_administrator'];
-
-/* One failure message. Never varies by cause. */
 const GENERIC_FAIL = 'Invalid username or password.';
 
+const DEBUG_LOGIN = true;
 
-/* ---------- messages ---------- */
+
+/*  messages  */
 
 function showMsg(text, type = 'error') {
     const box = $('msg');
@@ -55,7 +42,7 @@ function clearMsg() {
 }
 
 
-/* ---------- password visibility ---------- */
+/*  password visibility  */
 
 document.querySelectorAll('.toggle-pw').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -70,30 +57,37 @@ document.querySelectorAll('.toggle-pw').forEach((btn) => {
 });
 
 
-/* ---------- role resolution ---------- */
+/*  role resolution  */
 
 async function resolveRole(userId) {
     for (const [key, role] of Object.entries(ROLES)) {
-        // Select only columns known to exist. Selecting a missing column
-        // errors the whole query, which used to fall through to a
-        // misleading "Invalid username or password."
+
         const { data, error } = await supabase
             .from(role.table)
-            .select('user_id, is_approved')
+            .select('*')
             .eq('user_id', userId)
             .maybeSingle();
 
         if (error) {
-            console.warn('role lookup failed on', role.table, error.message);
+            console.warn(`[resolveRole] ${role.table} errored:`, error.message);
             continue;
         }
-        if (data) return { key, role, approved: data.is_approved !== false };
+
+        if (!data) {
+            if (DEBUG_LOGIN) console.log(`[resolveRole] ${role.table}: no row`);
+            continue;
+        }
+        const approved = data.is_approved === true;
+
+        if (DEBUG_LOGIN) console.log(`[resolveRole] MATCH in ${role.table}, approved:`, approved);
+
+        return { key, role, approved };
     }
     return null;
 }
 
 
-/* ---------- login ---------- */
+/*  login  */
 
 async function handleLogin() {
     clearMsg();
@@ -125,15 +119,24 @@ async function handleLogin() {
         });
 
         if (error || !data?.user) {
-            console.warn('sign-in failed:', error?.message);
+            console.warn('[FAIL: credentials] sign-in rejected:', error?.message);
             return showMsg(GENERIC_FAIL);
         }
+
+        if (DEBUG_LOGIN) console.log('[auth] authenticated. uid =', data.user.id);
 
         const resolved = await resolveRole(data.user.id);
 
         if (!resolved) {
+            // Authenticated, but no actor row matched. Entirely different
+            // from a credential failure, and it should not look the same
+            // while developing.
+            console.warn('[FAIL: no actor row] authenticated uid', data.user.id,
+                         'has no row in any of the five actor tables');
             await supabase.auth.signOut();
-            return showMsg(GENERIC_FAIL);
+            return showMsg(DEBUG_LOGIN
+                ? 'Signed in, but no account record is linked to this user.'
+                : GENERIC_FAIL);
         }
 
         if (!resolved.approved) {
