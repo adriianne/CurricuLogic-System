@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+
+    <title>Faculty dashboard — CurricuLogic</title>
+
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../CSS/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+
+<div class="shell" id="shell">
+
+    <div class="scrim" id="scrim"></div>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+
+        <div class="side-brand">
+            <img src="../Images/CurriculogicLogo.png" alt="" width="1024" height="576">
+            <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+        </div>
+
+        <p class="side-role">Faculty Staff</p>
+
+        <nav class="side-nav" aria-label="Main">
+            <a href="#dashboard" data-view="dashboard">
+                <i class="fa-solid fa-gauge" aria-hidden="true"></i> Dashboard
+            </a>
+            <a href="#students" data-view="students">
+                <i class="fa-solid fa-users" aria-hidden="true"></i> Students
+            </a>
+            <a href="#requests" data-view="requests" class="is-planned">
+                <i class="fa-solid fa-inbox" aria-hidden="true"></i> Advising requests
+                <span class="nav-tag">Planned</span>
+            </a>
+            <a href="#profile" data-view="profile">
+                <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
+            </a>
+        </nav>
+
+        <p class="side-foot">
+            University of Cebu<br>College of Computer Studies
+        </p>
+
+    </aside>
+
+    <!-- MAIN -->
+    <div class="main">
+
+        <header class="topbar">
+            <button class="menu-toggle" id="menu-toggle" aria-label="Open menu">
+                <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
+
+            <span class="topbar-title" id="topbar-title">Dashboard</span>
+            <span class="topbar-term">1st Sem · AY 2026–2027</span>
+
+            <div class="topbar-user">
+                <span class="avatar" id="avatar">–</span>
+                <span class="user-meta">
+                    <span class="user-name" id="user-name"><span class="skeleton"></span></span>
+                    <span class="user-sub" id="user-sub"></span>
+                </span>
+                <button class="btn-logout" id="logout">
+                    <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+                    <span>Log out</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="content">
+
+            <!-- ============ DASHBOARD ============ -->
+            <section class="view" id="view-dashboard">
+
+                <div class="page-head">
+                    <h1 class="page-title" id="greeting">Welcome back</h1>
+                    <p class="page-sub">
+                        Advising overview. Look up a student to see their academic
+                        record and, once the curriculum is encoded, their subject
+                        eligibility with the reasoning behind each result.
+                    </p>
+                </div>
+
+                <div id="status-notice"></div>
+
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Students</span>
+                        <span class="stat-value muted" id="stat-students">—</span>
+                        <span class="stat-hint">Enrolled in BSIT</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Verified records</span>
+                        <span class="stat-value muted" id="stat-verified">—</span>
+                        <span class="stat-hint">Eligibility computable</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Awaiting verification</span>
+                        <span class="stat-value muted" id="stat-pending">—</span>
+                        <span class="stat-hint">Pending with Registrar</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Open requests</span>
+                        <span class="stat-value muted" id="stat-requests">—</span>
+                        <span class="stat-hint">Module planned</span>
+                    </div>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Recently added students</span>
+                        <span class="card-note"><a href="#students" class="link-quiet">View all</a></span>
+                    </div>
+                    <div class="card-body" id="recent-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                            <h3>Loading</h3>
+                            <p>Fetching students.</p>
+                        </div>
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- ============ STUDENTS ============ -->
+            <section class="view" id="view-students" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Students</h1>
+                    <p class="page-sub">
+                        Search by name or student ID. Select a student to view their
+                        academic record.
+                    </p>
+                </div>
+
+                <div class="notice info">
+                    <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                    <div>
+                        <strong>Access is logged</strong>
+                        During the pilot, approved staff may view any student record.
+                        Only open records you have an advising reason to see.
+                    </div>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Student list</span>
+                        <span class="card-note" id="students-count"></span>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="toolbar">
+                            <div class="search-wrap">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input type="search" id="student-search"
+                                       placeholder="Search name or student ID"
+                                       autocomplete="off" aria-label="Search students">
+                            </div>
+                            <select id="student-filter" aria-label="Filter by status">
+                                <option value="all">All students</option>
+                                <option value="verified">Verified records</option>
+                                <option value="pending">Awaiting verification</option>
+                            </select>
+                        </div>
+
+                        <div id="students-body">
+                            <div class="empty">
+                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                <h3>Loading</h3>
+                                <p>Fetching students.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- ============ STUDENT DETAIL ============ -->
+            <section class="view" id="view-student" hidden>
+
+                <div class="page-head">
+                    <a href="#students" class="back-link">
+                        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                        <span>Back to students</span>
+                    </a>
+                    <h1 class="page-title" id="detail-name">Student</h1>
+                    <p class="page-sub" id="detail-sub"></p>
+                </div>
+
+                <div id="detail-notice"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Subject eligibility</span>
+                        <span class="card-note" id="detail-elig-note"></span>
+                    </div>
+                    <div class="card-body" id="detail-elig-body"></div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Academic record</span>
+                        <span class="card-note" id="detail-record-count"></span>
+                    </div>
+                    <div class="card-body" id="detail-record-body"></div>
+                </section>
+
+            </section>
+
+            <!-- ============ ADVISING REQUESTS ============ -->
+            <section class="view" id="view-requests" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Advising requests</h1>
+                    <p class="page-sub">
+                        Questions raised by students about their recommended load.
+                    </p>
+                </div>
+
+                <section class="card">
+                    <div class="card-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-hammer" aria-hidden="true"></i>
+                            <h3>Planned for a later sprint</h3>
+                            <p>
+                                This module is not part of the current build. Once
+                                available, students will be able to query a
+                                recommendation and you will answer it here.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- ============ PROFILE ============ -->
+            <section class="view" id="view-profile" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Profile</h1>
+                    <p class="page-sub">Your account details as held by the system.</p>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Account details</span>
+                    </div>
+                    <div class="card-body">
+                        <dl id="details">
+                            <div class="detail">
+                                <dt>Name</dt>
+                                <dd id="d-name"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Employee ID</dt>
+                                <dd class="mono" id="d-eid"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>University email</dt>
+                                <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Department</dt>
+                                <dd id="d-dept"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Role</dt>
+                                <dd>Faculty Staff</dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Account status</dt>
+                                <dd id="d-status"><span class="skeleton"></span></dd>
+                            </div>
+                        </dl>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Changing your details</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="prose">
+                            Name, employee ID, and department are held in college
+                            records and cannot be edited here. To correct any of them,
+                            contact the System Administrator.
+                        </p>
+                    </div>
+                </section>
+
+            </section>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/config.js"></script>
+<script src="../JS/facultydashboard.js"></script>
+</body>
+</html>
