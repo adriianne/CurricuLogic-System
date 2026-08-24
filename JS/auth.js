@@ -1,37 +1,33 @@
-// auth.js — shared by loginpage, staffloginpage, adminloginpage
-// One handleLogin(). Role comes from the database, never from the page.
 
 (function () {
 'use strict';
 
 console.log('auth.js loaded');
 
-const SUPABASE_URL = 'https://kibleqlooeaetpbelhve.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYmxlcWxvb2VhZXRwYmVsaHZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzOTM1NjMsImV4cCI6MjEwMTk2OTU2M30.9XPjRgJh3rEuuX-fV0ZrtRiUnahfP8yl8yerzoSsnLk';
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
 
-const supabase = window.supabase
+const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
 
-const $ = (id) => document.getElementById(id);
+if (!supabase) console.error('auth.js: Supabase client not created. Is config.js loaded?');
 
-/* Lookup order. `home` targets must exist or login lands on a 404. */
+const $ = (id) => document.getElementById(id);
 const ROLES = {
     university_student:   { label: 'University Student',   table: 'university_student',   home: 'studentdashboard.html' },
-    faculty_staff:        { label: 'Faculty Staff',        table: 'faculty_staff',        home: 'faculty-dashboard.html' },
-    registrar_staff:      { label: 'Registrar Staff',      table: 'registrar_staff',      home: 'registrar-dashboard.html' },
-    department_staff:     { label: 'Department Staff',     table: 'department_staff',     home: 'department-dashboard.html' },
-    system_administrator: { label: 'System Administrator', table: 'system_administrator', home: 'admin-dashboard.html' },
+    faculty_staff:        { label: 'Faculty Staff',        table: 'faculty_staff',        home: 'facultydashboard.html' },
+    registrar_staff:      { label: 'Registrar Staff',      table: 'registrar_staff',      home: 'registrardashboard.html' },
+    department_staff:     { label: 'Department Staff',     table: 'department_staff',     home: 'departmentdashboard.html' },
+    system_administrator: { label: 'System Administrator', table: 'system_administrator', home: 'admindashboard.html' },
 };
 
-/* Roles that never get a persistent session. */
 const NO_PERSIST = ['registrar_staff', 'department_staff', 'system_administrator'];
-
-/* One failure message. Never varies by cause. */
 const GENERIC_FAIL = 'Invalid username or password.';
 
+const DEBUG_LOGIN = true;
 
-/* ---------- messages ---------- */
+
+/*  messages  */
 
 function showMsg(text, type = 'error') {
     const box = $('msg');
@@ -46,7 +42,7 @@ function clearMsg() {
 }
 
 
-/* ---------- password visibility ---------- */
+/*  password visibility  */
 
 document.querySelectorAll('.toggle-pw').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -61,27 +57,37 @@ document.querySelectorAll('.toggle-pw').forEach((btn) => {
 });
 
 
-/* ---------- role resolution ---------- */
+/*  role resolution  */
 
 async function resolveRole(userId) {
     for (const [key, role] of Object.entries(ROLES)) {
+
         const { data, error } = await supabase
             .from(role.table)
-            .select('id, is_approved')
+            .select('*')
             .eq('user_id', userId)
             .maybeSingle();
 
         if (error) {
-            console.warn('role lookup failed on', role.table, error.message);
+            console.warn(`[resolveRole] ${role.table} errored:`, error.message);
             continue;
         }
-        if (data) return { key, role, approved: data.is_approved !== false };
+
+        if (!data) {
+            if (DEBUG_LOGIN) console.log(`[resolveRole] ${role.table}: no row`);
+            continue;
+        }
+        const approved = data.is_approved === true;
+
+        if (DEBUG_LOGIN) console.log(`[resolveRole] MATCH in ${role.table}, approved:`, approved);
+
+        return { key, role, approved };
     }
     return null;
 }
 
 
-/* ---------- login ---------- */
+/*  login  */
 
 async function handleLogin() {
     clearMsg();
@@ -113,15 +119,24 @@ async function handleLogin() {
         });
 
         if (error || !data?.user) {
-            console.warn('sign-in failed:', error?.message);
+            console.warn('[FAIL: credentials] sign-in rejected:', error?.message);
             return showMsg(GENERIC_FAIL);
         }
+
+        if (DEBUG_LOGIN) console.log('[auth] authenticated. uid =', data.user.id);
 
         const resolved = await resolveRole(data.user.id);
 
         if (!resolved) {
+            // Authenticated, but no actor row matched. Entirely different
+            // from a credential failure, and it should not look the same
+            // while developing.
+            console.warn('[FAIL: no actor row] authenticated uid', data.user.id,
+                         'has no row in any of the five actor tables');
             await supabase.auth.signOut();
-            return showMsg(GENERIC_FAIL);
+            return showMsg(DEBUG_LOGIN
+                ? 'Signed in, but no account record is linked to this user.'
+                : GENERIC_FAIL);
         }
 
         if (!resolved.approved) {

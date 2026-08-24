@@ -17,7 +17,7 @@
 
     <div class="scrim" id="scrim"></div>
 
-    <!-- ============ SIDEBAR ============ -->
+    <!-- SIDEBAR -->
     <aside class="sidebar">
 
         <div class="side-brand">
@@ -28,19 +28,20 @@
         <p class="side-role">University Student</p>
 
         <nav class="side-nav" aria-label="Main">
-            <a href="studentdashboard.html" class="active">
+            <a href="#dashboard"  data-view="dashboard">
                 <i class="fa-solid fa-gauge" aria-hidden="true"></i> Dashboard
             </a>
-            <a href="#prospectus">
+            <a href="#prospectus" data-view="prospectus">
                 <i class="fa-solid fa-diagram-project" aria-hidden="true"></i> My prospectus
             </a>
-            <a href="#record">
+            <a href="#record"     data-view="record">
                 <i class="fa-solid fa-file-lines" aria-hidden="true"></i> Academic record
             </a>
-            <a href="#requests">
+            <a href="#requests"   data-view="requests" class="is-planned">
                 <i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Advising requests
+                <span class="nav-tag">Planned</span>
             </a>
-            <a href="#profile">
+            <a href="#profile"    data-view="profile">
                 <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
             </a>
         </nav>
@@ -51,7 +52,7 @@
 
     </aside>
 
-    <!-- ============ MAIN ============ -->
+    <!-- MAIN -->
     <div class="main">
 
         <header class="topbar">
@@ -59,7 +60,7 @@
                 <i class="fa-solid fa-bars" aria-hidden="true"></i>
             </button>
 
-            <span class="topbar-title">Dashboard</span>
+            <span class="topbar-title" id="topbar-title">Dashboard</span>
             <span class="topbar-term">1st Sem · AY 2026–2027</span>
 
             <div class="topbar-user">
@@ -77,93 +78,211 @@
 
         <div class="content">
 
-            <div class="page-head">
-                <h1 class="page-title" id="greeting">Welcome back</h1>
-                <p class="page-sub">
-                    Your subject eligibility for the coming term, and the reason behind
-                    every subject that is not yet available.
-                </p>
-            </div>
+            <!--  DASHBOARD  -->
+            <section class="view" id="view-dashboard">
 
-            <!-- status notice, swapped by JS -->
-            <div id="status-notice"></div>
+                <div class="page-head">
+                    <h1 class="page-title" id="greeting">Welcome back</h1>
+                    <p class="page-sub">
+                        Your subject eligibility for the coming term, and the reason behind
+                        every subject that is not yet available.
+                    </p>
+                </div>
 
-            <!-- summary tiles -->
-            <div class="stats">
-                <div class="stat">
-                    <span class="stat-label">Eligible</span>
-                    <span class="stat-value muted" id="stat-eligible">—</span>
-                    <span class="stat-hint">Subjects you can take</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Not yet available</span>
-                    <span class="stat-value muted" id="stat-locked">—</span>
-                    <span class="stat-hint">Prerequisites unmet</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Completed</span>
-                    <span class="stat-value muted" id="stat-done">—</span>
-                    <span class="stat-hint">Subjects passed</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Suggested load</span>
-                    <span class="stat-value muted" id="stat-units">—</span>
-                    <span class="stat-hint">Within your unit limit</span>
-                </div>
-            </div>
+                <div id="status-notice"></div>
 
-            <!-- eligibility -->
-            <section class="card">
-                <div class="card-head">
-                    <span class="card-title">Subject eligibility</span>
-                    <span class="card-note" id="elig-note"></span>
-                </div>
-                <div class="card-body" id="elig-body">
-                    <div class="empty">
-                        <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                        <h3>Loading</h3>
-                        <p>Checking your account.</p>
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Eligible</span>
+                        <span class="stat-value muted" id="stat-eligible">—</span>
+                        <span class="stat-hint" id="stat-eligible-hint">Subjects you can take</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Not yet available</span>
+                        <span class="stat-value muted" id="stat-locked">—</span>
+                        <span class="stat-hint">Prerequisites unmet</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Completed</span>
+                        <span class="stat-value muted" id="stat-done">—</span>
+                        <span class="stat-hint">Subjects passed</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Units earned</span>
+                        <span class="stat-value muted" id="stat-units">—</span>
+                        <span class="stat-hint">From your academic record</span>
                     </div>
                 </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Subject eligibility</span>
+                        <span class="card-note" id="elig-note"></span>
+                    </div>
+                    <div class="card-body" id="elig-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                            <h3>Loading</h3>
+                            <p>Checking your account.</p>
+                        </div>
+                    </div>
+                </section>
+
             </section>
 
-            <!-- account details -->
-            <section class="card">
-                <div class="card-head">
-                    <span class="card-title">Account details</span>
+            <!--  MY PROSPECTUS  -->
+            <section class="view" id="view-prospectus" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">My prospectus</h1>
+                    <p class="page-sub">
+                        Every subject in the BSIT curriculum, grouped by year and term,
+                        with your status against each one.
+                    </p>
                 </div>
-                <div class="card-body">
-                    <dl id="details">
-                        <div class="detail">
-                            <dt>Name</dt>
-                            <dd id="d-name"><span class="skeleton"></span></dd>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">BS Information Technology</span>
+                        <span class="card-note" id="prospectus-note"></span>
+                    </div>
+                    <div class="card-body" id="prospectus-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                            <h3>Loading</h3>
+                            <p>Fetching the curriculum.</p>
                         </div>
-                        <div class="detail">
-                            <dt>Student ID</dt>
-                            <dd class="mono" id="d-sid"><span class="skeleton"></span></dd>
-                        </div>
-                        <div class="detail">
-                            <dt>University email</dt>
-                            <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
-                        </div>
-                        <div class="detail">
-                            <dt>Programme</dt>
-                            <dd id="d-program"><span class="skeleton"></span></dd>
-                        </div>
-                        <div class="detail">
-                            <dt>Year level</dt>
-                            <dd id="d-year"><span class="skeleton"></span></dd>
-                        </div>
-                        <div class="detail">
-                            <dt>Account status</dt>
-                            <dd id="d-status"><span class="skeleton"></span></dd>
-                        </div>
-                        <div class="detail">
-                            <dt>Record verification</dt>
-                            <dd id="d-verified"><span class="skeleton"></span></dd>
-                        </div>
-                    </dl>
+                    </div>
+                </section>
+
+            </section>
+
+            <!--  ACADEMIC RECORD  -->
+            <section class="view" id="view-record" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Academic record</h1>
+                    <p class="page-sub">
+                        The subjects you have taken. Eligibility is computed from this list,
+                        so accuracy matters — an incorrect entry produces an incorrect
+                        recommendation.
+                    </p>
                 </div>
+
+                <div class="notice info">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <div>
+                        <strong>Records come from the Office of the Registrar</strong>
+                        Your academic record is uploaded and validated by the
+                        university. It cannot be edited here. If something is
+                        missing or incorrect, contact the Registrar so the
+                        correction is made at source.
+                    </div>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Your subjects</span>
+                        <span class="card-note" id="record-count"></span>
+                    </div>
+                    <div class="card-body" id="record-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                            <h3>Loading</h3>
+                            <p>Fetching your record.</p>
+                        </div>
+                    </div>
+                </section>
+
+            </section>
+
+            <!--  ADVISING REQUESTS  -->
+            <section class="view" id="view-requests" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Advising requests</h1>
+                    <p class="page-sub">
+                        Raise a question about your recommended load with Faculty Staff.
+                    </p>
+                </div>
+
+                <section class="card">
+                    <div class="card-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-hammer" aria-hidden="true"></i>
+                            <h3>Planned for a later sprint</h3>
+                            <p>
+                                This module is not part of the current build. Once
+                                available, you will be able to send a query about any
+                                recommendation to Faculty Staff and track the reply here.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+            </section>
+
+            <!--  PROFILE  -->
+            <section class="view" id="view-profile" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Profile</h1>
+                    <p class="page-sub">
+                        Your account details as held by the system.
+                    </p>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Account details</span>
+                    </div>
+                    <div class="card-body">
+                        <dl id="details">
+                            <div class="detail">
+                                <dt>Name</dt>
+                                <dd id="d-name"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Student ID</dt>
+                                <dd class="mono" id="d-sid"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>University email</dt>
+                                <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Programme</dt>
+                                <dd id="d-program"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Year level</dt>
+                                <dd id="d-year"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Account status</dt>
+                                <dd id="d-status"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Record verification</dt>
+                                <dd id="d-verified"><span class="skeleton"></span></dd>
+                            </div>
+                        </dl>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Changing your details</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="prose">
+                            Name, student ID, programme, and year level are held in
+                            university records and cannot be edited here. To correct any
+                            of them, contact the Office of the Registrar.
+                        </p>
+                    </div>
+                </section>
+
             </section>
 
         </div>
@@ -171,6 +290,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/config.js"></script>
 <script src="../JS/studentdashboard.js"></script>
 </body>
 </html>
