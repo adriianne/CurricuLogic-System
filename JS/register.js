@@ -1,17 +1,20 @@
 // register.js — student account request
 // Two paths: new student, or claim an existing record. Both submit as pending.
+//
+// Requires config.js to be loaded first.
 
 (function () {
 'use strict';
 
 console.log('register.js loaded');
 
-const SUPABASE_URL = 'https://kibleqlooeaetpbelhve.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYmxlcWxvb2VhZXRwYmVsaHZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzOTM1NjMsImV4cCI6MjEwMTk2OTU2M30.9XPjRgJh3rEuuX-fV0ZrtRiUnahfP8yl8yerzoSsnLk';
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
 
-const supabase = window.supabase
+const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
+
+if (!supabase) console.error('register.js: Supabase client not created. Is config.js loaded?');
 
 const $ = (id) => document.getElementById(id);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -154,6 +157,10 @@ async function handleRegister() {
         } else {
             row.student_id = $('student-id').value.trim();
         }
+
+        // NOTE: the #program select on the form is not read. Either wire it to
+        // a program_id column here, or remove the control from registerpage.html
+        // so users are not filling in a field that has no effect.
 
         const { error: insertError } = await supabase
             .from('university_student')
