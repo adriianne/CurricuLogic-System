@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+
+    <title>Department dashboard — CurricuLogic</title>
+
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../CSS/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body>
+
+<div class="shell" id="shell">
+
+    <div class="scrim" id="scrim"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+
+        <div class="side-brand">
+            <img src="../Images/CurriculogicLogo.png" alt="" width="1024" height="576">
+            <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+        </div>
+
+        <p class="side-role">Department Staff</p>
+
+        <nav class="side-nav" aria-label="Main">
+            <a href="#dashboard" data-view="dashboard">
+                <i class="fa-solid fa-gauge" aria-hidden="true"></i> Dashboard
+            </a>
+            <a href="#curriculum" data-view="curriculum">
+                <i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Curriculum
+            </a>
+            <a href="#subject" data-view="subject" hidden>
+                <i class="fa-solid fa-book" aria-hidden="true"></i> Subject
+            </a>
+            <a href="#schedule" data-view="schedule">
+                <i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Schedule
+            </a>
+            <a href="#grades" data-view="grades" class="is-planned">
+                <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i> Grade upload
+                <span class="nav-tag">Planned</span>
+            </a>
+            <a href="#profile" data-view="profile">
+                <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
+            </a>
+        </nav>
+
+        <p class="side-foot">
+            University of Cebu<br>College of Computer Studies
+        </p>
+
+    </aside>
+
+    <!-- Main -->
+    <div class="main">
+
+        <header class="topbar">
+            <button class="menu-toggle" id="menu-toggle" aria-label="Open menu">
+                <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
+
+            <span class="topbar-title" id="topbar-title">Dashboard</span>
+            <span class="topbar-term">1st Sem · AY 2026–2027</span>
+
+            <div class="topbar-user">
+                <span class="avatar" id="avatar">–</span>
+                <span class="user-meta">
+                    <span class="user-name" id="user-name"><span class="skeleton"></span></span>
+                    <span class="user-sub" id="user-sub"></span>
+                </span>
+                <button class="btn-logout" id="logout">
+                    <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+                    <span>Log out</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="content">
+
+            <!-- Dashboard -->
+            <section class="view" id="view-dashboard">
+
+                <div class="page-head">
+                    <h1 class="page-title" id="greeting">Welcome back</h1>
+                    <p class="page-sub">
+                        The curriculum you author here is what the recommendation
+                        engine reasons over. Every rule is read at runtime — a change
+                        takes effect immediately.
+                    </p>
+                </div>
+
+                <div id="status-notice"></div>
+
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Subjects</span>
+                        <span class="stat-value muted" id="stat-subjects">—</span>
+                        <span class="stat-hint">In the active prospectus</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Prerequisite rules</span>
+                        <span class="stat-value muted" id="stat-rules">—</span>
+                        <span class="stat-hint">Encoded conditions</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Total units</span>
+                        <span class="stat-value muted" id="stat-units">—</span>
+                        <span class="stat-hint">Across the programme</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Unconstrained</span>
+                        <span class="stat-value muted" id="stat-ungated">—</span>
+                        <span class="stat-hint">Year 2+ with no rule</span>
+                    </div>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Active prospectus</span>
+                        <span class="card-note" id="prospectus-note"></span>
+                    </div>
+                    <div class="card-body" id="prospectus-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                            <h3>Loading</h3>
+                            <p>Fetching the curriculum.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Integrity</span>
+                        <span class="card-note">Checked on load</span>
+                    </div>
+                    <div class="card-body" id="integrity-body"></div>
+                </section>
+
+            </section>
+
+            <!-- Curriculum -->
+            <section class="view" id="view-curriculum" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Curriculum</h1>
+                    <p class="page-sub">
+                        Every subject in the active prospectus. Open a subject to edit
+                        the conditions a student must satisfy before taking it.
+                    </p>
+                </div>
+
+                <div id="curriculum-msg" class="msg" role="status"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Add a subject</span>
+                        <button class="btn-small" id="toggle-add">Show form</button>
+                    </div>
+                    <div class="card-body" id="add-subject-pane" hidden>
+
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="s-code">Course code</label>
+                                <input type="text" id="s-code" placeholder="IT-NEWSUBJ41" autocomplete="off">
+                            </div>
+                            <div class="field">
+                                <label for="s-title">Descriptive title</label>
+                                <input type="text" id="s-title" placeholder="Advanced Topics in IT" autocomplete="off">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="s-units">Units</label>
+                                <input type="number" id="s-units" placeholder="3" min="0.5" step="0.5">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="s-year">Year level</label>
+                                <select id="s-year">
+                                    <option value="1">1st Year</option>
+                                    <option value="2">2nd Year</option>
+                                    <option value="3">3rd Year</option>
+                                    <option value="4">4th Year</option>
+                                </select>
+                            </div>
+                            <div class="field field-sm">
+                                <label for="s-term">Term</label>
+                                <select id="s-term">
+                                    <option value="1">1st Sem</option>
+                                    <option value="2">2nd Sem</option>
+                                    <option value="3">Summer</option>
+                                </select>
+                            </div>
+                            <div class="field field-sm">
+                                <label for="s-elective">Elective</label>
+                                <select id="s-elective">
+                                    <option value="false">No</option>
+                                    <option value="true">Yes</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button class="btn-accent" id="add-subject">
+                            <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                            <span>Add subject</span>
+                        </button>
+
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Subjects</span>
+                        <span class="card-note" id="subjects-count"></span>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="toolbar">
+                            <div class="search-wrap">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input type="search" id="subject-search"
+                                       placeholder="Search code or title"
+                                       autocomplete="off" aria-label="Search subjects">
+                            </div>
+                            <select id="year-filter" aria-label="Filter by year">
+                                <option value="all">All years</option>
+                                <option value="1">1st Year</option>
+                                <option value="2">2nd Year</option>
+                                <option value="3">3rd Year</option>
+                                <option value="4">4th Year</option>
+                            </select>
+                        </div>
+
+                        <div id="subjects-body">
+                            <div class="empty">
+                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                <h3>Loading</h3>
+                                <p>Fetching subjects.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- Subject detail -->
+            <section class="view" id="view-subject" hidden>
+
+                <div class="page-head">
+                    <a href="#curriculum" class="back-link">
+                        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                        <span>Back to curriculum</span>
+                    </a>
+                    <h1 class="page-title" id="detail-code">Subject</h1>
+                    <p class="page-sub" id="detail-sub"></p>
+                </div>
+
+                <div id="rule-msg" class="msg" role="status"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Conditions</span>
+                        <span class="card-note" id="rules-count"></span>
+                    </div>
+                    <div class="card-body" id="rules-body"></div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Add a condition</span>
+                    </div>
+                    <div class="card-body">
+
+                        <p class="review-hint">
+                            Conditions in the same group are alternatives — any one
+                            satisfies it. Different groups must all be satisfied. So
+                            "IT 201 or IT 205, and MATH 102" is two conditions in
+                            group 1 and one in group 2.
+                        </p>
+
+                        <div class="form-grid">
+                            <div class="field field-sm">
+                                <label for="r-type">Condition type</label>
+                                <select id="r-type">
+                                    <option value="prerequisite">Must have passed</option>
+                                    <option value="co_requisite">Taken alongside</option>
+                                    <option value="standing">Year standing</option>
+                                </select>
+                            </div>
+                            <div class="field" id="field-subject">
+                                <label for="r-subject">Required subject</label>
+                                <select id="r-subject"></select>
+                            </div>
+                            <div class="field field-sm" id="field-threshold" hidden>
+                                <label for="r-threshold">Years completed</label>
+                                <select id="r-threshold">
+                                    <option value="1">Through 1st year</option>
+                                    <option value="2">Through 2nd year</option>
+                                    <option value="3">Through 3rd year</option>
+                                </select>
+                            </div>
+                            <div class="field field-sm">
+                                <label for="r-group">Group</label>
+                                <input type="number" id="r-group" value="1" min="1" max="9" step="1">
+                            </div>
+                        </div>
+
+                        <button class="btn-accent" id="add-rule">
+                            <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                            <span>Add condition</span>
+                        </button>
+
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- Schedule -->
+            <section class="view" id="view-schedule" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Schedule</h1>
+                    <p class="page-sub">
+                        Which subjects run this term, and when. A student may be
+                        eligible for a subject that is not offered — the engine will
+                        not recommend one without an offering.
+                    </p>
+                </div>
+
+                <div id="sched-msg" class="msg" role="status"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Term</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="toolbar">
+                            <div class="field field-sm">
+                                <label for="sched-year">Academic year</label>
+                                <input type="number" id="sched-year" min="2000" max="2100" step="1">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="sched-term">Term</label>
+                                <select id="sched-term">
+                                    <option value="1">1st Sem</option>
+                                    <option value="2">2nd Sem</option>
+                                    <option value="3">Summer</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Upload a schedule</span>
+                        <button class="btn-small" id="toggle-upload">Show</button>
+                    </div>
+                    <div class="card-body" id="upload-pane" hidden>
+
+                        <p class="review-hint">
+                            CSV with a header row:
+                            <span class="mono">code,section,days,start_time,end_time,room,instructor,capacity</span>.
+                            Only code and section are required. Rows are checked
+                            against the prospectus before anything is saved.
+                        </p>
+
+                        <div class="upload-row">
+                            <input type="file" id="sched-file" accept=".csv,text/csv">
+                            <button class="btn-small" id="download-template">
+                                <i class="fa-solid fa-download" aria-hidden="true"></i>
+                                Template
+                            </button>
+                        </div>
+
+                        <div id="upload-preview"></div>
+
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Add a single offering</span>
+                        <button class="btn-small" id="toggle-offering">Show</button>
+                    </div>
+                    <div class="card-body" id="offering-pane" hidden>
+
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="o-subject">Subject</label>
+                                <select id="o-subject"></select>
+                            </div>
+                            <div class="field field-sm">
+                                <label for="o-section">Section</label>
+                                <input type="text" id="o-section" placeholder="BSIT-2A" autocomplete="off">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="o-days">Days</label>
+                                <input type="text" id="o-days" placeholder="MWF" autocomplete="off">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="o-start">Start</label>
+                                <input type="time" id="o-start">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="o-end">End</label>
+                                <input type="time" id="o-end">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="o-room">Room</label>
+                                <input type="text" id="o-room" placeholder="LAB 301" autocomplete="off">
+                            </div>
+                            <div class="field">
+                                <label for="o-instructor">Instructor <span class="opt">optional</span></label>
+                                <input type="text" id="o-instructor" autocomplete="off">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="o-capacity">Capacity <span class="opt">optional</span></label>
+                                <input type="number" id="o-capacity" min="1" step="1">
+                            </div>
+                        </div>
+
+                        <button class="btn-accent" id="add-offering">
+                            <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                            <span>Add offering</span>
+                        </button>
+
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Offerings this term</span>
+                        <span class="card-note" id="offerings-count"></span>
+                    </div>
+                    <div class="card-body" id="offerings-body"></div>
+                </section>
+
+            </section>
+
+            <!-- Grade upload -->
+            <section class="view" id="view-grades" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Grade upload</h1>
+                    <p class="page-sub">
+                        Bulk upload of grade files into student academic records.
+                    </p>
+                </div>
+
+                <section class="card">
+                    <div class="card-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-hammer" aria-hidden="true"></i>
+                            <h3>Planned for a later sprint</h3>
+                            <p>
+                                The GradeFile pipeline is designed in the ERD but not
+                                yet built. Academic records are currently seeded
+                                directly for development.
+                            </p>
+                            <p class="dim">
+                                grade_file_row does not exist in the database, so
+                                per-row validation and quarantine are not yet possible.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- Profile -->
+            <section class="view" id="view-profile" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Profile</h1>
+                    <p class="page-sub">Your account details as held by the system.</p>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Account details</span>
+                    </div>
+                    <div class="card-body">
+                        <dl id="details">
+                            <div class="detail">
+                                <dt>Name</dt>
+                                <dd id="d-name"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Employee ID</dt>
+                                <dd class="mono" id="d-eid"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>University email</dt>
+                                <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Department</dt>
+                                <dd id="d-dept"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Role</dt>
+                                <dd>Department Staff</dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Account status</dt>
+                                <dd id="d-status"><span class="skeleton"></span></dd>
+                            </div>
+                        </dl>
+                    </div>
+                </section>
+
+            </section>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/config.js"></script>
+<script src="../JS/departmentdashboard.js"></script>
+</body>
+</html>
