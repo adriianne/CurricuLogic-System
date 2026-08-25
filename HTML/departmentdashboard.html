@@ -10,6 +10,7 @@
     <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
     <link rel="stylesheet" href="../CSS/dashboard.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -440,35 +441,85 @@
 
             </section>
 
-            <!-- Grade upload -->
-            <section class="view" id="view-grades" hidden>
+<!-- GRADE UPLOAD -->
+<section class="view" id="view-grades" hidden>
 
-                <div class="page-head">
-                    <h1 class="page-title">Grade upload</h1>
-                    <p class="page-sub">
-                        Bulk upload of grade files into student academic records.
-                    </p>
+    <div class="page-head">
+        <h1 class="page-title">Grade upload</h1>
+        <p class="page-sub">
+            Upload grades from Excel (.xlsx, .xls) or CSV files.
+        </p>
+    </div>
+
+    <div id="grade-msg" class="msg" role="status"></div>
+
+    <!-- Upload form -->
+    <section class="card">
+        <div class="card-head">
+            <span class="card-title">Upload file</span>
+            <span class="card-note" id="grade-term-label">1st Sem · AY 2026–2027</span>
+        </div>
+        <div class="card-body">
+
+            <!-- Term selector -->
+            <div class="toolbar" style="margin-bottom: var(--s3);">
+                <div class="field" style="margin-bottom:0;">
+                    <label for="g-year" style="font-size:0.78rem; font-weight:600; color:#334155; display:block; margin-bottom:0.35rem;">Academic year</label>
+                    <input type="number" id="g-year" min="2000" max="2100" step="1" style="height:2.6rem; padding:0 0.7rem; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:0.88rem; width:120px;">
                 </div>
+                <div class="field" style="margin-bottom:0;">
+                    <label for="g-term" style="font-size:0.78rem; font-weight:600; color:#334155; display:block; margin-bottom:0.35rem;">Term</label>
+                    <select id="g-term" style="height:2.6rem; padding:0 0.7rem; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:0.88rem; background:#fff; cursor:pointer; width:120px;">
+                        <option value="1">1st Sem</option>
+                        <option value="2">2nd Sem</option>
+                        <option value="3">Summer</option>
+                    </select>
+                </div>
+                <div class="field" style="margin-bottom:0;">
+                    <label for="g-passing" style="font-size:0.78rem; font-weight:600; color:#334155; display:block; margin-bottom:0.35rem;">Passing grade</label>
+                    <select id="g-passing" style="height:2.6rem; padding:0 0.7rem; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:0.88rem; background:#fff; cursor:pointer; width:120px;">
+                        <option value="3.0">3.0</option>
+                        <option value="2.75">2.75</option>
+                        <option value="2.5">2.5</option>
+                        <option value="2.25">2.25</option>
+                        <option value="2.0">2.0</option>
+                    </select>
+                </div>
+            </div>
 
-                <section class="card">
-                    <div class="card-body">
-                        <div class="empty">
-                            <i class="fa-solid fa-hammer" aria-hidden="true"></i>
-                            <h3>Planned for a later sprint</h3>
-                            <p>
-                                The GradeFile pipeline is designed in the ERD but not
-                                yet built. Academic records are currently seeded
-                                directly for development.
-                            </p>
-                            <p class="dim">
-                                grade_file_row does not exist in the database, so
-                                per-row validation and quarantine are not yet possible.
-                            </p>
-                        </div>
-                    </div>
-                </section>
+            <!-- File input row -->
+            <div style="display:flex; gap: var(--s2); align-items:center; flex-wrap:wrap; background: var(--canvas); padding: var(--s3); border-radius:10px; border:1px dashed var(--line);">
+                <div style="flex:1; min-width:200px;">
+                    <label for="grade-file" style="font-size:0.78rem; font-weight:600; color:#334155; display:block; margin-bottom:0.35rem;">Choose file</label>
+                    <input type="file" id="grade-file" accept=".csv,.xlsx,.xls" style="width:100%; padding:0.4rem 0; font-size:0.88rem; font-family:inherit; color:var(--slate);">
+                </div>
+                <button class="btn-small" id="grade-template" style="margin-top:1.2rem; white-space:nowrap;">
+                    <i class="fa-solid fa-download"></i> Template
+                </button>
+            </div>
 
-            </section>
+            <!-- Preview area -->
+            <div id="grade-preview" style="margin-top: var(--s3); display:none;"></div>
+
+        </div>
+    </section>
+
+    <!-- Upload history -->
+    <section class="card">
+        <div class="card-head">
+            <span class="card-title">Upload history</span>
+            <span class="card-note" id="history-count"></span>
+        </div>
+        <div class="card-body" id="history-body">
+            <div class="empty">
+                <i class="fa-solid fa-inbox" style="font-size:1.6rem; color:#cbd5e1; display:block; margin-bottom:var(--s2);"></i>
+                <h3 style="font-size:0.98rem; font-weight:700; color:var(--ink); margin-bottom:0.4rem;">No uploads yet</h3>
+                <p style="font-size:0.86rem; line-height:1.65; color:var(--slate);">Grade uploads will appear here once you upload a file.</p>
+            </div>
+        </div>
+    </section>
+
+</section>
 
             <!-- Profile -->
             <section class="view" id="view-profile" hidden>

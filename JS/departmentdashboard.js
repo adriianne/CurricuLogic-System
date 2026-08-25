@@ -98,6 +98,7 @@ function showView(name, param) {
     if (name === 'curriculum') renderSubjects();
     if (name === 'subject' && param) openSubject(Number(param));
     if (name === 'schedule') initSchedule();
+    if (name === 'grades') initGrades();
 }
 
 function route() {
@@ -452,35 +453,60 @@ $('toggle-add')?.addEventListener('click', () => {
     $('toggle-add').textContent = pane.hidden ? 'Show form' : 'Hide form';
 });
 
+/* Two forms appear in the prospectus: hyphenated professional codes
+   (CC-INTCOM11, IT-OOPROG21) and space-separated GenEd codes (ENGL 100,
+   PE 101, LIT 11). Both must be accepted — a pattern requiring the
+   hyphen rejects twenty of the fifty-eight subjects. */
+const SUBJECT_CODE_PATTERN = /^[A-Z]{2,6}[- ][A-Z0-9]{1,10}$/;
+
 async function addSubject() {
     showMsg('curriculum-msg', '');
 
     const code  = $('s-code').value.trim().toUpperCase();
     const title = $('s-title').value.trim();
     const units = Number($('s-units').value);
+    const year  = Number($('s-year').value);
+    const term  = Number($('s-term').value);
+    const elective = $('s-elective').value === 'true';
 
     if (!code)  return showMsg('curriculum-msg', 'Enter a course code.');
     if (!title) return showMsg('curriculum-msg', 'Enter a descriptive title.');
-    if (!Number.isFinite(units) || units <= 0) return showMsg('curriculum-msg', 'Enter the number of units.');
+    if (!units) return showMsg('curriculum-msg', 'Enter the number of units.');
+
+    if (!SUBJECT_CODE_PATTERN.test(code)) {
+        return showMsg('curriculum-msg',
+            'Code must look like CC-INTCOM11 or ENGL 100 — letters, then a hyphen or space, then the number.');
+    }
+
+    if (units > 6) return showMsg('curriculum-msg', 'Maximum units is 6.');
+    if (units < 0.5) return showMsg('curriculum-msg', 'Minimum units is 0.5.');
+    if (!Number.isInteger(units) && !Number.isInteger(units * 2)) {
+        return showMsg('curriculum-msg', 'Units must be in 0.5 increments (e.g., 1.0, 1.5, 2.0)');
+    }
 
     const clash = SUBJECTS.find(s =>
         s.code.replace(/\s/g, '').toUpperCase() === code.replace(/\s/g, ''));
-    if (clash) return showMsg('curriculum-msg', `${clash.code} already exists in this prospectus.`);
+    if (clash) return showMsg('curriculum-msg', `${clash.code} already exists.`);
+
+    const titleClash = SUBJECTS.find(s => s.title.toLowerCase() === title.toLowerCase());
+    if (titleClash) {
+        return showMsg('curriculum-msg', `"${title}" already exists as a subject title.`);
+    }
 
     const row = {
         prospectus_id: PROSPECTUS.id,
         code, title, units,
-        year_level:  Number($('s-year').value),
-        term:        Number($('s-term').value),
-        is_elective: $('s-elective').value === 'true',
-        created_by:  STAFF_ID,
+        year_level: year,
+        term: term,
+        is_elective: elective,
+        created_by: STAFF_ID,
     };
 
     if (PREVIEW) {
         SUBJECTS.push({ ...row, id: Date.now() });
         afterLoad();
         clearSubjectForm();
-        return showMsg('curriculum-msg', `${code} added (preview only — not saved).`, 'success');
+        return showMsg('curriculum-msg', `${code} added (preview).`, 'success');
     }
 
     const { data, error } = await supabase.from('subject').insert([row]).select().single();
@@ -495,11 +521,14 @@ async function addSubject() {
         a.year_level - b.year_level || a.term - b.term || a.code.localeCompare(b.code));
     afterLoad();
     clearSubjectForm();
-    showMsg('curriculum-msg', `${code} added to the prospectus.`, 'success');
+    showMsg('curriculum-msg', `${code} added.`, 'success');
 }
 
 function clearSubjectForm() {
     ['s-code', 's-title', 's-units'].forEach(id => { $(id).value = ''; });
+    $('s-year').value = '1';
+    $('s-term').value = '1';
+    $('s-elective').value = 'false';
     $('s-code').focus();
 }
 
@@ -1061,6 +1090,520 @@ async function dropOffering(id) {
 $('add-offering')?.addEventListener('click', addOffering);
 
 
+/* ============================================================
+   GRADE UPLOAD – Part A: File Reading + Validation
+   ============================================================ */
+
+let gradeState = {
+    ready: false,
+    rows: [],
+    studentMap: null,
+    subjectMap: null
+};
+
+function initGrades() {
+    if (!gradeState.ready) {
+        const y = $('g-year');
+        if (y && !y.value) y.value = PROSPECTUS?.academic_year ?? new Date().getFullYear();
+        gradeState.ready = true;
+    }
+    loadGradeHistory();
+}
+
+function padStudentId(v) {
+    const raw = String(v ?? '').trim().replace(/[\s-]/g, '');
+    if (!raw) return '';
+    if (/^\d+$/.test(raw) && raw.length < 7) return raw.padStart(7, '0');
+    return raw.toUpperCase();
+}
+
+function normCode(v) {
+    return String(v ?? '').trim().replace(/\s/g, '').toUpperCase();
+}
+
+async function loadStudentMap() {
+    if (gradeState.studentMap) return gradeState.studentMap;
+    if (PREVIEW) {
+        gradeState.studentMap = new Map([
+            ['2401187', { id: 'stu1', student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva' }],
+            ['2401188', { id: 'stu2', student_id: '2401188', first_name: 'Marco', last_name: 'Deveza' }],
+        ]);
+        return gradeState.studentMap;
+    }
+    const { data } = await supabase
+        .from('university_student')
+        .select('id, student_id, first_name, last_name')
+        .not('student_id', 'is', null);
+    gradeState.studentMap = new Map((data ?? []).map(s => [padStudentId(s.student_id), s]));
+    return gradeState.studentMap;
+}
+
+async function loadSubjectMap() {
+    if (gradeState.subjectMap) return gradeState.subjectMap;
+    if (PREVIEW) {
+        gradeState.subjectMap = new Map([
+            ['CC-COMPROG12', { id: 'sub1', code: 'CC-COMPROG12', title: 'Computer Programming 2', units: 3 }],
+            ['SOCIO101', { id: 'sub2', code: 'SOCIO101', title: 'Sociology', units: 3 }],
+            ['RIZAL101', { id: 'sub3', code: 'RIZAL101', title: 'Rizal Course', units: 3 }],
+        ]);
+        return gradeState.subjectMap;
+    }
+    const { data } = await supabase
+        .from('subject')
+        .select('id, code, title, units')
+        .eq('prospectus_id', PROSPECTUS?.id);
+    gradeState.subjectMap = new Map((data ?? []).map(s => [normCode(s.code), s]));
+    return gradeState.subjectMap;
+}
+
+async function readGradeFile(file) {
+    if (typeof XLSX === 'undefined') {
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+            s.onload = resolve;
+            s.onerror = () => reject(new Error('SheetJS failed to load.'));
+            document.head.appendChild(s);
+        });
+    }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', raw: false, cellDates: false });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    if (!ws) throw new Error('File has no readable sheet.');
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false, header: 1 });
+    if (rows.length < 2) throw new Error('File is empty.');
+    const headers = rows[0].map(h => String(h ?? '').trim().toLowerCase().replace(/\s+/g, '_'));
+    const required = ['student_id', 'subject_code'];
+    const missing = required.filter(r => !headers.includes(r));
+    if (missing.length) throw new Error(`Missing columns: ${missing.join(', ')}`);
+    return rows.slice(1)
+        .filter(row => row.some(c => String(c ?? '').trim() !== ''))
+        .map((row, i) => {
+            const obj = { __line: i + 2 };
+            headers.forEach((h, j) => { obj[h] = String(row[j] ?? '').trim(); });
+            return obj;
+        });
+}
+
+$('grade-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    showMsg('grade-msg', '');
+    try {
+        const rows = await readGradeFile(file);
+        await validateGrades(rows, file.name);
+    } catch (err) {
+        showMsg('grade-msg', err.message);
+    }
+});
+
+async function validateGrades(rows, fileName) {
+    const students = await loadStudentMap();
+    const subjects = await loadSubjectMap();
+    const passing = Number($('g-passing').value) || 3.0;
+    const year = Number($('g-year').value);
+    const term = Number($('g-term').value);
+
+    const ok = [], bad = [];
+
+    for (const r of rows) {
+        const rawId = r.student_id;
+        const rawCode = r.subject_code;
+        const rawGrade = r.grade;
+        const rawStatus = (r.status || '').toUpperCase();
+
+        const base = {
+            line: r.__line,
+            raw_student_id: rawId,
+            raw_student_name: r.student_name || '',
+            raw_subject_code: rawCode,
+            raw_grade: rawGrade,
+        };
+
+        if (!rawId) { bad.push({ ...base, why: 'No student ID.' }); continue; }
+        const cleanId = padStudentId(rawId);
+        if (/^\d+$/.test(cleanId) && cleanId.length !== 7) {
+            bad.push({ ...base, why: `"${rawId}" should be 7 digits. Check Excel formatting.` });
+            continue;
+        }
+        const student = students.get(cleanId);
+        if (!student) { bad.push({ ...base, why: `ID "${cleanId}" not registered.` }); continue; }
+
+        if (!rawCode) { bad.push({ ...base, why: 'No subject code.' }); continue; }
+        const cleanCode = normCode(rawCode);
+        const subject = subjects.get(cleanCode);
+        if (!subject) { bad.push({ ...base, why: `"${rawCode}" not in prospectus.` }); continue; }
+
+        let points = null;
+        let status = rawStatus;
+
+        if (rawGrade !== '' && rawGrade !== '-') {
+            points = parseFloat(rawGrade);
+            if (!Number.isFinite(points) || points < 1 || points > 5) {
+                bad.push({ ...base, why: `Grade "${rawGrade}" must be 1.0–5.0.` });
+                continue;
+            }
+            points = Math.round(points * 100) / 100;
+        }
+
+        if (!status) {
+            if (points === null) status = 'ENROLLED';
+            else status = points <= passing ? 'PASSED' : 'FAILED';
+        }
+
+        if (!['PASSED','FAILED','ENROLLED','DROPPED'].includes(status)) {
+            bad.push({ ...base, why: `Status "${status}" invalid.` });
+            continue;
+        }
+
+        const parsedTerm = parseInt(r.term || term);
+        const parsedYear = parseInt(r.academic_year || year);
+        if (isNaN(parsedTerm) || parsedTerm < 1 || parsedTerm > 3) {
+            bad.push({ ...base, why: `Term "${r.term}" must be 1, 2, or 3.` });
+            continue;
+        }
+        if (isNaN(parsedYear) || parsedYear < 2000 || parsedYear > 2100) {
+            bad.push({ ...base, why: `Year "${r.academic_year}" invalid.` });
+            continue;
+        }
+
+        const expected = `${student.first_name} ${student.last_name}`.toLowerCase();
+        const provided = base.raw_student_name.toLowerCase();
+        let nameWarn = null;
+        if (provided && !expected.includes(provided) && !provided.includes(expected)) {
+            nameWarn = `Name mismatch: "${base.raw_student_name}" vs ${student.first_name} ${student.last_name}`;
+        }
+
+        ok.push({
+            ...base,
+            student,
+            subject,
+            grade_points: points,
+            status,
+            term: parsedTerm,
+            academic_year: parsedYear,
+            name_warning: nameWarn,
+        });
+    }
+
+    gradeState.rows = ok;
+    renderGradePreview(ok, bad, fileName, passing);
+}
+
+function renderGradePreview(ok, bad, fileName, passing) {
+    const box = $('grade-preview');
+    if (!box) return;
+
+    box.style.display = 'block';
+
+    const warned = ok.filter(r => r.name_warning);
+    let html = '';
+
+    html += `
+        <div class="notice ${bad.length ? 'pending' : 'info'}">
+            <i class="fa-solid ${bad.length ? 'fa-triangle-exclamation' : 'fa-circle-check'}"></i>
+            <div>
+                <strong>${ok.length} valid${bad.length ? `, ${bad.length} rejected` : ''}</strong>
+                <span class="dim"> · ${fileName} · Passing: ${passing.toFixed(1)}</span>
+            </div>
+        </div>
+    `;
+
+    if (warned.length) {
+        html += `
+            <div class="notice pending">
+                <i class="fa-solid fa-user-check"></i>
+                <div>
+                    <strong>${warned.length} name warning${warned.length > 1 ? 's' : ''}</strong>
+                    ${warned.slice(0, 5).map(r => 
+                        `<span class="dim">Line ${r.line}: ${r.name_warning}</span>`
+                    ).join('<br>')}
+                    ${warned.length > 5 ? `<span class="dim">and ${warned.length - 5} more</span>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    if (bad.length) {
+        html += `
+            <h3 class="group-head" style="margin-top:var(--s3);">Rejected rows</h3>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Line</th><th>Student</th><th>Subject</th><th>Reason</th></tr></thead>
+                    <tbody>${bad.map(b => `
+                        <tr>
+                            <td class="num">${b.line}</td>
+                            <td class="mono">${escapeHtml(b.raw_student_id || '—')}</td>
+                            <td class="mono">${escapeHtml(b.raw_subject_code || '—')}</td>
+                            <td>${escapeHtml(b.why)}</td>
+                        </tr>
+                    `).join('')}</tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    if (ok.length) {
+        html += `
+            <h3 class="group-head" style="margin-top:var(--s3);">Ready to save (${ok.length})</h3>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>Name</th><th>Subject</th><th class="num">Grade</th><th>Status</th></tr></thead>
+                    <tbody>${ok.slice(0, 15).map(r => `
+                        <tr>
+                            <td class="mono">${escapeHtml(r.student.student_id)}</td>
+                            <td>${escapeHtml(r.student.first_name)} ${escapeHtml(r.student.last_name)}</td>
+                            <td class="mono">${escapeHtml(r.subject.code)}</td>
+                            <td class="num">${r.grade_points == null ? '—' : r.grade_points.toFixed(2)}</td>
+                            <td><span class="pill ${r.status === 'PASSED' ? 'ok' : r.status === 'FAILED' ? 'bad' : 'info'}">${r.status}</span></td>
+                        </tr>
+                    `).join('')}</tbody>
+                </table>
+                ${ok.length > 15 ? `<p class="dim">and ${ok.length - 15} more</p>` : ''}
+            </div>
+            <button class="btn-accent" id="commit-grades" style="margin-top:var(--s3);">
+                <i class="fa-solid fa-check"></i> Save ${ok.length} record${ok.length > 1 ? 's' : ''}
+            </button>
+        `;
+    }
+
+    box.innerHTML = html;
+
+    $('commit-grades')?.addEventListener('click', () => {
+        commitGrades(fileName, bad, passing);
+    });
+}
+
+async function commitGrades(fileName, bad, passing) {
+    if (gradeState.rows.length === 0) {
+        return showMsg('grade-msg', 'No valid rows to save.');
+    }
+
+    const btn = $('commit-grades');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+    }
+
+    const year = Number($('g-year').value);
+    const term = Number($('g-term').value);
+
+    if (PREVIEW) {
+        $('grade-preview').innerHTML = `
+            <div class="notice info">
+                <i class="fa-solid fa-check"></i>
+                <div>
+                    <strong>${gradeState.rows.length} records saved (preview)</strong>
+                    <p class="dim">No changes were written to the database.</p>
+                </div>
+            </div>
+        `;
+        $('grade-file').value = '';
+        showMsg('grade-msg', `${gradeState.rows.length} records saved (preview).`, 'success');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> Save records';
+        }
+        gradeState.rows = [];
+        return;
+    }
+
+    try {
+        const { data: file, error: fe } = await supabase
+            .from('grade_file')
+            .insert([{
+                uploaded_by: STAFF_ID,
+                file_name: fileName,
+                status: 'processing',
+                row_count: gradeState.rows.length + bad.length,
+                matched_count: gradeState.rows.length,
+                error_count: bad.length,
+                passing_grade: passing,
+                term: term,
+                academic_year: year,
+            }])
+            .select()
+            .single();
+
+        if (fe) throw new Error('Audit failed: ' + fe.message);
+
+        const rowPayload = [
+            ...gradeState.rows.map(r => ({
+                grade_file_id: file.id,
+                row_number: r.line,
+                raw_student_id: r.raw_student_id,
+                raw_student_name: r.raw_student_name,
+                raw_subject_code: r.raw_subject_code,
+                raw_grade: r.raw_grade,
+                student_id: r.student.id,
+                subject_id: r.subject.id,
+                grade_points: r.grade_points,
+                status: r.status,
+                term: r.term,
+                academic_year: r.academic_year,
+                validation_status: 'matched',
+                error_message: r.name_warning,
+            })),
+            ...bad.map(b => ({
+                grade_file_id: file.id,
+                row_number: b.line,
+                raw_student_id: b.raw_student_id,
+                raw_student_name: b.raw_student_name,
+                raw_subject_code: b.raw_subject_code,
+                raw_grade: b.raw_grade,
+                validation_status: 'rejected',
+                error_message: b.why,
+            })),
+        ];
+
+        await supabase.from('grade_file_row').insert(rowPayload);
+
+        const records = gradeState.rows.map(r => ({
+            student_id: r.student.id,
+            subject_id: r.subject.id,
+            grade: r.raw_grade || null,
+            grade_points: r.grade_points,
+            status: r.status,
+            taken_term: r.term,
+            taken_year: r.academic_year,
+        }));
+
+        const { error: re } = await supabase
+            .from('academic_record')
+            // Keyed on the attempt, not the subject. Re-uploading a
+            // corrected grade for the same term updates that attempt; a
+            // retake in a later term becomes a new row, so the earlier
+            // failure stays on the transcript.
+            .upsert(records, { onConflict: 'student_id,subject_id,taken_term,taken_year' });
+
+        if (re) throw new Error('Record save failed: ' + re.message);
+
+        await supabase
+            .from('grade_file')
+            .update({ status: 'completed', processed_at: new Date().toISOString() })
+            .eq('id', file.id);
+
+        await supabase
+            .from('grade_file_row')
+            .update({ validation_status: 'applied', processed_at: new Date().toISOString() })
+            .eq('grade_file_id', file.id)
+            .eq('validation_status', 'matched');
+
+        gradeState.rows = [];
+        $('grade-preview').innerHTML = '';
+        $('grade-file').value = '';
+
+        await loadGradeHistory();
+
+        let msg = `${records.length} record${records.length === 1 ? '' : 's'} saved.`;
+        if (bad.length > 0) {
+            msg += ` ${bad.length} row${bad.length === 1 ? '' : 's'} rejected.`;
+        }
+        showMsg('grade-msg', msg, 'success');
+
+    } catch (err) {
+        console.error('commit failed:', err);
+        showMsg('grade-msg', err.message || 'An error occurred while saving.');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> Save records';
+        }
+    }
+}
+
+async function loadGradeHistory() {
+    const body = $('history-body');
+    if (!body) return;
+
+    if (PREVIEW) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                <h3>No history in preview</h3>
+                <p>Preview mode does not save upload history.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const { data, error } = await supabase
+        .from('grade_file')
+        .select('file_name, status, row_count, matched_count, error_count, term, academic_year, uploaded_at')
+        .order('uploaded_at', { ascending: false })
+        .limit(50);
+
+    if (error) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <h3>Could not load history</h3>
+                <p>${escapeHtml(error.message)}</p>
+            </div>
+        `;
+        return;
+    }
+
+    const files = data ?? [];
+    $('history-count').textContent = files.length ? `${files.length} uploads` : '';
+
+    if (!files.length) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-inbox"></i>
+                <h3>No uploads yet</h3>
+                <p>Grade uploads will appear here once you upload a file.</p>
+            </div>
+        `;
+        return;
+    }
+
+    body.innerHTML = `
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Term</th>
+                        <th class="num">Rows</th>
+                        <th class="num">Applied</th>
+                        <th class="num">Errors</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${files.map(f => `
+                        <tr>
+                            <td>${escapeHtml(f.file_name)}</td>
+                            <td class="dim">${termLabel(f.term)} ${f.academic_year}</td>
+                            <td class="num">${f.row_count ?? '—'}</td>
+                            <td class="num">${f.matched_count ?? '—'}</td>
+                            <td class="num">${f.error_count ? `<span class="pill bad">${f.error_count}</span>` : '0'}</td>
+                            <td><span class="pill ${f.status === 'completed' ? 'ok' : f.status === 'failed' ? 'bad' : 'waiting'}">${f.status}</span></td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+$('grade-template')?.addEventListener('click', () => {
+    const csv = [
+        'student_id,student_name,subject_code,grade,status,term,academic_year',
+        '2401187,Althea Villanueva,CC-COMPROG12,2.25,,1,2026',
+        '2401187,Althea Villanueva,SOCIO101,1.75,,1,2026',
+        '2401187,Althea Villanueva,RIZAL101,2.00,,1,2026',
+    ].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'grade-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+
 /* boot */
 
 (async function init() {
@@ -1103,7 +1646,6 @@ $('add-offering')?.addEventListener('click', addOffering);
     }
 
     STAFF = staff;
-    // created_by references department_staff.id, not user_id.
     STAFF_ID = staff?.id ?? null;
 
     renderProfile(staff, session.user.email);
