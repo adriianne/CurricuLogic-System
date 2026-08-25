@@ -1,4 +1,3 @@
-
 (function () {
 'use strict';
 
@@ -104,17 +103,38 @@ async function handleLogin() {
         return showMsg('Cannot reach the authentication service.');
     }
 
-    // TODO: ID-number login needs an RPC that maps ID → email before this call.
-    if (!identifier.includes('@')) {
-        return showMsg('Please sign in with your school email address.');
-    }
-
     btn.disabled = true;
     btn.textContent = 'Signing in…';
 
     try {
+        // Students sign in with uc-1234567, staff with EMP-00871. Both
+        // resolve to an email server-side — the lookup is an RPC rather
+        // than a client query, so the actor tables need no anon read
+        // policy, which would expose the whole student list.
+        let email = identifier;
+
+        if (!identifier.includes('@')) {
+            const { data: resolved, error: rpcError } =
+                await supabase.rpc('resolve_login_identifier', { identifier });
+
+            if (rpcError) {
+                console.warn('[FAIL: rpc] identifier lookup failed:', rpcError.message);
+                return showMsg(GENERIC_FAIL);
+            }
+
+            if (!resolved) {
+                // Same message as a wrong password. A distinct one here
+                // would confirm whether an ID exists.
+                if (DEBUG_LOGIN) console.warn('[FAIL: identifier] no account for', identifier);
+                return showMsg(GENERIC_FAIL);
+            }
+
+            email = resolved;
+            if (DEBUG_LOGIN) console.log('[auth] identifier resolved to', email);
+        }
+
         const { data, error } = await supabase.auth.signInWithPassword({
-            email: identifier,
+            email,
             password,
         });
 
