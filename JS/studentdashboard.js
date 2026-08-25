@@ -29,25 +29,25 @@ let RECORDS  = [];
 let PREVIEW  = false;
 
 
-/* ---------- preview mode (development only) ---------- */
+/* preview mode (development only) */
 
 const PREVIEW_HOSTS = ['localhost', '127.0.0.1', ''];
 
 const PREVIEW_STATES = {
     ready: {
         first_name: 'Althea', last_name: 'Villanueva',
-        student_id: '2024-01187', email: 'althea.villanueva@uc.edu.ph',
+        student_id: '2401187', email: 'althea1@gmail.com',
         year_level: 2, is_approved: true, record_verified: true,
     },
     unverified: {
         first_name: 'Althea', last_name: 'Villanueva',
-        student_id: '2024-01187', email: 'althea.villanueva@uc.edu.ph',
+        student_id: '2401187', email: 'althea1@gmail.com',
         year_level: 2, is_approved: true, record_verified: false,
     },
     orphan: null,
 };
 
-const PREVIEW_EMAIL = 'althea.villanueva@uc.edu.ph';
+const PREVIEW_EMAIL = 'althea1@gmail.com';
 
 const PREVIEW_RECORDS = [
     { id: 'p1', subject: { code: 'IT 111', title: 'Introduction to Computing', units: 3 }, subject_code: 'IT 111', subject_title: 'Introduction to Computing', units: 3, grade: '1.75', grade_points: 1.75, status: 'PASSED', taken_term: 1, taken_year: 2024 },
@@ -66,7 +66,7 @@ function previewStudent() {
 }
 
 
-/* ---------- view routing ---------- */
+/* view routing */
 
 const VIEWS = {
     dashboard:  'Dashboard',
@@ -112,7 +112,7 @@ function route() {
 window.addEventListener('hashchange', route);
 
 
-/* ---------- mobile nav ---------- */
+/* mobile nav */
 
 $('menu-toggle')?.addEventListener('click', () => shell.classList.toggle('nav-open'));
 $('scrim')?.addEventListener('click', () => shell.classList.remove('nav-open'));
@@ -122,7 +122,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 
-/* ---------- logout ---------- */
+/* logout */
 
 $('logout')?.addEventListener('click', async () => {
     if (supabase) await supabase.auth.signOut();
@@ -131,7 +131,7 @@ $('logout')?.addEventListener('click', async () => {
 });
 
 
-/* ---------- helpers ---------- */
+/* helpers */
 
 function initials(first, last, fallback) {
     const a = (first || '').trim()[0] || '';
@@ -161,7 +161,7 @@ function escapeHtml(s) {
     ));
 }
 
-/* ---------- profile + dashboard render ---------- */
+/* profile + dashboard render */
 
 function renderProfile(student, authEmail) {
     const first = student?.first_name || '';
@@ -274,7 +274,7 @@ function renderEligibility(student) {
 }
 
 
-/* ---------- academic record ---------- */
+/* academic record */
 
 let recordsLoaded = false;
 
@@ -329,6 +329,13 @@ async function loadRecords(force = false) {
     renderStats();
 }
 
+/* Grades are deliberately not shown to the student. CurricuLogic is an
+   advising tool, not a records portal — the engine needs the grade to
+   decide passed or failed, but a student reading this page needs the
+   outcome, not the number. Showing marks would duplicate the university's
+   own system and invite the question of which one is authoritative.
+   Faculty and Registrar views keep grades: advising and verification are
+   the cases where the actual mark matters. */
 function renderRecords() {
     const body  = $('record-body');
     const count = $('record-count');
@@ -362,7 +369,6 @@ function renderRecords() {
             <td class="mono">${escapeHtml(r.subject_code)}</td>
             <td>${escapeHtml(r.subject_title || '—')}</td>
             <td class="num">${escapeHtml(r.units)}</td>
-            <td class="num">${r.grade_points != null ? escapeHtml(Number(r.grade_points).toFixed(2)) : escapeHtml(r.grade || '—')}</td>
             <td><span class="pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td>
             <td class="dim">${termLabel(r.taken_term)} · ${escapeHtml(r.taken_year || '—')}</td>
         </tr>`).join('');
@@ -375,7 +381,6 @@ function renderRecords() {
                         <th>Code</th>
                         <th>Descriptive title</th>
                         <th class="num">Units</th>
-                        <th class="num">Grade</th>
                         <th>Status</th>
                         <th>Term</th>
                     </tr>
@@ -399,7 +404,7 @@ function statusLabel(s) {
    read-only. See db/013_enforce_erd_record_flow.sql. */
 
 
-/* ---------- prospectus ---------- */
+/* prospectus */
 
 let prospectusLoaded = false;
 
@@ -484,7 +489,7 @@ function renderProspectusEmpty() {
 }
 
 
-/* ---------- boot ---------- */
+/* boot */
 
 function render(student, email) {
     renderProfile(student, email);

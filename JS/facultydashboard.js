@@ -26,7 +26,7 @@ let STUDENTS = [];
 let PREVIEW  = false;
 
 
-/* ---------- preview mode (development only) ---------- */
+/* preview mode (development only) */
 
 const PREVIEW_HOSTS = ['localhost', '127.0.0.1', ''];
 
@@ -37,10 +37,10 @@ const PREVIEW_FACULTY = {
 };
 
 const PREVIEW_STUDENTS = [
-    { id: 's1', user_id: 'u1', first_name: 'Althea',  last_name: 'Villanueva', student_id: '2024-01187', email: 'althea.villanueva@uc.edu.ph',  year_level: 2, is_approved: true,  record_verified: true  },
-    { id: 's2', user_id: 'u2', first_name: 'Marco',   last_name: 'Deveza',     student_id: '2024-01203', email: 'marco.deveza@uc.edu.ph',      year_level: 2, is_approved: true,  record_verified: true  },
-    { id: 's3', user_id: 'u3', first_name: 'Janine',  last_name: 'Abella',     student_id: '2023-00845', email: 'janine.abella@uc.edu.ph',     year_level: 3, is_approved: true,  record_verified: false },
-    { id: 's4', user_id: 'u4', first_name: 'Paulo',   last_name: 'Cabahug',    student_id: '2025-01562', email: 'paulo.cabahug@uc.edu.ph',     year_level: 1, is_approved: true,  record_verified: false },
+    { id: 's1', user_id: 'u1', first_name: 'Althea',  last_name: 'Villanueva', student_id: '2401187', email: 'althea1@gmail.com',  year_level: 2, is_approved: true,  record_verified: true  },
+    { id: 's2', user_id: 'u2', first_name: 'Marco',   last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph',      year_level: 2, is_approved: true,  record_verified: true  },
+    { id: 's3', user_id: 'u3', first_name: 'Janine',  last_name: 'Abella',     student_id: '2300845', email: 'janine.abella@uc.edu.ph',     year_level: 3, is_approved: true,  record_verified: false },
+    { id: 's4', user_id: 'u4', first_name: 'Paulo',   last_name: 'Cabahug',    student_id: '2501562', email: 'paulo.cabahug@uc.edu.ph',     year_level: 1, is_approved: true,  record_verified: false },
 ];
 
 const PREVIEW_RECORDS = {
@@ -61,7 +61,7 @@ function previewRequested() {
 }
 
 
-/* ---------- view routing ---------- */
+/* view routing */
 
 const VIEWS = {
     dashboard: 'Dashboard',
@@ -110,7 +110,7 @@ function route() {
 window.addEventListener('hashchange', route);
 
 
-/* ---------- mobile nav ---------- */
+/* mobile nav */
 
 $('menu-toggle')?.addEventListener('click', () => shell.classList.toggle('nav-open'));
 $('scrim')?.addEventListener('click', () => shell.classList.remove('nav-open'));
@@ -120,7 +120,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 
-/* ---------- logout ---------- */
+/* logout */
 
 $('logout')?.addEventListener('click', async () => {
     if (supabase) await supabase.auth.signOut();
@@ -129,7 +129,7 @@ $('logout')?.addEventListener('click', async () => {
 });
 
 
-/* ---------- helpers ---------- */
+/* helpers */
 
 function initials(first, last, fallback) {
     const a = (first || '').trim()[0] || '';
@@ -172,7 +172,7 @@ function fullName(p) {
 }
 
 
-/* ---------- profile ---------- */
+/* profile */
 
 function renderProfile(staff, authEmail) {
     const full  = fullName(staff);
@@ -217,7 +217,7 @@ function renderNotice(staff) {
 }
 
 
-/* ---------- students ---------- */
+/* students */
 
 let studentsLoaded = false;
 
@@ -355,7 +355,7 @@ $('student-search')?.addEventListener('input', renderStudents);
 $('student-filter')?.addEventListener('change', renderStudents);
 
 
-/* ---------- dashboard tiles ---------- */
+/* dashboard tiles */
 
 function renderStats() {
     const verified = STUDENTS.filter(s => s.record_verified).length;
@@ -408,7 +408,7 @@ function renderRecent() {
 }
 
 
-/* ---------- student detail ---------- */
+/* student detail */
 
 async function openStudent(studentRowId) {
     const userId = studentRowId;   // university_student.id, not user_id
@@ -559,7 +559,7 @@ async function loadStudentRecord(userId) {
 }
 
 
-/* ---------- boot ---------- */
+/* boot */
 
 (async function init() {
 

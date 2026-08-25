@@ -36,10 +36,10 @@ const PREVIEW_REGISTRAR = {
 };
 
 const PREVIEW_STUDENTS = [
-    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '2024-01187', email: 'althea.villanueva@uc.edu.ph', year_level: 2, is_approved: true,  record_verified: true,  approval_status: 'approved', declared_path: 'existing', created_at: '2026-08-11T02:00:00Z' },
-    { id: 's2', first_name: 'Marco',  last_name: 'Deveza',     student_id: '2024-01203', email: 'marco.deveza@uc.edu.ph',     year_level: 2, is_approved: false, record_verified: false, approval_status: 'pending',  declared_path: 'existing', created_at: '2026-08-20T09:15:00Z' },
+    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', email: 'althea1@gmail.com', year_level: 2, is_approved: true,  record_verified: true,  approval_status: 'approved', declared_path: 'existing', created_at: '2026-08-11T02:00:00Z' },
+    { id: 's2', first_name: 'Marco',  last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph',     year_level: 2, is_approved: false, record_verified: false, approval_status: 'pending',  declared_path: 'existing', created_at: '2026-08-20T09:15:00Z' },
     { id: 's3', first_name: 'Janine', last_name: 'Abella',     student_id: null,          email: 'janine.abella@uc.edu.ph',    year_level: null, is_approved: false, record_verified: false, approval_status: 'pending', declared_path: 'new',     created_at: '2026-08-22T14:40:00Z' },
-    { id: 's4', first_name: 'Paulo',  last_name: 'Cabahug',    student_id: '9999-99999', email: 'paulo.cabahug@uc.edu.ph',    year_level: null, is_approved: false, record_verified: false, approval_status: 'declined', declared_path: 'existing', created_at: '2026-08-18T11:05:00Z', review_note: 'Student ID not found in the official list.' },
+    { id: 's4', first_name: 'Paulo',  last_name: 'Cabahug',    student_id: '9999999', email: 'paulo.cabahug@uc.edu.ph',    year_level: null, is_approved: false, record_verified: false, approval_status: 'declined', declared_path: 'existing', created_at: '2026-08-18T11:05:00Z', review_note: 'Student ID not found in the official list.' },
 ];
 
 const PREVIEW_RECORDS = {
