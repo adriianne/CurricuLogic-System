@@ -1,0 +1,28 @@
+code,title,units,elective_type,prerequisite_code
+ELPHP1,PHP Programming Module 1,3,IT,IT-IMDBSYS31
+ELPHP2,PHP Programming Module 2,3,IT,ELPHP1
+ELDNET1,.NET Programming Module 1,3,IT,IT-PLATECH22
+ELDNET2,.NET Programming Module 2,3,IT,ELDNET1
+ELDROID1,ANDROID Programming Module 1,3,IT,CC-APPSDEV22
+ELDROID2,ANDROID Programming Module 2,3,IT,ELDROID1
+ELCCNA3,CISCO: Scaling Networks,3,IT,IT-NETWORK31
+ELCCNA4,CISCO: Connecting Networks,3,IT,ELCCNA3
+ELEMSYS,Embedded Systems & IoT,3,IT,IT-INTPROG32
+ELAI,Fundamentals of Artificial Intelligence,3,IT,IT-IMDBSYS31
+ELASI,ASI-UC Jumpstart Program,3,IT,***
+ELBIZAN1,Business Analytics Module 1,3,IT,IT-IMDBSYS31
+ELBIZAN2,Business Analytics Module 2,3,IT,ELBIZAN1
+ELIBM1,IBM-UC Integration Course 1,3,IT,**
+ELIBM2,IBM-UC Integration Course 2,3,IT,ELIBM1
+ELIBM3,IBM-UC Integration Course 3,3,IT,ELIBM2
+ELIBM4,IBM-UC Integration Course 4,3,IT,ELIBM3
+FREDTHINK,Principles of Design Thinking,3,FREE,CC-HCI31
+FREFORLAN,Foreign Language,3,FREE,**
+FREIP,Introduction to Intellectual Property,3,FREE,**
+FRETRNDS,Emerging Technologies in ICT,3,FREE,**
+FREPM,Introduction to Project Management,3,FREE,IT-SAD21
+FRECIS,Cloud Infrastructure Services,3,FREE,IT-IMDBSYS31
+FREISM,Information Storage Management,3,FREE,IT-INFOSEC32
+FREDX,Introduction to Digital Transformation,3,FREE,FREDTHINK
+FRELEAN,Lean Startup Methodology,3,FREE,CC-TECHNO32
+FREKYI,Know-Your-Industry/Corporate Readiness,3,FREE,**
