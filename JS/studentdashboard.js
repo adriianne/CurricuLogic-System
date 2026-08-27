@@ -28,6 +28,17 @@ let STUDENT  = null;
 let RECORDS  = [];
 let PREVIEW  = false;
 
+/* Knowledge base and the engine's verdict, loaded once per session. */
+let KB     = null;
+let RESULT = null;
+
+/* The term the recommendation is for. Hardcoded until a system_config
+   table or a term selector exists — the topbar shows the same value, and
+   the two must not drift. */
+const CURRENT_TERM = 1;
+const CURRENT_YEAR = 2026;
+const MAX_UNITS    = 24;
+
 
 /* preview mode (development only) */
 
@@ -233,11 +244,73 @@ function renderStats() {
     setText('stat-done',  String(passed.length), 'stat-value');
     setText('stat-units', String(units),         'stat-value');
 
-    setText('stat-eligible', '—', 'stat-value muted');
-    setText('stat-locked',   '—', 'stat-value muted');
-
     const hint = $('stat-eligible-hint');
-    if (hint) hint.textContent = 'Awaiting curriculum data';
+
+    if (!RESULT) {
+        setText('stat-eligible', '—', 'stat-value muted');
+        setText('stat-locked',   '—', 'stat-value muted');
+        if (hint) hint.textContent = 'Awaiting curriculum data';
+        return;
+    }
+
+    setText('stat-eligible', String(RESULT.eligible.length), 'stat-value');
+    setText('stat-locked',   String(RESULT.locked.length),   'stat-value');
+    if (hint) hint.textContent = `${RESULT.recommended.length} suggested this term`;
+}
+
+/* eligibility */
+
+async function loadKnowledgeBase() {
+    if (KB) return KB;
+
+    if (PREVIEW) {
+        KB = { subjects: [], rules: [], offerings: [] };
+        return KB;
+    }
+
+    const [subs, rules, offerings] = await Promise.all([
+        supabase.from('subject')
+            .select('id, code, title, units, year_level, term, is_elective'),
+        supabase.from('prerequisite')
+            .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
+        supabase.from('subject_offering')
+            .select('subject_id, section, schedule_days, start_time, end_time, room')
+            .eq('academic_year', CURRENT_YEAR)
+            .eq('term', CURRENT_TERM),
+    ]);
+
+    if (subs.error)  console.warn('subject load failed:', subs.error.message);
+    if (rules.error) console.warn('rule load failed:', rules.error.message);
+
+    KB = {
+        subjects:  subs.data  ?? [],
+        rules:     rules.data ?? [],
+        /* An empty offering table means nothing has been scheduled yet.
+           Treating that as "nothing is available" would show a student an
+           empty recommendation for a reason they cannot see, so the engine
+           is told to ignore availability until a schedule exists. */
+        offerings: offerings.data ?? [],
+    };
+
+    return KB;
+}
+
+async function runAssessment(student) {
+    if (!student || !student.record_verified) return null;
+    if (typeof CurricuLogicEngine === 'undefined') {
+        console.error('engine not loaded — check the script tag order');
+        return null;
+    }
+
+    const kb = await loadKnowledgeBase();
+    if (kb.subjects.length === 0) return null;
+
+    return CurricuLogicEngine.assess(
+        { id: STUDENT_ROW_ID, year_level: student.year_level },
+        RECORDS,
+        kb,
+        { maxUnits: MAX_UNITS, respectOfferings: kb.offerings.length > 0 },
+    );
 }
 
 function renderEligibility(student) {
@@ -252,25 +325,166 @@ function renderEligibility(student) {
                 <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i>
                 <h3>Nothing to show yet</h3>
                 <p>
-                    Once your academic record is verified, this panel will list every
-                    subject in your prospectus with its eligibility status and the
-                    specific requirement behind anything you cannot take yet.
+                    Once the Office of the Registrar verifies your record, this
+                    panel will list what you can take and the specific requirement
+                    behind anything you cannot.
                 </p>
             </div>`;
         return;
     }
 
-    if (note) note.textContent = 'Awaiting curriculum data';
+    if (!RESULT) {
+        if (note) note.textContent = 'Awaiting curriculum data';
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
+                <h3>Curriculum not yet available</h3>
+                <p>
+                    The prospectus has not been published yet. Subject eligibility
+                    will appear here once it is.
+                </p>
+            </div>`;
+        return;
+    }
+
+    const { recommended, eligible, locked, recommendedUnits, maxUnits } = RESULT;
+    const alsoEligible = eligible.filter(e => !recommended.some(r => r.subject.id === e.subject.id));
+
+    if (note) note.textContent = `${recommendedUnits} of ${maxUnits} units`;
+
     body.innerHTML = `
-        <div class="empty">
-            <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
-            <h3>Curriculum not yet available</h3>
-            <p>
-                Your record is verified, but the BSIT prospectus has not been
-                encoded in the system yet. Subject eligibility will appear here
-                once the curriculum is published.
-            </p>
+        ${renderRecommended(recommended, recommendedUnits, maxUnits)}
+        ${renderAlsoEligible(alsoEligible)}
+        ${renderLocked(locked)}`;
+
+    bindWhyToggles(body);
+}
+
+function renderRecommended(list, units, maxUnits) {
+    if (list.length === 0) {
+        return `
+            <div class="empty">
+                <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                <h3>Nothing to recommend</h3>
+                <p>
+                    There is no subject you can take right now. Anything still
+                    outstanding is listed below with the requirement behind it.
+                </p>
+            </div>`;
+    }
+
+    return `
+        <h3 class="group-head">Suggested load — ${units} of ${maxUnits} units</h3>
+        <div class="subject-list">
+            ${list.map(e => `
+                <article class="subject-card is-recommended">
+                    <div class="subject-head">
+                        <span class="subject-code mono">${escapeHtml(e.subject.code)}</span>
+                        <span class="subject-units">${escapeHtml(e.subject.units)} units</span>
+                    </div>
+                    <h4 class="subject-title">${escapeHtml(e.subject.title)}</h4>
+                    <p class="subject-reason">
+                        <i class="fa-solid fa-lightbulb" aria-hidden="true"></i>
+                        ${escapeHtml(e.reason)}
+                    </p>
+                    ${renderSections(e.sections)}
+                </article>`).join('')}
         </div>`;
+}
+
+function renderAlsoEligible(list) {
+    if (list.length === 0) return '';
+
+    return `
+        <h3 class="group-head">Also open to you</h3>
+        <p class="prose">
+            You meet the requirements for these, but they did not fit within the
+            unit limit or are not scheduled this term.
+        </p>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th>Code</th><th>Descriptive title</th>
+                           <th class="num">Units</th><th>Scheduled</th></tr></thead>
+                <tbody>${list.map(e => `
+                    <tr>
+                        <td class="mono">${escapeHtml(e.subject.code)}</td>
+                        <td>${escapeHtml(e.subject.title)}</td>
+                        <td class="num">${escapeHtml(e.subject.units)}</td>
+                        <td>${e.offered
+                            ? '<span class="pill ok">Offered</span>'
+                            : '<span class="pill waiting">Not this term</span>'}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+/* Every locked subject carries its reasoning. A refusal without a reason
+   is the situation this system replaces — a student turned away at the
+   counter with no idea what to do about it. */
+function renderLocked(list) {
+    if (list.length === 0) return '';
+
+    const sorted = [...list].sort((a, b) =>
+        (a.termsAway ?? 99) - (b.termsAway ?? 99) ||
+        a.subject.year_level - b.subject.year_level);
+
+    return `
+        <h3 class="group-head">Not yet available — ${sorted.length}</h3>
+        <div class="subject-list">
+            ${sorted.map((e, i) => `
+                <article class="subject-card is-locked">
+                    <div class="subject-head">
+                        <span class="subject-code mono">${escapeHtml(e.subject.code)}</span>
+                        <span class="subject-units">${escapeHtml(e.subject.units)} units</span>
+                        ${e.termsAway
+                            ? `<span class="pill info">${e.termsAway} term${e.termsAway === 1 ? '' : 's'} away</span>`
+                            : ''}
+                    </div>
+                    <h4 class="subject-title">${escapeHtml(e.subject.title)}</h4>
+                    <button class="why-toggle" data-why="${i}" aria-expanded="false">
+                        <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+                        Why is this locked?
+                    </button>
+                    <div class="why-body" id="why-${i}" hidden>
+                        <ul class="why-list">
+                            ${CurricuLogicEngine.explain(e).map(line => {
+                                const met = line.startsWith('\u2713');
+                                return `<li class="why-line ${met ? 'is-met' : 'is-unmet'}">
+                                    ${escapeHtml(line.slice(2))}
+                                </li>`;
+                            }).join('')}
+                        </ul>
+                    </div>
+                </article>`).join('')}
+        </div>`;
+}
+
+function renderSections(sections) {
+    if (!sections || sections.length === 0) return '';
+
+    return `
+        <div class="subject-sections">
+            ${sections.map(o => `
+                <span class="section-chip">
+                    <strong>${escapeHtml(o.section)}</strong>
+                    ${escapeHtml(o.schedule_days || '')}
+                    ${o.start_time ? escapeHtml(o.start_time.slice(0, 5)) : ''}
+                    ${o.room ? '· ' + escapeHtml(o.room) : ''}
+                </span>`).join('')}
+        </div>`;
+}
+
+function bindWhyToggles(scope) {
+    scope.querySelectorAll('[data-why]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const panel = $(`why-${btn.dataset.why}`);
+            const open = btn.getAttribute('aria-expanded') === 'true';
+            btn.setAttribute('aria-expanded', String(!open));
+            btn.classList.toggle('is-open', !open);
+            panel.hidden = open;
+        });
+    });
 }
 
 
@@ -543,11 +757,16 @@ function render(student, email) {
     STUDENT_ROW_ID = student?.id ?? null;
     render(student, session.user.email);
 
-    // Load the record at boot regardless of the active view — the dashboard
-    // stat tiles are derived from it.
+    // The record loads at boot regardless of the active view — the stat
+    // tiles and the assessment both derive from it.
     await loadRecords();
+
+    RESULT = await runAssessment(student);
+
+    renderStats();
+    renderEligibility(student);
 
     route();
 })();
 
-})();   
+})();
