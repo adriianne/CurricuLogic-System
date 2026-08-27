@@ -17,7 +17,7 @@
 
     <div class="scrim" id="scrim"></div>
 
-    <!-- SIDEBAR -->
+    <!-- Sidebar -->
     <aside class="sidebar">
 
         <div class="side-brand">
@@ -52,7 +52,7 @@
 
     </aside>
 
-    <!-- MAIN -->
+    <!-- Main -->
     <div class="main">
 
         <header class="topbar">
@@ -78,14 +78,14 @@
 
         <div class="content">
 
-            <!--  DASHBOARD  -->
+            <!-- Dashboard -->
             <section class="view" id="view-dashboard">
 
                 <div class="page-head">
                     <h1 class="page-title" id="greeting">Welcome back</h1>
                     <p class="page-sub">
-                        Your subject eligibility for the coming term, and the reason behind
-                        every subject that is not yet available.
+                        What you can take this term, why it is suggested, and the
+                        requirement behind anything you cannot take yet.
                     </p>
                 </div>
 
@@ -116,7 +116,7 @@
 
                 <section class="card">
                     <div class="card-head">
-                        <span class="card-title">Subject eligibility</span>
+                        <span class="card-title">Your term</span>
                         <span class="card-note" id="elig-note"></span>
                     </div>
                     <div class="card-body" id="elig-body">
@@ -130,7 +130,7 @@
 
             </section>
 
-            <!--  MY PROSPECTUS  -->
+            <!-- My prospectus -->
             <section class="view" id="view-prospectus" hidden>
 
                 <div class="page-head">
@@ -157,26 +157,25 @@
 
             </section>
 
-            <!--  ACADEMIC RECORD  -->
+            <!-- Academic record -->
             <section class="view" id="view-record" hidden>
 
                 <div class="page-head">
                     <h1 class="page-title">Academic record</h1>
                     <p class="page-sub">
-                        The subjects you have taken. Eligibility is computed from this list,
-                        so accuracy matters — an incorrect entry produces an incorrect
-                        recommendation.
+                        The subjects you have taken and whether you passed them.
+                        Eligibility is computed from this list.
                     </p>
                 </div>
 
                 <div class="notice info">
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                     <div>
-                        <strong>Records come from the Office of the Registrar</strong>
-                        Your academic record is uploaded and validated by the
-                        university. It cannot be edited here. If something is
-                        missing or incorrect, contact the Registrar so the
-                        correction is made at source.
+                        <strong>Records come from the university</strong>
+                        This list is uploaded and validated by the university and
+                        cannot be edited here. For your grades, or to correct
+                        anything missing or wrong, use your student portal or
+                        contact the Office of the Registrar.
                     </div>
                 </div>
 
@@ -196,7 +195,7 @@
 
             </section>
 
-            <!--  ADVISING REQUESTS  -->
+            <!-- Advising requests -->
             <section class="view" id="view-requests" hidden>
 
                 <div class="page-head">
@@ -222,7 +221,7 @@
 
             </section>
 
-            <!--  PROFILE  -->
+            <!-- Profile -->
             <section class="view" id="view-profile" hidden>
 
                 <div class="page-head">
@@ -291,6 +290,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../JS/config.js"></script>
+<script src="../engine/engine.js"></script>
 <script src="../JS/studentdashboard.js"></script>
 </body>
 </html>
