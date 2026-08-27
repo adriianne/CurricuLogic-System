@@ -892,6 +892,247 @@ ul { list-style: none; }
 }
 
 
+/* Rule group editor */
+
+.rule-group {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: var(--s2) var(--s3);
+    background: #fff;
+}
+
+.rule-group-label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: #94a3b8;
+    margin-bottom: 0.45rem;
+}
+
+.rule-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s2);
+    padding: 0.4rem 0;
+    font-size: 0.87rem;
+    line-height: 1.5;
+    border-bottom: 1px solid var(--line);
+}
+
+.rule-row:last-child { border-bottom: none; }
+
+.rule-row .mono,
+.rule-row strong {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-weight: 600;
+}
+
+.rule-join {
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--indigo);
+    margin: 0.5rem 0;
+}
+
+
+/* Subject cards */
+
+.subject-list {
+    display: grid;
+    gap: var(--s2);
+    margin-bottom: var(--s3);
+}
+
+.subject-card {
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    padding: var(--s2) var(--s3);
+    background: #fff;
+}
+
+.subject-card.is-recommended { border-left: 3px solid var(--indigo); }
+.subject-card.is-locked      { border-left: 3px solid #fde68a; background: var(--canvas); }
+
+.subject-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.25rem;
+}
+
+.subject-code {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.subject-units {
+    margin-left: auto;
+    font-size: 0.76rem;
+    color: var(--slate);
+}
+
+.subject-head .pill { margin-left: 0; }
+
+.subject-title {
+    font-size: 0.94rem;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-bottom: 0.4rem;
+}
+
+.subject-reason {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    font-size: 0.83rem;
+    line-height: 1.6;
+    color: var(--slate);
+}
+
+.subject-reason i { color: var(--indigo); margin-top: 0.2rem; font-size: 0.78rem; }
+
+.subject-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: var(--s2);
+}
+
+.section-chip {
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--canvas);
+    font-size: 0.74rem;
+    color: var(--slate);
+}
+
+.section-chip strong { color: var(--ink); }
+
+
+/* Why is this locked */
+
+.why-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.35rem;
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: inherit;
+    font-size: 0.81rem;
+    font-weight: 600;
+    color: var(--indigo);
+    cursor: pointer;
+}
+
+.why-toggle i { font-size: 0.68rem; transition: transform 0.2s; }
+.why-toggle.is-open i { transform: rotate(90deg); }
+.why-toggle:hover { text-decoration: underline; }
+
+.why-body {
+    margin-top: var(--s2);
+    padding: var(--s2) 0.9rem;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+.why-list { display: grid; gap: 0.4rem; }
+
+.why-line {
+    position: relative;
+    padding-left: 1.3rem;
+    font-size: 0.83rem;
+    line-height: 1.6;
+    color: var(--slate);
+}
+
+.why-line::before {
+    position: absolute;
+    left: 0;
+    font-weight: 700;
+}
+
+.why-line.is-met::before   { content: '\\2713'; color: var(--green); }
+.why-line.is-unmet::before { content: '\\2717'; color: #b91c1c; }
+.why-line.is-unmet         { color: var(--ink); }
+
+
+/* Template builder */
+
+.template-builder {
+    padding: var(--s3);
+    margin-bottom: var(--s3);
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+
+.template-builder .form-grid { margin-bottom: var(--s2); }
+
+.template-builder .btn-small {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 2.4rem;
+    padding: 0 0.95rem;
+}
+
+
+/* File upload row */
+
+.upload-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    flex-wrap: wrap;
+    margin-bottom: var(--s2);
+}
+
+.upload-row input[type="file"] {
+    flex: 1;
+    min-width: 14rem;
+    padding: 0.55rem 0.7rem;
+    border: 1.5px dashed var(--line);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.83rem;
+    color: var(--slate);
+    background: var(--canvas);
+    cursor: pointer;
+}
+
+.upload-row input[type="file"]:hover { border-color: #c7d2fe; }
+
+.upload-row input[type="file"]::file-selector-button {
+    margin-right: 0.7rem;
+    padding: 0.35rem 0.8rem;
+    border: 1.5px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ink);
+    cursor: pointer;
+}
+
+.review-hint .mono {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 0.79rem;
+    color: var(--ink);
+}
+
+
 /* Preview mode
    Development only. Applied by studentdashboard.js when ?preview= is used
    on localhost. The banner must be unmissable so mock data is never
