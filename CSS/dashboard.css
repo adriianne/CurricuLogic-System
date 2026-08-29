@@ -122,6 +122,11 @@ ul { list-style: none; }
     transition: background 0.18s, color 0.18s;
 }
 
+/* display: flex above beats the browser's default [hidden] rule, so a
+   nav item marked hidden renders anyway. Drill-down views reachable only
+   from another page rely on this. */
+.side-nav a[hidden] { display: none; }
+
 .side-nav a i { width: 1rem; text-align: center; font-size: 0.85rem; }
 
 .side-nav a:hover { background: var(--canvas); color: var(--ink); }
@@ -263,6 +268,7 @@ ul { list-style: none; }
     font-size: 0.9rem;
     line-height: 1.6;
     color: var(--slate);
+    max-width: 62ch;
 }
 
 
@@ -941,6 +947,51 @@ ul { list-style: none; }
 }
 
 
+/* Setup checklist */
+
+.setup-list {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0.5rem 0;
+}
+
+.setup-list li {
+    position: relative;
+    padding-left: 1.5rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.setup-list li::before {
+    content: '\25cb';
+    position: absolute;
+    left: 0;
+    font-weight: 700;
+}
+
+.setup-list li.is-done::before    { content: '\2713'; color: var(--green); }
+.setup-list li.is-done            { opacity: 0.65; }
+.setup-list li.is-blocked::before { content: '\2013'; color: #94a3b8; }
+.setup-list li.is-blocked         { opacity: 0.5; }
+
+.setup-detail {
+    display: block;
+    font-size: 0.79rem;
+    opacity: 0.85;
+}
+
+.setup-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.45rem;
+    font-size: 0.83rem;
+    font-weight: 700;
+    color: inherit;
+    text-decoration: underline;
+}
+
+
 /* Subject cards */
 
 .subject-list {
@@ -1062,8 +1113,8 @@ ul { list-style: none; }
     font-weight: 700;
 }
 
-.why-line.is-met::before   { content: '\\2713'; color: var(--green); }
-.why-line.is-unmet::before { content: '\\2717'; color: #b91c1c; }
+.why-line.is-met::before   { content: '\2713'; color: var(--green); }
+.why-line.is-unmet::before { content: '\2717'; color: #b91c1c; }
 .why-line.is-unmet         { color: var(--ink); }
 
 
