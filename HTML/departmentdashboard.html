@@ -32,6 +32,9 @@
             <a href="#dashboard" data-view="dashboard">
                 <i class="fa-solid fa-gauge" aria-hidden="true"></i> Dashboard
             </a>
+            <a href="#prospectus" data-view="prospectus">
+                <i class="fa-solid fa-layer-group" aria-hidden="true"></i> Prospectus
+            </a>
             <a href="#curriculum" data-view="curriculum">
                 <i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Curriculum
             </a>
@@ -41,9 +44,8 @@
             <a href="#schedule" data-view="schedule">
                 <i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Schedule
             </a>
-            <a href="#grades" data-view="grades" class="is-planned">
+            <a href="#grades" data-view="grades">
                 <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i> Grade upload
-                <span class="nav-tag">Planned</span>
             </a>
             <a href="#profile" data-view="profile">
                 <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
@@ -95,6 +97,7 @@
                 </div>
 
                 <div id="status-notice"></div>
+                <div id="setup-notice"></div>
 
                 <div class="stats">
                     <div class="stat">
@@ -139,6 +142,71 @@
                         <span class="card-note">Checked on load</span>
                     </div>
                     <div class="card-body" id="integrity-body"></div>
+                </section>
+
+            </section>
+
+            <!-- Prospectus -->
+            <section class="view" id="view-prospectus" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Prospectus</h1>
+                    <p class="page-sub">
+                        Curriculum versions. One is active per programme — that is
+                        the one the engine assesses students against.
+                    </p>
+                </div>
+
+                <div id="pros-msg" class="msg" role="status"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">New version</span>
+                        <button class="btn-small" id="toggle-new-pros">Show</button>
+                    </div>
+                    <div class="card-body" id="new-pros-pane" hidden>
+
+                        <p class="review-hint">
+                            A new curriculum is usually the previous one with a few
+                            changes, so copying forward and amending is less
+                            error-prone than re-encoding 58 subjects. A copy starts
+                            inactive — nothing changes for students until you
+                            activate it.
+                        </p>
+
+                        <div class="form-grid">
+                            <div class="field field-sm">
+                                <label for="p-year">Effective year</label>
+                                <input type="number" id="p-year" min="2000" max="2100" step="1">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="p-term">Starting term</label>
+                                <select id="p-term">
+                                    <option value="1">1st Sem</option>
+                                    <option value="2">2nd Sem</option>
+                                    <option value="3">Summer</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="p-source">Start from</label>
+                                <select id="p-source"></select>
+                            </div>
+                        </div>
+
+                        <button class="btn-accent" id="create-pros">
+                            <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                            <span>Create version</span>
+                        </button>
+
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Versions</span>
+                        <span class="card-note" id="pros-count"></span>
+                    </div>
+                    <div class="card-body" id="pros-body"></div>
                 </section>
 
             </section>
@@ -331,6 +399,7 @@
                 </div>
 
                 <div id="sched-msg" class="msg" role="status"></div>
+                <div id="schedule-blocked" hidden></div>
 
                 <section class="card">
                     <div class="card-head">
@@ -362,18 +431,61 @@
                     <div class="card-body" id="upload-pane" hidden>
 
                         <p class="review-hint">
-                            CSV with a header row:
-                            <span class="mono">code,section,days,start_time,end_time,room,instructor,capacity</span>.
-                            Only code and section are required. Rows are checked
-                            against the prospectus before anything is saved.
+                            Download a template and it comes pre-filled with every
+                            subject for the years and sections you choose — fill in
+                            the days, times, and rooms rather than typing codes.
+                            Excel or CSV. Rows are checked against the prospectus
+                            before anything is saved.
                         </p>
 
-                        <div class="upload-row">
-                            <input type="file" id="sched-file" accept=".csv,text/csv">
+                        <div class="template-builder">
+                            <div class="form-grid">
+                                <div class="field field-sm">
+                                    <label for="tpl-year">Year level</label>
+                                    <select id="tpl-year">
+                                        <option value="all">All years</option>
+                                        <option value="1">1st Year</option>
+                                        <option value="2">2nd Year</option>
+                                        <option value="3">3rd Year</option>
+                                        <option value="4">4th Year</option>
+                                    </select>
+                                </div>
+                                <div class="field field-sm">
+                                    <label for="tpl-term">Term</label>
+                                    <select id="tpl-term">
+                                        <option value="current">Selected term</option>
+                                        <option value="1">1st Sem</option>
+                                        <option value="2">2nd Sem</option>
+                                        <option value="3">Summer</option>
+                                        <option value="all">All terms</option>
+                                    </select>
+                                </div>
+                                <div class="field field-sm">
+                                    <label for="tpl-sections">Sections per year</label>
+                                    <select id="tpl-sections">
+                                        <option value="1">1 — A</option>
+                                        <option value="2">2 — A, B</option>
+                                        <option value="3">3 — A, B, C</option>
+                                        <option value="4">4 — A to D</option>
+                                    </select>
+                                </div>
+                                <div class="field field-sm">
+                                    <label for="tpl-electives">Include electives</label>
+                                    <select id="tpl-electives">
+                                        <option value="false">No</option>
+                                        <option value="true">Yes</option>
+                                    </select>
+                                </div>
+                            </div>
+
                             <button class="btn-small" id="download-template">
                                 <i class="fa-solid fa-download" aria-hidden="true"></i>
-                                Template
+                                <span id="tpl-count">Download template</span>
                             </button>
+                        </div>
+
+                        <div class="upload-row">
+                            <input type="file" id="sched-file" accept=".xlsx,.xls,.csv">
                         </div>
 
                         <div id="upload-preview"></div>
@@ -452,6 +564,7 @@
     </div>
 
     <div id="grade-msg" class="msg" role="status"></div>
+                <div id="grades-blocked" hidden></div>
 
     <!-- Upload form -->
     <section class="card">
