@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+
+    <title>Admin Dashboard — CurricuLogic</title>
+
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../CSS/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<div class="shell" id="shell">
+
+    <div class="scrim" id="scrim"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+
+        <div class="side-brand">
+            <img src="../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
+            <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
+        </div>
+
+        <p class="side-role">System Administrator</p>
+
+        <nav class="side-nav" aria-label="Main">
+            <a href="#dashboard" data-view="dashboard">
+                <i class="fa-solid fa-gauge" aria-hidden="true"></i> Dashboard
+            </a>
+            <a href="#accounts" data-view="accounts">
+                <i class="fa-solid fa-user-plus" aria-hidden="true"></i> Create account
+            </a>
+            <a href="#bulk" data-view="bulk">
+                <i class="fa-solid fa-users-gear" aria-hidden="true"></i> Bulk upload
+            </a>
+            <a href="#staff" data-view="staff">
+                <i class="fa-solid fa-users" aria-hidden="true"></i> Staff management
+            </a>
+            <a href="#students" data-view="students">
+                <i class="fa-solid fa-user-graduate" aria-hidden="true"></i> Students
+            </a>
+            <a href="#profile" data-view="profile">
+                <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
+            </a>
+        </nav>
+
+        <p class="side-foot">
+            University of Cebu<br>College of Computer Studies
+        </p>
+
+    </aside>
+
+    <!-- Main -->
+    <div class="main">
+
+        <header class="topbar">
+            <button class="menu-toggle" id="menu-toggle" aria-label="Open menu">
+                <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
+
+            <span class="topbar-title" id="topbar-title">Dashboard</span>
+            <span class="topbar-term">1st Sem · AY 2026–2027</span>
+
+            <div class="topbar-user">
+                <span class="avatar" id="avatar">–</span>
+                <span class="user-meta">
+                    <span class="user-name" id="user-name"><span class="skeleton"></span></span>
+                    <span class="user-sub" id="user-sub">System Administrator</span>
+                </span>
+                <button class="btn-logout" id="logout">
+                    <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+                    <span>Log out</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="content">
+
+            <!-- ============ DASHBOARD ============ -->
+            <section class="view" id="view-dashboard">
+
+                <div class="page-head">
+                    <h1 class="page-title" id="greeting">Welcome back</h1>
+                    <p class="page-sub">
+                        Manage staff accounts, monitor system health, and oversee the
+                        CurricuLogic deployment.
+                    </p>
+                </div>
+
+                <div id="status-notice"></div>
+
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Faculty</span>
+                        <span class="stat-value muted" id="stat-faculty">—</span>
+                        <span class="stat-hint">Active accounts</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Registrar</span>
+                        <span class="stat-value muted" id="stat-registrar">—</span>
+                        <span class="stat-hint">Active accounts</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Department</span>
+                        <span class="stat-value muted" id="stat-department">—</span>
+                        <span class="stat-hint">Active accounts</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Students</span>
+                        <span class="stat-value muted" id="stat-students">—</span>
+                        <span class="stat-hint">Registered accounts</span>
+                    </div>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">System status</span>
+                        <span class="card-note" id="system-note"></span>
+                    </div>
+                    <div class="card-body" id="system-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                            <h3>Loading</h3>
+                            <p>Checking system components.</p>
+                        </div>
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- ============ CREATE ACCOUNT (Single) ============ -->
+            <section class="view" id="view-accounts" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Create staff account</h1>
+                    <p class="page-sub">
+                        Provision a single account for faculty, registrar, or department staff.
+                        Accounts created here are pre-approved and can sign in immediately.
+                    </p>
+                </div>
+
+                <div id="create-msg" class="msg" role="status"></div>
+
+                <div class="notice info">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <div>
+                        <strong>Pre-approved accounts</strong>
+                        Staff accounts created here bypass the registration queue. The
+                        user receives an email confirmation and can sign in immediately.
+                    </div>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">New account</span>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="a-first-name">First name</label>
+                                <input type="text" id="a-first-name" placeholder="Juan" autocomplete="off">
+                            </div>
+                            <div class="field">
+                                <label for="a-last-name">Last name</label>
+                                <input type="text" id="a-last-name" placeholder="Dela Cruz" autocomplete="off">
+                            </div>
+                            <div class="field">
+                                <label for="a-email">University email</label>
+                                <input type="email" id="a-email" placeholder="juan.delacruz@uc.edu.ph" autocomplete="off">
+                            </div>
+                            <div class="field">
+                                <label for="a-employee-id">Employee ID</label>
+                                <input type="text" id="a-employee-id" placeholder="EMP-00871" autocomplete="off">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="a-role">Role</label>
+                                <select id="a-role">
+                                    <option value="faculty">Faculty Staff</option>
+                                    <option value="registrar">Registrar Staff</option>
+                                    <option value="department">Department Staff</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="a-department">Department</label>
+                                <input type="text" id="a-department" placeholder="College of Computer Studies" autocomplete="off">
+                            </div>
+                            <div class="field">
+                                <label for="a-password">Temporary password</label>
+                                <div class="input-wrap">
+                                    <input type="password" id="a-password" placeholder="At least 8 characters" autocomplete="new-password">
+                                    <button type="button" class="toggle-pw" data-target="a-password" aria-label="Show password">
+                                        <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label for="a-confirm">Confirm password</label>
+                                <div class="input-wrap">
+                                    <input type="password" id="a-confirm" placeholder="Re-enter password" autocomplete="new-password">
+                                    <button type="button" class="toggle-pw" data-target="a-confirm" aria-label="Show password">
+                                        <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn-accent" id="create-account">
+                            <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
+                            <span>Create account</span>
+                        </button>
+
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- ============ BULK UPLOAD ============ -->
+            <section class="view" id="view-bulk" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Bulk account creation</h1>
+                    <p class="page-sub">
+                        Upload a CSV or Excel file to create multiple accounts at once.
+                        Supports students, faculty, registrar, department, and admin accounts.
+                    </p>
+                </div>
+
+                <div id="bulk-msg" class="msg" role="status"></div>
+
+                <div class="notice info">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <div>
+                        <strong>File format</strong>
+                        Required columns: <span class="mono">first_name, last_name, email, role</span>.
+                        For staff: <span class="mono">employee_id</span> is required.
+                        For students: <span class="mono">student_id</span> is required.
+                        Optional: <span class="mono">password, department, year_level</span>.
+                    </div>
+                </div>
+
+                <!-- Quick selection -->
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Select account type</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="toolbar">
+                            <div class="field field-sm" style="margin-bottom:0;">
+                                <label for="bulk-role-filter">Role</label>
+                                <select id="bulk-role-filter" style="height:2.6rem; padding:0 0.8rem; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:0.88rem;">
+                                    <option value="all">All roles</option>
+                                    <option value="student">Students</option>
+                                    <option value="faculty">Faculty</option>
+                                    <option value="registrar">Registrar</option>
+                                    <option value="department">Department</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Upload file</span>
+                        <button class="btn-small" id="toggle-bulk-upload">Show</button>
+                    </div>
+                    <div class="card-body" id="bulk-upload-pane" hidden>
+
+                        <div class="upload-row">
+                            <input type="file" id="bulk-file" accept=".csv,.xlsx,.xls">
+                            <button class="btn-small" id="bulk-template">
+                                <i class="fa-solid fa-download" aria-hidden="true"></i>
+                                Template
+                            </button>
+                        </div>
+
+                        <div id="bulk-preview"></div>
+
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Upload history</span>
+                        <span class="card-note" id="bulk-history-count"></span>
+                    </div>
+                    <div class="card-body" id="bulk-history-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+                            <h3>No uploads yet</h3>
+                            <p>Bulk upload history will appear here once you upload a file.</p>
+                        </div>
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- ============ STAFF MANAGEMENT ============ -->
+            <section class="view" id="view-staff" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Staff management</h1>
+                    <p class="page-sub">
+                        View, search, and manage all staff accounts. You can filter by
+                        role and see the current status of each account.
+                    </p>
+                </div>
+
+                <div id="staff-msg" class="msg" role="status"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Staff accounts</span>
+                        <span class="card-note" id="staff-count"></span>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="toolbar">
+                            <div class="search-wrap">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input type="search" id="staff-search"
+                                       placeholder="Search name, email, or employee ID"
+                                       autocomplete="off" aria-label="Search staff">
+                            </div>
+                            <select id="staff-filter" aria-label="Filter by role">
+                                <option value="all">All roles</option>
+                                <option value="faculty">Faculty</option>
+                                <option value="registrar">Registrar</option>
+                                <option value="department">Department</option>
+                            </select>
+                        </div>
+
+                        <div id="staff-body">
+                            <div class="empty">
+                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                <h3>Loading</h3>
+                                <p>Fetching staff accounts.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- ============ STUDENTS ============ -->
+            <section class="view" id="view-students" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Students</h1>
+                    <p class="page-sub">
+                        Overview of all registered student accounts.
+                    </p>
+                </div>
+
+                <div id="student-msg" class="msg" role="status"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Student accounts</span>
+                        <span class="card-note" id="student-count"></span>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="toolbar">
+                            <div class="search-wrap">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input type="search" id="student-search"
+                                       placeholder="Search name, student ID, or email"
+                                       autocomplete="off" aria-label="Search students">
+                            </div>
+                            <select id="student-filter" aria-label="Filter by status">
+                                <option value="all">All students</option>
+                                <option value="approved">Approved</option>
+                                <option value="pending">Pending</option>
+                                <option value="declined">Declined</option>
+                            </select>
+                        </div>
+
+                        <div id="student-body">
+                            <div class="empty">
+                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                <h3>Loading</h3>
+                                <p>Fetching student accounts.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- ============ PROFILE ============ -->
+            <section class="view" id="view-profile" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Profile</h1>
+                    <p class="page-sub">Your account details as held by the system.</p>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Account details</span>
+                    </div>
+                    <div class="card-body">
+                        <dl id="details">
+                            <div class="detail">
+                                <dt>Name</dt>
+                                <dd id="d-name"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Employee ID</dt>
+                                <dd class="mono" id="d-eid"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Username</dt>
+                                <dd class="mono" id="d-username"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Email</dt>
+                                <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Role</dt>
+                                <dd>System Administrator</dd>
+                            </div>
+                            <div class="detail">
+                                <dt>Account status</dt>
+                                <dd><span class="pill ok"><i class="fa-solid fa-check"></i> Active</span></dd>
+                            </div>
+                        </dl>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Security</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="prose">
+                            Admin accounts are provisioned by the College of Computer Studies
+                            and cannot be self-registered. Contact IT support if you need to
+                            change your credentials.
+                        </p>
+                    </div>
+                </section>
+
+            </section>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/config.js"></script>
+<script src="../JS/admindashboard.js"></script>
+</body>
+</html>
