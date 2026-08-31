@@ -77,7 +77,7 @@ docs/       decision register and working notes
 HTML/       page markup, one file per actor dashboard
 JS/         page logic, one file per page
 CSS/        dashboard.css is shared across all actor dashboards
-Images/     logo and assets
+assets/     logo and assets
 ```
 
 ---
