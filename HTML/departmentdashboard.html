@@ -22,7 +22,7 @@
     <aside class="sidebar">
 
         <div class="side-brand">
-            <img src="../Images/CurriculogicLogo.png" alt="" width="1024" height="576">
+            <img src="../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
             <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
         </div>
 
@@ -223,6 +223,68 @@
                 </div>
 
                 <div id="curriculum-msg" class="msg" role="status"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Editing</span>
+                        <span class="card-note" id="editing-note"></span>
+                    </div>
+                    <div class="card-body">
+                        <div class="toolbar">
+                            <div class="field">
+                                <label for="edit-prospectus">Prospectus version</label>
+                                <select id="edit-prospectus"></select>
+                            </div>
+                        </div>
+                        <p class="hint" id="editing-warning"></p>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Upload a curriculum</span>
+                        <button class="btn-small" id="toggle-curr-upload">Show</button>
+                    </div>
+                    <div class="card-body" id="curr-upload-pane" hidden>
+
+                        <p class="review-hint">
+                            Two files, subjects first. Prerequisites reference
+                            subjects by code, so they cannot be checked until the
+                            subjects exist. Excel or CSV.
+                        </p>
+
+                        <h3 class="group-head">1 &mdash; Subjects</h3>
+                        <p class="hint">
+                            Columns: <span class="mono">code, title, units,
+                            year_level, term, is_elective</span>
+                        </p>
+                        <div class="upload-row">
+                            <input type="file" id="subj-file" accept=".xlsx,.xls,.csv">
+                            <button class="btn-small" id="subj-template">
+                                <i class="fa-solid fa-download" aria-hidden="true"></i>
+                                Template
+                            </button>
+                        </div>
+                        <div id="subj-preview"></div>
+
+                        <h3 class="group-head">2 &mdash; Prerequisites</h3>
+                        <p class="hint">
+                            Columns: <span class="mono">subject_code,
+                            prerequisite_code, requirement_type, rule_group,
+                            threshold_value</span>. Conditions sharing a rule_group
+                            are alternatives; different groups must all be met.
+                        </p>
+                        <div class="upload-row">
+                            <input type="file" id="prereq-file" accept=".xlsx,.xls,.csv">
+                            <button class="btn-small" id="prereq-template">
+                                <i class="fa-solid fa-download" aria-hidden="true"></i>
+                                Template
+                            </button>
+                        </div>
+                        <div id="prereq-preview"></div>
+
+                    </div>
+                </section>
 
                 <section class="card">
                     <div class="card-head">
