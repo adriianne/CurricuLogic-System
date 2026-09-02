@@ -1200,7 +1200,77 @@ function renderVersions() {
 
     body.querySelectorAll('[data-activate]').forEach(b =>
         b.addEventListener('click', () => activateVersion(Number(b.dataset.activate))));
+
+    function renderVersions() {
+    const body  = $('pros-body');
+    const count = $('pros-count');
+    if (!body) return;
+
+    if (count) {
+        count.textContent = VERSIONS.length
+            ? `${VERSIONS.length} version${VERSIONS.length === 1 ? '' : 's'}`
+            : '';
+    }
+
+    if (VERSIONS.length === 0) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+                <h3>No prospectus yet</h3>
+                <p>Create the first version above, then encode its subjects.</p>
+            </div>`;
+        return;
+    }
+
+    body.innerHTML = `
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr><th>Effective year</th><th>Starts</th>
+                        <th class="num">Subjects</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>${VERSIONS.map(v => `
+                    <tr>
+                        <td class="mono">${escapeHtml(v.academic_year)}</td>
+                        <td class="dim">${termLabel(v.academic_term)}</td>
+                        <td class="num">${v.subject_count}</td>
+                        <td>${versionStatus(v)}</td>
+                        <td class="num">
+                            ${v.is_active
+                                ? '<span class="dim">In use</span>'
+                                : `<button class="btn-small" data-activate="${v.id}"
+                                     ${v.subject_count === 0 ? 'disabled title="Encode subjects first"' : ''}>
+                                     Make active
+                                   </button>`}
+                        </td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+    body.querySelectorAll('[data-activate]').forEach(b =>
+        b.addEventListener('click', () => activateVersion(Number(b.dataset.activate))));
+    }
+    // Curriculum grid, switchable by version.
+    const sel = $('pg-version');
+    if (!sel || !window.ProspectusGrid || !VERSIONS.length) return;
+
+    sel.innerHTML = VERSIONS
+        .map(v => `<option value="${v.id}">${v.academic_year}–${v.academic_year + 1}` +
+                  `${v.is_active ? ' · Active' : ' · Draft'}</option>`)
+        .join('');
+
+    const active = VERSIONS.find(v => v.is_active) ?? VERSIONS[0];
+    sel.value = active.id;
+
+    const draw = () => window.ProspectusGrid.render(
+        supabase, Number(sel.value), $('prospectus-grid'));
+
+    sel.onchange = draw;
+    draw();
+
+    window.ProspectusGrid.render(supabase, active.id, $('prospectus-grid'));
 }
+
 
 $('toggle-new-pros')?.addEventListener('click', () => {
     const pane = $('new-pros-pane');

@@ -7,8 +7,9 @@
 
     <title>Department dashboard — CurricuLogic</title>
 
-    <link rel="icon" type="image/png" href="../assets/CurriculogicLogo.png">
+    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
     <link rel="stylesheet" href="../CSS/dashboard.css">
+    <link rel="stylesheet" href="../CSS/prospectus.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -207,6 +208,17 @@
                         <span class="card-note" id="pros-count"></span>
                     </div>
                     <div class="card-body" id="pros-body"></div>
+                </section>
+
+                <!-- Curriculum grid -->
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Curriculum</span>
+                        <select class="pg-version-select" id="pg-version" aria-label="Curriculum version"></select>
+                    </div>
+                    <div class="card-body">
+                        <div id="prospectus-grid"></div>
+                    </div>
                 </section>
 
             </section>
@@ -746,6 +758,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../JS/config.js"></script>
+<script src="../JS/prospectusgrid.js"></script>
 <script src="../JS/departmentdashboard.js"></script>
 </body>
 </html>

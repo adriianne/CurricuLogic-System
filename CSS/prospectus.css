@@ -1,0 +1,212 @@
+/* prospectus.css — curriculum grid.
+   Scoped under .pros-grid so nothing here reaches the other dashboards.
+   Load after dashboard.css. */
+
+.pros-grid {
+    --pg-r: 10px;
+}
+
+/* version select in the card head */
+.pg-version-select {
+    font: 400 13px/1 var(--font-body, 'Inter', sans-serif);
+    padding: 5px 26px 5px 10px;
+    border: 1px solid var(--line-strong, #CBD5E1);
+    border-radius: 8px;
+    background: var(--surface, #FFF) no-repeat right 8px center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394A3B8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    color: var(--ink, #0F172A);
+    cursor: pointer;
+    appearance: none;
+}
+.pg-version-select:focus-visible {
+    outline: 2px solid var(--accent, #4F46E5);
+    outline-offset: 1px;
+}
+
+/* tabs */
+.pros-grid .pg-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: var(--s3, 20px);
+    border-bottom: 1px solid var(--line, #E2E8F0);
+    overflow-x: auto;
+    /* overflow-x:auto forces overflow-y to compute to auto, and the tab's
+       -1px bottom margin then triggers a vertical scrollbar. */
+    overflow-y: hidden;
+    scrollbar-width: thin;
+}
+.pros-grid .pg-tab {
+    font: 500 13px/1 var(--font-body, 'Inter', sans-serif);
+    padding: 9px 16px;
+    border: none;
+    background: none;
+    color: var(--ink-2, #475569);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    white-space: nowrap;
+}
+.pros-grid .pg-tab:hover { color: var(--ink, #0F172A); }
+.pros-grid .pg-tab.on {
+    color: var(--accent, #4F46E5);
+    border-bottom-color: var(--accent, #4F46E5);
+}
+
+/* animated stage */
+.pros-grid .pg-stage {
+    position: relative;
+    transition: height .3s cubic-bezier(.4, 0, .2, 1);
+}
+.pros-grid .pg-yr {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    transition: opacity .26s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
+}
+.pros-grid .pg-yr.on      { opacity: 1; transform: translateX(0); pointer-events: auto; z-index: 2; }
+.pros-grid .pg-yr.off     { opacity: 0; pointer-events: none; z-index: 1; }
+.pros-grid .pg-yr.off.l   { transform: translateX(-24px); }
+.pros-grid .pg-yr.off.r   { transform: translateX(24px); }
+
+/* semester panels */
+.pros-grid .pg-sems {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.pros-grid .pg-summer { max-width: calc(50% - 8px); }
+
+.pros-grid .pg-panel {
+    background: var(--surface, #FFF);
+    border: 1px solid var(--line, #E2E8F0);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.pros-grid .pg-panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line, #E2E8F0);
+    background: var(--surface-2, #F1F5F9);
+}
+.pros-grid .pg-panel-head h3 {
+    font: 600 14px/1.3 var(--font-display, 'Space Grotesk', sans-serif);
+    margin: 0;
+}
+.pros-grid .pg-panel-head .pg-note {
+    font-size: 12px;
+    color: var(--ink-3, #94A3B8);
+}
+
+/* tables */
+.pros-grid table { width: 100%; border-collapse: collapse; }
+.pros-grid th {
+    font: 500 11px/1 var(--font-body, 'Inter', sans-serif);
+    color: var(--ink-3, #94A3B8);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    text-align: left;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line, #E2E8F0);
+}
+.pros-grid td {
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--line, #E2E8F0);
+    font-size: 13px;
+    vertical-align: top;
+}
+.pros-grid tbody tr:last-child td { border-bottom: none; }
+.pros-grid tbody tr:hover { background: var(--surface-2, #F1F5F9); }
+
+.pros-grid th.n, .pros-grid td.n { text-align: center; width: 40px; }
+.pros-grid .pg-code {
+    font: 500 12px/1.4 var(--font-mono, 'JetBrains Mono', monospace);
+    white-space: nowrap;
+}
+.pros-grid .pg-u   { font: 400 12px/1.4 var(--font-mono, monospace); color: var(--ink-2, #475569); }
+.pros-grid .pg-u.t { color: var(--ink, #0F172A); font-weight: 500; }
+.pros-grid .pg-pre { font: 400 11px/1.5 var(--font-mono, monospace); color: var(--ink-2, #475569); }
+.pros-grid .pg-pre .lk { color: var(--accent, #4F46E5); cursor: pointer; }
+.pros-grid .pg-pre .lk:hover { text-decoration: underline; }
+.pros-grid .pg-pre .no { color: var(--ink-3, #94A3B8); }
+.pros-grid .pg-mark { color: #B45309; }
+
+/* elective placeholder rows */
+.pros-grid tr.pg-slot td { color: var(--ink-3, #94A3B8); font-style: italic; }
+
+/* panel footer */
+.pros-grid .pg-foot {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--surface-2, #F1F5F9);
+    border-top: 1px solid var(--line, #E2E8F0);
+    font-size: 12px;
+}
+.pros-grid .pg-foot .k {
+    color: var(--ink-2, #475569);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-size: 11px;
+}
+.pros-grid .pg-foot .v { font: 500 12px/1.4 var(--font-mono, monospace); }
+
+/* paired panels below the stage */
+.pros-grid .pg-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: var(--s4, 24px);
+}
+
+/* summary + remarks */
+.pros-grid .pg-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line, #E2E8F0);
+    font-size: 13px;
+}
+.pros-grid .pg-row:last-child { border-bottom: none; }
+.pros-grid .pg-row.tot {
+    background: var(--accent-soft, #EEF2FF);
+    font-weight: 600;
+}
+.pros-grid .pg-row .v { font-family: var(--font-mono, monospace); }
+
+.pros-grid .pg-legend { padding: 12px 16px; font-size: 13px; }
+.pros-grid .pg-legend div { display: flex; gap: 10px; padding: 6px 0; }
+.pros-grid .pg-legend .m {
+    font: 500 13px/1.4 var(--font-mono, monospace);
+    color: #B45309;
+    min-width: 30px;
+}
+.pros-grid .pg-legend .t { color: var(--ink-2, #475569); }
+
+/* empty states inside panels */
+.pros-grid .pg-empty {
+    padding: 22px 16px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--ink-3, #94A3B8);
+}
+
+/* narrow viewports */
+@media (max-width: 1080px) {
+    .pros-grid .pg-sems   { grid-template-columns: 1fr; }
+    .pros-grid .pg-summer { max-width: 100%; }
+    .pros-grid .pg-pair   { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+    .pros-grid th, .pros-grid td { padding-left: 12px; padding-right: 12px; }
+    /* Lab is the least load-bearing column when space is tight. */
+    .pros-grid .pg-sems th:nth-child(4),
+    .pros-grid .pg-sems td:nth-child(4) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pros-grid .pg-yr, .pros-grid .pg-stage { transition: none; }
+    .pros-grid .pg-yr.off.l, .pros-grid .pg-yr.off.r { transform: none; }
+}
