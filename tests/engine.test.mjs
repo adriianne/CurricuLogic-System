@@ -1,554 +1,619 @@
-// engine.js
-// CurricuLogic inference engine.
+// engine.test.mjs
+// Tests for the CurricuLogic inference engine.
 //
-// Pure functions only. No Supabase, no DOM, no network — facts and rules
-// in, results out. That makes it testable without a database and usable
-// unchanged in the browser, in Node, or behind an Edge Function.
+//   node --test tests/
 //
+// No database, no npm install. The fixtures below are small synthetic
+// curricula, plus a slice of the real BSIT 2023-2024 prospectus where a
+// test is about actual encoded rules rather than about the logic.
 //
-// WHAT THIS IS
+// Two areas get disproportionate attention:
 //
-// A forward-chaining rule engine over the prerequisite graph. Knowledge
-// lives in the `subject` and `prerequisite` tables; this file contains no
-// knowledge of BSIT or of any particular subject. Point it at a different
-// prospectus and it reasons over that instead.
+//   OR groups. All 37 live prerequisite rules are single-member groups,
+//   so the disjunctive branch never executes against real data. If it is
+//   broken, only a synthetic rule will reveal it.
 //
-//
-// WHERE THE CHAINING ACTUALLY HAPPENS
-//
-// Worth being precise, because it is the thing a panel will probe.
-//
-// Deciding whether a student may take a subject right now is a single
-// pass: check each rule against the facts. No chaining required.
-//
-// Chaining matters for the second question — what becomes reachable if
-// the student passes what is recommended. That is genuine forward
-// inference: assume the recommended load is passed, derive the newly
-// satisfied rules, repeat until no new subject unlocks. The fixpoint is
-// what produces the unlock counts used for ranking, and it is what a
-// human advisor cannot do reliably across a fifty-eight subject graph.
+//   Standing gates. CC-PROFIS10 and IT-CPSTONE30 are the only two rules
+//   of that shape in the prospectus, and they gate the capstone.
 
-(function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory();
-    else root.CurricuLogicEngine = factory();
-}(typeof self !== 'undefined' ? self : this, function () {
-'use strict';
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const E = require('../engine/engine.js');
+
+const { assess, buildFacts, evaluateSubject, chainForward,
+        highestCompletedYear, explain,
+        PASSED, FAILED, ENROLLED } = E;
 
 
-/* status vocabulary, matching academic_record */
+/* ---- fixture helpers ---- */
 
-const PASSED   = 'PASSED';
-const FAILED   = 'FAILED';
-const ENROLLED = 'ENROLLED';
+let nextId = 1;
 
-/* requirement_type vocabulary, matching the prerequisite table */
+const subj = (code, opts = {}) => ({
+    id: opts.id ?? nextId++,
+    code,
+    title: opts.title ?? code,
+    units: opts.units ?? 3,
+    year_level: opts.year ?? 1,
+    term: opts.term ?? 1,
+    is_elective: opts.elective ?? false,
+});
 
-const PREREQUISITE = 'prerequisite';
-const CO_REQUISITE = 'co_requisite';
-const STANDING     = 'standing';
+const rule = (subject, required, opts = {}) => ({
+    subject_id: subject.id,
+    prerequisite_subject_id: required ? required.id : null,
+    requirement_type: opts.type ?? 'prerequisite',
+    rule_type: 'and',
+    rule_group: opts.group ?? 1,
+    threshold_value: opts.threshold ?? null,
+});
 
-const DEFAULTS = {
-    maxUnits: 24,
-    maxUnitsGraduating: 27,
-    /* Guard only. With an acyclic graph the fixpoint is reached in far
-       fewer passes; this stops a cycle that slipped past the integrity
-       checks from spinning forever. */
-    maxIterations: 20,
-};
+const rec = (subject, status, opts = {}) => ({
+    subject_id: subject.id,
+    status,
+    grade: opts.grade ?? (status === PASSED ? '2.00' : '5.00'),
+    taken_year: opts.year ?? 2024,
+    taken_term: opts.term ?? 1,
+});
+
+const student = (opts = {}) => ({ id: 'stu-1', year_level: opts.year ?? 1 });
+
+const kbOf = (subjects, rules = [], offerings = []) => ({ subjects, rules, offerings });
+
+/* Assess without offering filtering — most tests are about rules, not
+   about what the department happens to be running this term. */
+const ignoreOfferings = { respectOfferings: false };
 
 
 /* ---- working memory ---- */
 
-/*
- * Builds the fact base from a student's academic history.
- *
- * A subject may appear several times — academic_record keys on the
- * attempt, so a retake is a separate row. PASSED therefore means ANY
- * attempt passed, not the most recent. Reading only the latest row would
- * be correct by accident on a simple record and wrong the moment a
- * student passes a subject and later audits it.
- */
-function buildFacts(student, records, subjects) {
-    const byId = new Map(subjects.map(s => [s.id, s]));
+describe('buildFacts', () => {
 
-    const passed   = new Set();
-    const failed   = new Set();
-    const enrolled = new Set();
+    test('a passed attempt overrides an earlier failure', () => {
+        const a = subj('A');
+        const facts = buildFacts(student(), [
+            rec(a, FAILED, { term: 1 }),
+            rec(a, PASSED, { term: 2 }),
+        ], [a]);
 
-    for (const r of records) {
-        if (r.subject_id == null) continue;
-        if (r.status === PASSED)   passed.add(r.subject_id);
-        if (r.status === FAILED)   failed.add(r.subject_id);
-        if (r.status === ENROLLED) enrolled.add(r.subject_id);
-    }
+        assert.ok(facts.passed.has(a.id), 'retake should count as passed');
+        assert.ok(!facts.failed.has(a.id), 'the earlier failure should be cleared');
+    });
 
-    // A passed attempt overrides an earlier failure.
-    for (const id of passed) failed.delete(id);
+    test('order does not matter — a failure recorded after a pass still clears', () => {
+        const a = subj('A');
+        const facts = buildFacts(student(), [
+            rec(a, PASSED, { term: 1 }),
+            rec(a, FAILED, { term: 2 }),
+        ], [a]);
 
-    let unitsEarned = 0;
-    for (const id of passed) unitsEarned += Number(byId.get(id)?.units || 0);
+        assert.ok(facts.passed.has(a.id));
+        assert.ok(!facts.failed.has(a.id));
+    });
 
-    return {
-        studentId: student?.id ?? null,
-        yearLevel: Number(student?.year_level) || null,
-        passed, failed, enrolled,
-        unitsEarned,
-        completedThroughYear: highestCompletedYear(passed, subjects),
-    };
-}
+    test('units earned counts only passed subjects', () => {
+        const a = subj('A', { units: 3 });
+        const b = subj('B', { units: 2 });
+        const c = subj('C', { units: 5 });
 
-/*
- * The highest year level for which every non-elective subject has been
- * passed.
- *
- * This backs the `standing` requirement, which the prospectus expresses
- * as "must finish all 1st to 2nd year courses". A unit threshold would be
- * a weaker reading — a student can reach the unit count while still owing
- * a subject, and would then clear a gate the printed curriculum does not
- * open.
- *
- * Electives are excluded: a student choosing three of seventeen has not
- * failed to complete the year by leaving fourteen untaken.
- */
-function highestCompletedYear(passed, subjects) {
-    let year = 0;
+        const facts = buildFacts(student(), [
+            rec(a, PASSED), rec(b, FAILED), rec(c, ENROLLED),
+        ], [a, b, c]);
 
-    for (let y = 1; y <= 4; y++) {
-        const required = subjects.filter(s => s.year_level === y && !s.is_elective);
-        if (required.length === 0) break;
-        if (!required.every(s => passed.has(s.id))) break;
-        year = y;
-    }
+        assert.equal(facts.unitsEarned, 3);
+    });
 
-    return year;
-}
+    test('enrolled is distinct from passed', () => {
+        const a = subj('A');
+        const facts = buildFacts(student(), [rec(a, ENROLLED)], [a]);
+
+        assert.ok(facts.enrolled.has(a.id));
+        assert.ok(!facts.passed.has(a.id));
+    });
+
+    test('a record with no subject_id is ignored rather than throwing', () => {
+        const a = subj('A');
+        const facts = buildFacts(student(),
+            [{ subject_id: null, status: PASSED }, rec(a, PASSED)], [a]);
+
+        assert.equal(facts.passed.size, 1);
+    });
+
+    test('an empty history produces empty facts, not an error', () => {
+        const facts = buildFacts(student(), [], [subj('A')]);
+        assert.equal(facts.passed.size, 0);
+        assert.equal(facts.unitsEarned, 0);
+        assert.equal(facts.completedThroughYear, 0);
+    });
+});
+
+
+/* ---- year standing ---- */
+
+describe('highestCompletedYear', () => {
+
+    test('a year counts only when every required subject in it is passed', () => {
+        const a = subj('A', { year: 1 });
+        const b = subj('B', { year: 1 });
+        const subjects = [a, b];
+
+        assert.equal(highestCompletedYear(new Set([a.id]), subjects), 0);
+        assert.equal(highestCompletedYear(new Set([a.id, b.id]), subjects), 1);
+    });
+
+    test('electives do not hold a year back', () => {
+        const core = subj('CORE', { year: 1 });
+        const el   = subj('EL', { year: 1, elective: true });
+
+        assert.equal(highestCompletedYear(new Set([core.id]), [core, el]), 1,
+            'choosing not to take an elective is not an incomplete year');
+    });
+
+    test('completion stops at the first incomplete year', () => {
+        const y1 = subj('Y1', { year: 1 });
+        const y2 = subj('Y2', { year: 2 });
+        const y3 = subj('Y3', { year: 3 });
+        const subjects = [y1, y2, y3];
+
+        // Third year passed, second year still owing.
+        const passed = new Set([y1.id, y3.id]);
+        assert.equal(highestCompletedYear(passed, subjects), 1,
+            'a later year passed out of order must not raise standing');
+    });
+});
 
 
 /* ---- rule evaluation ---- */
 
-/*
- * Evaluates every condition on one subject.
- *
- * rule_group encodes the logic:
- *   same group      -> OR  (any one member satisfies the group)
- *   different groups -> AND (every group must be satisfied)
- *
- * So "(IT 201 or IT 205) and MATH 102" is two conditions in group 1 and
- * one in group 2. A flat list with a per-row AND/OR flag cannot express
- * that unambiguously once a subject has two independent OR sets.
- *
- * Returns a trace either way. An unexplained refusal is the failure this
- * system exists to prevent — a student turned away at the counter with no
- * reason is exactly the situation being replaced.
- */
-function evaluateSubject(subject, rules, facts, byId) {
-    const groups = new Map();
+describe('evaluateSubject — AND across groups', () => {
 
-    for (const r of rules) {
-        const g = r.rule_group ?? 1;
-        if (!groups.has(g)) groups.set(g, []);
-        groups.get(g).push(r);
-    }
+    test('every group must be satisfied', () => {
+        const a = subj('A'), b = subj('B'), target = subj('T');
+        const rules = [
+            rule(target, a, { group: 1 }),
+            rule(target, b, { group: 2 }),
+        ];
+        const byId = new Map([a, b, target].map(s => [s.id, s]));
 
-    const trace = [];
-    let satisfied = true;
+        const only_a = buildFacts(student(), [rec(a, PASSED)], [a, b, target]);
+        assert.equal(evaluateSubject(target, rules, only_a, byId).satisfied, false);
 
-    for (const [groupId, conditions] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
-        const results = conditions.map(c => evaluateCondition(c, facts, byId));
-        const met = results.some(r => r.met);
+        const both = buildFacts(student(), [rec(a, PASSED), rec(b, PASSED)], [a, b, target]);
+        assert.equal(evaluateSubject(target, rules, both, byId).satisfied, true);
+    });
+});
 
-        if (!met) satisfied = false;
+describe('evaluateSubject — OR within a group', () => {
+    // No live rule exercises this. These are the only tests that do.
 
-        trace.push({
-            group: groupId,
-            met,
-            /* Only a multi-condition group is a real choice. Labelling a
-               single condition "any one of" reads as though an
-               alternative exists. */
-            kind: conditions.length > 1 ? 'any_of' : 'required',
-            conditions: results,
-        });
-    }
+    test('any one member of a group satisfies it', () => {
+        const a = subj('A'), b = subj('B'), target = subj('T');
+        const rules = [
+            rule(target, a, { group: 1 }),
+            rule(target, b, { group: 1 }),
+        ];
+        const byId = new Map([a, b, target].map(s => [s.id, s]));
 
-    return { satisfied, trace };
-}
+        const viaA = buildFacts(student(), [rec(a, PASSED)], [a, b, target]);
+        assert.equal(evaluateSubject(target, rules, viaA, byId).satisfied, true,
+            'passing A alone should open T');
 
-function evaluateCondition(rule, facts, byId) {
-    const type = rule.requirement_type;
+        const viaB = buildFacts(student(), [rec(b, PASSED)], [a, b, target]);
+        assert.equal(evaluateSubject(target, rules, viaB, byId).satisfied, true,
+            'passing B alone should open T');
 
-    if (type === STANDING) {
-        const need = Number(rule.threshold_value);
-        const met  = facts.completedThroughYear >= need;
-        return {
-            type, met,
-            threshold: need,
-            detail: met
-                ? `All subjects through year ${need} are complete.`
-                : `Requires every subject up to year ${need} to be passed. ` +
-                  `Currently complete through year ${facts.completedThroughYear || 0}.`,
-        };
-    }
+        const neither = buildFacts(student(), [], [a, b, target]);
+        assert.equal(evaluateSubject(target, rules, neither, byId).satisfied, false);
+    });
 
-    const required = byId.get(rule.prerequisite_subject_id);
+    test('a group with alternatives is labelled any_of, a lone condition is not', () => {
+        const a = subj('A'), b = subj('B'), target = subj('T');
+        const byId = new Map([a, b, target].map(s => [s.id, s]));
+        const facts = buildFacts(student(), [], [a, b, target]);
 
-    if (!required) {
-        /* A rule pointing at a subject that no longer exists. Treating it
-           as unmet is the safe reading — silently ignoring it would open
-           a gate the department intended to close. */
-        return {
-            type, met: false,
-            detail: 'This condition refers to a subject that is no longer in the prospectus.',
-        };
-    }
+        const choice = evaluateSubject(target,
+            [rule(target, a, { group: 1 }), rule(target, b, { group: 1 })], facts, byId);
+        assert.equal(choice.trace[0].kind, 'any_of');
 
-    if (type === CO_REQUISITE) {
-        const met = facts.passed.has(required.id) || facts.enrolled.has(required.id);
-        return {
-            type, met,
-            subjectId: required.id, code: required.code, title: required.title,
-            detail: met
-                ? `${required.code} is passed or currently being taken.`
-                : `${required.code} must be passed or taken alongside this subject.`,
-        };
-    }
+        const single = evaluateSubject(target,
+            [rule(target, a, { group: 1 })], facts, byId);
+        assert.equal(single.trace[0].kind, 'required',
+            'a single condition must not read as though an alternative exists');
+    });
 
-    const met = facts.passed.has(required.id);
-    const currentlyTaking = facts.enrolled.has(required.id);
-    const previouslyFailed = facts.failed.has(required.id);
+    test('mixed shape: (A or B) and C', () => {
+        const a = subj('A'), b = subj('B'), c = subj('C'), target = subj('T');
+        const all = [a, b, c, target];
+        const byId = new Map(all.map(s => [s.id, s]));
+        const rules = [
+            rule(target, a, { group: 1 }),
+            rule(target, b, { group: 1 }),
+            rule(target, c, { group: 2 }),
+        ];
 
-    return {
-        type: PREREQUISITE, met,
-        subjectId: required.id, code: required.code, title: required.title,
-        detail: met
-            ? `${required.code} passed.`
-            : currentlyTaking
-                ? `${required.code} is in progress. It must be passed first.`
-                : previouslyFailed
-                    ? `${required.code} was not passed. It must be retaken.`
-                    : `${required.code} has not been taken.`,
-    };
-}
+        const aOnly = buildFacts(student(), [rec(a, PASSED)], all);
+        assert.equal(evaluateSubject(target, rules, aOnly, byId).satisfied, false,
+            'the second group is still unmet');
+
+        const aAndC = buildFacts(student(), [rec(a, PASSED), rec(c, PASSED)], all);
+        assert.equal(evaluateSubject(target, rules, aAndC, byId).satisfied, true);
+
+        const bAndC = buildFacts(student(), [rec(b, PASSED), rec(c, PASSED)], all);
+        assert.equal(evaluateSubject(target, rules, bAndC, byId).satisfied, true,
+            'either branch of the disjunction must work');
+    });
+});
+
+
+/* ---- condition types ---- */
+
+describe('conditions', () => {
+
+    test('a standing gate reads year completion, not units', () => {
+        const y1a = subj('Y1A', { year: 1, units: 3 });
+        const y1b = subj('Y1B', { year: 1, units: 3 });
+        const gated = subj('GATED', { year: 2 });
+        const all = [y1a, y1b, gated];
+        const byId = new Map(all.map(s => [s.id, s]));
+        const rules = [rule(gated, null, { type: 'standing', threshold: 1 })];
+
+        const partial = buildFacts(student(), [rec(y1a, PASSED)], all);
+        assert.equal(evaluateSubject(gated, rules, partial, byId).satisfied, false,
+            'six units earned but the year is incomplete');
+
+        const whole = buildFacts(student(),
+            [rec(y1a, PASSED), rec(y1b, PASSED)], all);
+        assert.equal(evaluateSubject(gated, rules, whole, byId).satisfied, true);
+    });
+
+    test('a co-requisite accepts a subject being taken concurrently', () => {
+        const a = subj('A'), target = subj('T');
+        const byId = new Map([a, target].map(s => [s.id, s]));
+        const rules = [rule(target, a, { type: 'co_requisite' })];
+
+        const taking = buildFacts(student(), [rec(a, ENROLLED)], [a, target]);
+        assert.equal(evaluateSubject(target, rules, taking, byId).satisfied, true);
+
+        const plain = buildFacts(student(), [], [a, target]);
+        assert.equal(evaluateSubject(target, rules, plain, byId).satisfied, false);
+    });
+
+    test('a prerequisite does NOT accept a subject still in progress', () => {
+        const a = subj('A'), target = subj('T');
+        const byId = new Map([a, target].map(s => [s.id, s]));
+        const rules = [rule(target, a)];
+
+        const taking = buildFacts(student(), [rec(a, ENROLLED)], [a, target]);
+        const result = evaluateSubject(target, rules, taking, byId);
+
+        assert.equal(result.satisfied, false);
+        assert.match(result.trace[0].conditions[0].detail, /in progress/i,
+            'the reason must distinguish in-progress from never taken');
+    });
+
+    test('a rule pointing at a missing subject is unmet, not ignored', () => {
+        const target = subj('T');
+        const byId = new Map([[target.id, target]]);
+        const rules = [{
+            subject_id: target.id,
+            prerequisite_subject_id: 999999,
+            requirement_type: 'prerequisite',
+            rule_group: 1,
+        }];
+
+        const facts = buildFacts(student(), [], [target]);
+        const result = evaluateSubject(target, rules, facts, byId);
+
+        assert.equal(result.satisfied, false,
+            'silently dropping a dangling rule would open a gate the department closed');
+    });
+
+    test('a failed prerequisite is reported as needing a retake', () => {
+        const a = subj('A'), target = subj('T');
+        const byId = new Map([a, target].map(s => [s.id, s]));
+
+        const facts = buildFacts(student(), [rec(a, FAILED)], [a, target]);
+        const result = evaluateSubject(target, [rule(target, a)], facts, byId);
+
+        assert.match(result.trace[0].conditions[0].detail, /retake/i);
+    });
+
+    test('a subject with no rules at all is open', () => {
+        const target = subj('T');
+        const byId = new Map([[target.id, target]]);
+        const facts = buildFacts(student(), [], [target]);
+
+        assert.equal(evaluateSubject(target, [], facts, byId).satisfied, true);
+    });
+});
 
 
 /* ---- forward chaining ---- */
 
-/*
- * Derives which subjects become reachable once the given set is passed,
- * and how many terms away each one is.
- *
- * This is the fixpoint iteration. Start from the student's actual facts,
- * add the assumed passes, then repeatedly scan for subjects whose
- * conditions are now satisfied. Each sweep is one notional term. Stop
- * when a sweep derives nothing new.
- *
- * Depth 1 means "eligible now", depth 2 means "eligible after passing
- * what is eligible now", and so on. That number is what makes a
- * recommendation defensible: taking CC-COMPROG12 is not merely allowed,
- * it is what stands between the student and fifteen later subjects.
- */
-function chainForward(facts, kb, assumePassed = []) {
-    const passed = new Set(facts.passed);
-    for (const id of assumePassed) passed.add(id);
+describe('chainForward', () => {
 
-    const working = { ...facts, passed };
-    working.completedThroughYear = highestCompletedYear(passed, kb.subjects);
+    test('depth increases along a chain', () => {
+        const a = subj('A'), b = subj('B'), c = subj('C');
+        const subjects = [a, b, c];
+        const rules = [rule(b, a), rule(c, b)];
 
-    const depth = new Map();
-    let iteration = 0;
-    let derivedThisPass;
+        const kb = buildKb(subjects, rules);
+        const facts = buildFacts(student(), [rec(a, PASSED)], subjects);
+        const reach = chainForward(facts, kb);
 
-    do {
-        derivedThisPass = 0;
-        iteration++;
+        assert.equal(reach.get(b.id), 1, 'B is open now');
+        assert.equal(reach.get(c.id), 2, 'C opens once B is passed');
+    });
 
-        const newlyPassed = [];
+    test('a subject behind an unmet branch is not reachable', () => {
+        const a = subj('A'), b = subj('B'), target = subj('T');
+        const subjects = [a, b, target];
+        // T needs A and B; only A is ever passed and B has no route.
+        const rules = [rule(target, a, { group: 1 }), rule(target, b, { group: 2 })];
 
-        for (const subject of kb.subjects) {
-            if (working.passed.has(subject.id)) continue;
-            if (depth.has(subject.id)) continue;
+        const kb = buildKb(subjects, rules);
+        const facts = buildFacts(student(), [rec(a, PASSED)], subjects);
+        const reach = chainForward(facts, kb);
 
-            const rules = kb.rulesFor(subject.id);
-            const { satisfied } = evaluateSubject(subject, rules, working, kb.byId);
+        assert.equal(reach.get(b.id), 1, 'B itself has no prerequisites');
+        assert.equal(reach.get(target.id), 2, 'T follows once B is taken');
+    });
 
-            if (satisfied) {
-                depth.set(subject.id, iteration);
-                newlyPassed.push(subject.id);
-                derivedThisPass++;
-            }
-        }
+    test('a cycle terminates instead of spinning', () => {
+        const a = subj('A'), b = subj('B');
+        const subjects = [a, b];
+        const rules = [rule(a, b), rule(b, a)];   // mutually dependent
 
-        /* Assume this notional term is passed before the next sweep —
-           that is what makes the next depth level meaningful. */
-        for (const id of newlyPassed) working.passed.add(id);
-        working.completedThroughYear = highestCompletedYear(working.passed, kb.subjects);
+        const kb = buildKb(subjects, rules);
+        const facts = buildFacts(student(), [], subjects);
 
-    } while (derivedThisPass > 0 && iteration < DEFAULTS.maxIterations);
+        const reach = chainForward(facts, kb);
+        assert.equal(reach.size, 0, 'neither subject is ever reachable');
+    });
 
-    return depth;
-}
+    test('assumed passes open what they should', () => {
+        const a = subj('A'), b = subj('B');
+        const subjects = [a, b];
+        const rules = [rule(b, a)];
 
-/*
- * How many not-yet-passed subjects sit behind this one in the graph.
- *
- * Measured as transitive dependents: follow the prerequisite edges
- * backwards from this subject and count everything reachable that the
- * student has not already passed.
- *
- * An earlier version compared the forward-chain depth with and without
- * the subject. That was the wrong measure — chainForward assumes each
- * notional term is passed, so every subject is eventually reachable and
- * the difference only expressed how much *sooner* something arrived. The
- * question ranking needs is what is standing behind this subject, which
- * is a property of the graph rather than of the timeline.
- *
- * Conditions in the same rule_group are alternatives, so a subject with
- * two ways in is only half-blocked by either one. Counting it whole
- * would overstate the impact of a prerequisite the student can route
- * around.
- */
-function unlockImpact(subjectId, facts, kb) {
-    const dependents = kb.dependentsOf(subjectId);
-    const seen = new Set([subjectId]);
-    const queue = [...dependents];
+        const kb = buildKb(subjects, rules);
+        const facts = buildFacts(student(), [], subjects);
 
-    let count = 0;
+        assert.equal(chainForward(facts, kb).get(b.id), 2);
+        assert.equal(chainForward(facts, kb, [a.id]).get(b.id), 1,
+            'assuming A is passed brings B one term closer');
+    });
+});
 
-    while (queue.length > 0) {
-        const { id, weight } = queue.shift();
-        if (seen.has(id)) continue;
-        seen.add(id);
-
-        if (facts.passed.has(id)) continue;
-
-        count += weight;
-
-        for (const next of kb.dependentsOf(id)) {
-            if (!seen.has(next.id)) queue.push({ id: next.id, weight: weight * next.weight });
-        }
-    }
-
-    return Math.round(count * 10) / 10;
-}
-
-
-/* ---- main entry point ---- */
-
-/*
- * assess(student, records, knowledgeBase, options)
- *
- *   student  - university_student row
- *   records  - academic_record rows, one per attempt
- *   kb       - { subjects, rules, offerings }
- *   options  - { maxUnits, term, respectOfferings }
- */
-function assess(student, records, knowledgeBase, options = {}) {
-    const subjects  = knowledgeBase.subjects  ?? [];
-    const rules     = knowledgeBase.rules     ?? [];
-    const offerings = knowledgeBase.offerings ?? [];
-
+/* chainForward takes the internal kb shape assess() builds. */
+function buildKb(subjects, rules) {
     const byId = new Map(subjects.map(s => [s.id, s]));
 
-    const rulesBySubject = new Map();
+    const bySubject = new Map();
     for (const r of rules) {
-        if (!rulesBySubject.has(r.subject_id)) rulesBySubject.set(r.subject_id, []);
-        rulesBySubject.get(r.subject_id).push(r);
+        if (!bySubject.has(r.subject_id)) bySubject.set(r.subject_id, []);
+        bySubject.get(r.subject_id).push(r);
     }
 
-    /* Reverse index: which subjects require this one, and how heavily.
-       A condition sitting alone in its group blocks its dependent
-       outright; one of three alternatives blocks it by a third. */
     const dependents = new Map();
-    for (const [subjectId, subjectRules] of rulesBySubject) {
-        const groupSize = new Map();
-        for (const r of subjectRules) {
+    for (const [sid, rs] of bySubject) {
+        const size = new Map();
+        for (const r of rs) {
             const g = r.rule_group ?? 1;
-            groupSize.set(g, (groupSize.get(g) ?? 0) + 1);
+            size.set(g, (size.get(g) ?? 0) + 1);
         }
-
-        for (const r of subjectRules) {
+        for (const r of rs) {
             if (r.prerequisite_subject_id == null) continue;
-            const weight = 1 / groupSize.get(r.rule_group ?? 1);
+            const w = 1 / size.get(r.rule_group ?? 1);
             if (!dependents.has(r.prerequisite_subject_id)) {
                 dependents.set(r.prerequisite_subject_id, []);
             }
-            dependents.get(r.prerequisite_subject_id).push({ id: subjectId, weight });
+            dependents.get(r.prerequisite_subject_id).push({ id: sid, weight: w });
         }
-    }
-
-    const kb = {
-        subjects, byId,
-        rulesFor: (id) => rulesBySubject.get(id) ?? [],
-        dependentsOf: (id) => dependents.get(id) ?? [],
-    };
-
-    const facts = buildFacts(student, records, subjects);
-
-    const offeredIds = new Set(offerings.map(o => o.subject_id));
-    const respectOfferings = options.respectOfferings !== false && offerings.length > 0;
-
-    const eligible = [];
-    const locked   = [];
-    const completed = [];
-    const inProgress = [];
-
-    for (const subject of subjects) {
-        if (facts.passed.has(subject.id))   { completed.push(subject);  continue; }
-        if (facts.enrolled.has(subject.id)) { inProgress.push(subject); continue; }
-
-        const subjectRules = kb.rulesFor(subject.id);
-        const { satisfied, trace } = evaluateSubject(subject, subjectRules, facts, byId);
-
-        const offered = !respectOfferings || offeredIds.has(subject.id);
-
-        const entry = {
-            subject,
-            trace,
-            offered,
-            sections: offerings.filter(o => o.subject_id === subject.id),
-            retake: facts.failed.has(subject.id),
-        };
-
-        if (satisfied) {
-            eligible.push(entry);
-        } else {
-            entry.unmet = trace
-                .filter(g => !g.met)
-                .flatMap(g => g.conditions.filter(c => !c.met));
-            locked.push(entry);
-        }
-    }
-
-    /* Ranking, then the unit cap. */
-
-    for (const e of eligible) {
-        e.unlocks = unlockImpact(e.subject.id, facts, kb);
-        e.priority = scoreSubject(e, facts);
-    }
-
-    eligible.sort((a, b) =>
-        b.priority - a.priority ||
-        b.unlocks - a.unlocks ||
-        a.subject.year_level - b.subject.year_level ||
-        a.subject.code.localeCompare(b.subject.code));
-
-    const maxUnits = Number(options.maxUnits) || DEFAULTS.maxUnits;
-    const recommended = [];
-    let units = 0;
-
-    for (const e of eligible) {
-        /* A subject that is eligible but not scheduled is not a
-           recommendation. Sending a student to enrol in something the
-           department is not running is the failure this replaces. */
-        if (respectOfferings && !e.offered) continue;
-
-        const u = Number(e.subject.units) || 0;
-        if (units + u > maxUnits) continue;
-
-        recommended.push({ ...e, reason: recommendationReason(e, facts) });
-        units += u;
-    }
-
-    /* Depth from the forward chain tells a locked subject how far off it
-       is — one term, two, or unreachable within the horizon. */
-    const baseline = chainForward(facts, kb);
-    for (const l of locked) {
-        l.termsAway = baseline.get(l.subject.id) ?? null;
     }
 
     return {
-        facts: {
-            unitsEarned: facts.unitsEarned,
-            completedThroughYear: facts.completedThroughYear,
-            passedCount: facts.passed.size,
-            failedCount: facts.failed.size,
-            enrolledCount: facts.enrolled.size,
-        },
-        completed,
-        inProgress,
-        eligible,
-        locked,
-        recommended,
-        recommendedUnits: units,
-        maxUnits,
-        totalUnits: subjects.reduce((t, s) => t + Number(s.units || 0), 0),
+        subjects, byId,
+        rulesFor: id => bySubject.get(id) ?? [],
+        dependentsOf: id => dependents.get(id) ?? [],
     };
 }
 
 
-/*
- * Ranking weights.
- *
- * A retake outranks everything: a failed subject blocks its own chain and
- * delays graduation directly. After that, unlock impact — the subject
- * standing in front of the most others. Then cohort alignment, so a
- * student is not pushed forward while owing earlier work.
- */
-function scoreSubject(entry, facts) {
-    const s = entry.subject;
-    let score = 0;
+/* ---- the real prospectus ---- */
 
-    if (entry.retake) score += 1000;
+describe('BSIT 2023-2024', () => {
 
-    score += entry.unlocks * 25;
+    /* A slice of the real curriculum. Codes, units, year levels and rules
+       are as encoded in the database. */
+    function bsit() {
+        nextId = 100;
 
-    if (facts.yearLevel) {
-        const behind = facts.yearLevel - s.year_level;
-        if (behind > 0) score += behind * 60;   // owed from an earlier year
-        if (behind < 0) score += behind * 30;   // running ahead, deprioritised
+        const intcom  = subj('CC-INTCOM11',   { year: 1, term: 1 });
+        const prog1   = subj('CC-COMPROG11',  { year: 1, term: 1 });
+        const engl100 = subj('ENGL 100',      { year: 1, term: 1 });
+        const prog2   = subj('CC-COMPROG12',  { year: 1, term: 2 });
+        const discret = subj('CC-DISCRET12',  { year: 1, term: 2 });
+        const engl101 = subj('ENGL 101',      { year: 1, term: 2 });
+
+        const oop     = subj('IT-OOPROG21',   { year: 2, term: 1 });
+        const sad     = subj('IT-SAD21',      { year: 2, term: 1 });
+        const twrite  = subj('CC-TWRITE21',   { year: 2, term: 1 });
+        const appsdev = subj('CC-APPSDEV22',  { year: 2, term: 2 });
+
+        const profis  = subj('CC-PROFIS10',   { year: 3, term: 3 });
+
+        const subjects = [intcom, prog1, engl100, prog2, discret, engl101,
+                          oop, sad, twrite, appsdev, profis];
+
+        const rules = [
+            rule(prog2,   prog1),
+            rule(discret, intcom),
+            rule(engl101, engl100),
+            rule(oop,     prog2),
+            rule(sad,     prog2),
+            rule(twrite,  engl101, { group: 1 }),
+            rule(twrite,  intcom,  { group: 2 }),
+            // CC-APPSDEV22 requires both, in separate groups.
+            rule(appsdev, oop, { group: 1 }),
+            rule(appsdev, sad, { group: 2 }),
+            // "must finish all 1st year to 2nd year courses"
+            rule(profis, null, { type: 'standing', threshold: 2 }),
+        ];
+
+        return { subjects, rules, byCode: c => subjects.find(s => s.code === c) };
     }
 
-    if (!s.is_elective) score += 20;
+    test('a new student can take only the subjects with no prerequisites', () => {
+        const { subjects, rules, byCode } = bsit();
+        const out = assess(student(), [], kbOf(subjects, rules), ignoreOfferings);
 
-    return score;
-}
+        const open = out.eligible.map(e => e.subject.code).sort();
+        assert.deepEqual(open, ['CC-COMPROG11', 'CC-INTCOM11', 'ENGL 100'],
+            'first-term subjects only');
 
-function recommendationReason(entry, facts) {
-    if (entry.retake) {
-        return entry.unlocks > 0
-            ? `Retake. Passing this opens ${Math.round(entry.unlocks)} further subject${entry.unlocks === 1 ? '' : 's'}.`
-            : 'Retake. This subject was not passed and is still required.';
-    }
-
-    if (entry.unlocks >= 3) {
-        return `Opens ${Math.round(entry.unlocks)} later subjects — taking it now avoids a bottleneck.`;
-    }
-
-    if (facts.yearLevel && entry.subject.year_level < facts.yearLevel) {
-        return 'Outstanding from an earlier year level.';
-    }
-
-    return 'On track for this year level.';
-}
-
-
-/* Plain-language rendering of a trace, for the "Why is this locked?"
-   panel. Kept here rather than in the UI so every client explains a
-   result the same way. */
-function explain(entry) {
-    if (!entry.trace || entry.trace.length === 0) {
-        return ['No conditions — this subject is open to any student.'];
-    }
-
-    return entry.trace.map(group => {
-        const parts = group.conditions.map(c => c.detail);
-        const body = group.kind === 'any_of'
-            ? 'Any one of: ' + parts.join(' or ')
-            : parts.join(' ');
-        return (group.met ? '\u2713 ' : '\u2717 ') + body;
+        assert.ok(out.locked.some(l => l.subject.code === 'CC-APPSDEV22'));
     });
-}
+
+    test('CC-APPSDEV22 needs both IT-OOPROG21 and IT-SAD21', () => {
+        const { subjects, rules, byCode } = bsit();
+        const oop = byCode('IT-OOPROG21');
+        const sad = byCode('IT-SAD21');
+
+        const half = assess(student(), [rec(oop, PASSED)],
+            kbOf(subjects, rules), ignoreOfferings);
+        assert.ok(half.locked.some(l => l.subject.code === 'CC-APPSDEV22'),
+            'one of the two is not enough');
+
+        const both = assess(student(), [rec(oop, PASSED), rec(sad, PASSED)],
+            kbOf(subjects, rules), ignoreOfferings);
+        assert.ok(both.eligible.some(e => e.subject.code === 'CC-APPSDEV22'));
+    });
+
+    test('CC-PROFIS10 stays locked until every first and second year subject is passed', () => {
+        const { subjects, rules } = bsit();
+        const core = subjects.filter(s => s.year_level <= 2);
+
+        const allButOne = core.slice(1).map(s => rec(s, PASSED));
+        const partial = assess(student({ year: 3 }), allButOne,
+            kbOf(subjects, rules), ignoreOfferings);
+        assert.ok(partial.locked.some(l => l.subject.code === 'CC-PROFIS10'),
+            'one outstanding subject must keep the gate closed');
+
+        const complete = assess(student({ year: 3 }), core.map(s => rec(s, PASSED)),
+            kbOf(subjects, rules), ignoreOfferings);
+        assert.ok(complete.eligible.some(e => e.subject.code === 'CC-PROFIS10'));
+    });
+
+    test('a failed subject is recommended ahead of new work', () => {
+        const { subjects, rules, byCode } = bsit();
+        const prog1 = byCode('CC-COMPROG11');
+
+        const out = assess(student(), [rec(prog1, FAILED)],
+            kbOf(subjects, rules), ignoreOfferings);
+
+        assert.equal(out.recommended[0].subject.code, 'CC-COMPROG11');
+        assert.equal(out.recommended[0].retake, true);
+    });
+
+    test('the unit cap is respected', () => {
+        const { subjects, rules } = bsit();
+        const out = assess(student(), [], kbOf(subjects, rules),
+            { ...ignoreOfferings, maxUnits: 6 });
+
+        assert.ok(out.recommendedUnits <= 6);
+        assert.equal(out.recommended.length, 2, 'two three-unit subjects fit');
+    });
+
+    test('a locked subject knows how many terms away it is', () => {
+        const { subjects, rules } = bsit();
+        const out = assess(student(), [], kbOf(subjects, rules), ignoreOfferings);
+
+        const appsdev = out.locked.find(l => l.subject.code === 'CC-APPSDEV22');
+        assert.ok(appsdev.termsAway >= 3,
+            'COMPROG11 -> COMPROG12 -> OOPROG21 -> APPSDEV22');
+    });
+
+    test('every locked subject carries at least one unmet reason', () => {
+        const { subjects, rules } = bsit();
+        const out = assess(student(), [], kbOf(subjects, rules), ignoreOfferings);
+
+        for (const l of out.locked) {
+            assert.ok(l.unmet.length > 0,
+                `${l.subject.code} is locked with no reason given`);
+        }
+    });
+
+    test('a passed subject is completed, not eligible', () => {
+        const { subjects, rules, byCode } = bsit();
+        const intcom = byCode('CC-INTCOM11');
+
+        const out = assess(student(), [rec(intcom, PASSED)],
+            kbOf(subjects, rules), ignoreOfferings);
+
+        assert.ok(out.completed.some(s => s.code === 'CC-INTCOM11'));
+        assert.ok(!out.eligible.some(e => e.subject.code === 'CC-INTCOM11'));
+    });
+
+    test('an enrolled subject is in progress, not eligible', () => {
+        const { subjects, rules, byCode } = bsit();
+        const intcom = byCode('CC-INTCOM11');
+
+        const out = assess(student(), [rec(intcom, ENROLLED)],
+            kbOf(subjects, rules), ignoreOfferings);
+
+        assert.ok(out.inProgress.some(s => s.code === 'CC-INTCOM11'));
+        assert.ok(!out.eligible.some(e => e.subject.code === 'CC-INTCOM11'));
+    });
+});
 
 
-return {
-    assess,
-    buildFacts,
-    evaluateSubject,
-    chainForward,
-    highestCompletedYear,
-    explain,
-    DEFAULTS,
-    PASSED, FAILED, ENROLLED,
-    PREREQUISITE, CO_REQUISITE, STANDING,
-};
+/* ---- offerings ---- */
 
-}));
+describe('offerings', () => {
+
+    test('an eligible subject that is not offered is not recommended', () => {
+        const a = subj('A'), b = subj('B');
+        const subjects = [a, b];
+        const kb = kbOf(subjects, [], [{ subject_id: a.id, section: '1-A' }]);
+
+        const out = assess(student(), [], kb);
+
+        assert.equal(out.eligible.length, 2, 'both are eligible by the rules');
+        assert.deepEqual(out.recommended.map(r => r.subject.code), ['A'],
+            'only the one actually being run is recommended');
+    });
+});
+
+
+/* ---- explanations ---- */
+
+describe('explain', () => {
+
+    test('a locked subject explains which condition failed', () => {
+        const a = subj('A'), target = subj('T');
+        const out = assess(student(), [], kbOf([a, target], [rule(target, a)]),
+            ignoreOfferings);
+
+        const locked = out.locked.find(l => l.subject.code === 'T');
+        const lines = explain(locked);
+
+        assert.ok(lines.length > 0);
+        assert.ok(lines.some(l => l.includes('A')),
+            'the blocking subject must be named');
+    });
+
+    test('an alternative group is explained as a choice', () => {
+        const a = subj('A'), b = subj('B'), target = subj('T');
+        const rules = [rule(target, a, { group: 1 }), rule(target, b, { group: 1 })];
+
+        const out = assess(student(), [], kbOf([a, b, target], rules), ignoreOfferings);
+        const locked = out.locked.find(l => l.subject.code === 'T');
+
+        assert.ok(explain(locked).some(l => /any one of/i.test(l)),
+            'a disjunction must not read as though both are required');
+    });
+});
