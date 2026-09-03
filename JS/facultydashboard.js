@@ -237,7 +237,7 @@ async function loadStudents(force = false) {
 
     const { data, error } = await supabase
         .from('university_student')
-        .select('id, user_id, first_name, last_name, student_id, email, year_level, is_approved, record_verified')
+        .select('id, user_id, first_name, last_name, student_id, email, year_level, is_approved, record_verified, prospectus_id')
         .order('last_name', { ascending: true });
 
     if (error) {
@@ -410,6 +410,84 @@ function renderRecent() {
 
 /* student detail */
 
+/* ============================================================
+   Paste over the existing openStudent() and loadStudentRecord()
+   in facultydashboard.js. loadStudentRecord's fetch has been split
+   out so the record is loaded once and used twice — the engine
+   needs the same rows the table renders.
+   ============================================================ */
+
+
+/* eligibility */
+
+/* One knowledge base per prospectus version, cached. Faculty move
+   between students and most share a version; a student who started
+   earlier is assessed against the curriculum they enrolled under, not
+   whichever version happens to be active. */
+const KB_CACHE = new Map();
+
+async function kbFor(prospectusId) {
+    if (KB_CACHE.has(prospectusId)) return KB_CACHE.get(prospectusId);
+
+    const [subs, rules] = await Promise.all([
+        supabase.from('subject')
+            .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, category')
+            .eq('prospectus_id', prospectusId),
+        supabase.from('prerequisite')
+            .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
+    ]);
+
+    if (subs.error)  console.warn('subject load failed:', subs.error.message);
+    if (rules.error) console.warn('rule load failed:', rules.error.message);
+
+    const kb = {
+        subjects:  subs.data  ?? [],
+        rules:     rules.data ?? [],
+        /* Offerings are not consulted here. An adviser needs to see what a
+           student is qualified for, not only what the department happens
+           to be running this term. */
+        offerings: [],
+    };
+
+    KB_CACHE.set(prospectusId, kb);
+    return kb;
+}
+
+/* assess() output -> the grid's status map. */
+function statusMap(result) {
+    const map = new Map();
+    if (!result) return map;
+
+    for (const s of result.completed) {
+        map.set(s.id, { state: 'passed', detail: 'Passed' });
+    }
+
+    for (const s of result.inProgress) {
+        map.set(s.id, { state: 'enrolled', detail: 'Currently enrolled' });
+    }
+
+    for (const e of result.eligible) {
+        map.set(e.subject.id, {
+            state:  e.retake ? 'retake' : 'eligible',
+            detail: e.retake
+                ? 'Previously failed. Eligible to retake.'
+                : 'All requirements met.',
+        });
+    }
+
+    for (const l of result.locked) {
+        map.set(l.subject.id, {
+            state:  'blocked',
+            detail: l.unmet.map(u => u.detail).join(' '),
+        });
+    }
+
+    return map;
+}
+
+
+/* student detail */
+
 async function openStudent(studentRowId) {
     const userId = studentRowId;   // university_student.id, not user_id
     const student = STUDENTS.find(s => s.id === userId);
@@ -436,10 +514,12 @@ async function openStudent(studentRowId) {
     setText('detail-sub',
         `${student.student_id || 'No ID'} · ${ordinal(student.year_level) || 'Year not set'} · BS Information Technology`);
 
-    // Eligibility panel — blocked on the knowledge base, same as the
-    // student's own dashboard. Say why rather than showing a blank card.
     const eligNote = $('detail-elig-note');
     const eligBody = $('detail-elig-body');
+
+    // Load once. The table below and the engine above read the same rows.
+    const records = await fetchRecords(userId);
+    renderStudentRecord(records);
 
     if (!student.record_verified) {
         if (eligNote) eligNote.textContent = '';
@@ -452,63 +532,120 @@ async function openStudent(studentRowId) {
                     confirms this student's academic record.
                 </p>
             </div>`;
-    } else {
-        if (eligNote) eligNote.textContent = 'Awaiting curriculum data';
+        return;
+    }
+
+    if (!student.prospectus_id) {
+        if (eligNote) eligNote.textContent = '';
+        eligBody.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>No curriculum version set</h3>
+                <p>
+                    This student is not linked to a prospectus version, so eligibility
+                    cannot be computed. The Office of the Registrar can set it.
+                </p>
+            </div>`;
+        return;
+    }
+
+    if (typeof CurricuLogicEngine === 'undefined' ||
+        typeof window.ProspectusGrid === 'undefined') {
+        console.error('engine.js or prospectusgrid.js not loaded — check script order');
+        if (eligNote) eligNote.textContent = '';
+        eligBody.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not run the assessment</h3>
+                <p>The inference engine did not load.</p>
+            </div>`;
+        return;
+    }
+
+    if (eligNote) eligNote.textContent = '';
+    eligBody.innerHTML = `
+        <div class="empty">
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <h3>Assessing</h3>
+            <p>Checking this student against the curriculum.</p>
+        </div>`;
+
+    const kb = await kbFor(student.prospectus_id);
+
+    if (kb.subjects.length === 0) {
         eligBody.innerHTML = `
             <div class="empty">
                 <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
-                <h3>Curriculum not yet available</h3>
+                <h3>Curriculum not yet encoded</h3>
                 <p>
-                    This student's record is verified, but the BSIT prospectus has
-                    not been encoded yet. Eligibility and the reasoning behind each
-                    result will appear here once it is.
+                    This student's prospectus version has no subjects, so eligibility
+                    cannot be computed.
                 </p>
             </div>`;
+        return;
     }
 
-    await loadStudentRecord(userId);
+    const result = CurricuLogicEngine.assess(
+        { id: student.id, year_level: student.year_level },
+        records,
+        kb,
+        { respectOfferings: false },
+    );
+
+    if (eligNote && result) {
+        eligNote.textContent =
+            `${result.completed.length} passed · ` +
+            `${result.eligible.length} available · ` +
+            `${result.locked.length} locked`;
+    }
+
+    await window.ProspectusGrid.render(
+        supabase, student.prospectus_id, eligBody, statusMap(result));
 }
 
-async function loadStudentRecord(userId) {
+
+/* academic record */
+
+/* Fetch only. openStudent needs these rows for the engine as well as for
+   the table, and querying twice would be both slower and a chance for
+   the two panels to disagree. */
+async function fetchRecords(userId) {
+    if (PREVIEW) return PREVIEW_RECORDS[userId] ?? [];
+
+    const { data, error } = await supabase
+        .from('academic_record')
+        .select('id, subject_id, grade, grade_points, status, taken_term, taken_year, subject:subject_id (code, title, units)')
+        .eq('student_id', userId)
+        .order('taken_year', { ascending: true })
+        .order('taken_term', { ascending: true });
+
+    if (error) {
+        console.warn('record load failed:', error.message);
+        return null;               // distinct from "no records"
+    }
+
+    return (data ?? []).map((r) => ({
+        ...r,
+        subject_code:  r.subject?.code  ?? r.subject_code  ?? '—',
+        subject_title: r.subject?.title ?? r.subject_title ?? '—',
+        units:         r.subject?.units ?? r.units         ?? 0,
+    }));
+}
+
+function renderStudentRecord(records) {
     const body  = $('detail-record-body');
     const count = $('detail-record-count');
     if (!body) return;
 
-    body.innerHTML = `
-        <div class="empty">
-            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-            <h3>Loading</h3>
-            <p>Fetching the academic record.</p>
-        </div>`;
-
-    let records = [];
-
-    if (PREVIEW) {
-        records = PREVIEW_RECORDS[userId] ?? [];
-    } else {
-        const { data, error } = await supabase
-            .from('academic_record')
-            .select('id, subject_id, grade, grade_points, status, taken_term, taken_year, subject:subject_id (code, title, units)')
-            .eq('student_id', userId)
-            .order('taken_year', { ascending: true })
-            .order('taken_term', { ascending: true });
-
-        if (error) {
-            console.warn('record load failed:', error.message);
-            body.innerHTML = `
-                <div class="empty">
-                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
-                    <h3>Could not load the record</h3>
-                    <p>${escapeHtml(error.message)}</p>
-                </div>`;
-            return;
-        }
-        records = (data ?? []).map((r) => ({
-            ...r,
-            subject_code:  r.subject?.code  ?? r.subject_code  ?? '—',
-            subject_title: r.subject?.title ?? r.subject_title ?? '—',
-            units:         r.subject?.units ?? r.units         ?? 0,
-        }));
+    if (records === null) {
+        if (count) count.textContent = '';
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load the record</h3>
+                <p>The academic record could not be read. Check the console for details.</p>
+            </div>`;
+        return;
     }
 
     const passed = records.filter(r => r.status === 'PASSED');
@@ -526,8 +663,8 @@ async function loadStudentRecord(userId) {
                 <i class="fa-solid fa-file-circle-question" aria-hidden="true"></i>
                 <h3>No subjects recorded</h3>
                 <p>
-                    This student has not entered any subject history yet. Eligibility
-                    cannot be computed without it.
+                    This student has no subject history yet. Eligibility cannot be
+                    computed without it.
                 </p>
             </div>`;
         return;

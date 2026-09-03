@@ -258,9 +258,41 @@ function renderStats() {
     if (hint) hint.textContent = `${RESULT.recommended.length} suggested this term`;
 }
 
+/* assess() output -> the grid's status map.
+   A failed subject that is eligible again is a retake, not merely
+   available — the distinction is what a student most needs to see. */
+function statusMap(result, records) {
+    const map = new Map();
+    if (!result) return map;
+
+    const graded = new Map();
+    for (const r of records) {
+        if (r.status === 'PASSED' && r.subject_id) graded.set(r.subject_id, r.grade);
+    }
+
+    for (const s of result.completed)  map.set(s.id, { state: 'passed', detail: graded.get(s.id) ? `Grade ${graded.get(s.id)}` : 'Passed' });
+    for (const s of result.inProgress) map.set(s.id, { state: 'enrolled', detail: 'Currently enrolled' });
+
+    for (const e of result.eligible) {
+        map.set(e.subject.id, {
+            state: e.retake ? 'retake' : 'eligible',
+            detail: e.retake ? 'Previously failed. Retake available.' : 'All requirements met.',
+        });
+    }
+
+    for (const l of result.locked) {
+        map.set(l.subject.id, {
+            state: 'blocked',
+            detail: l.unmet.map(u => u.detail).join(' '),
+        });
+    }
+
+    return map;
+}
+
 /* eligibility */
 
-async function loadKnowledgeBase() {
+async function loadKnowledgeBase(student) { 
     if (KB) return KB;
 
     if (PREVIEW) {
@@ -270,7 +302,8 @@ async function loadKnowledgeBase() {
 
     const [subs, rules, offerings] = await Promise.all([
         supabase.from('subject')
-            .select('id, code, title, units, year_level, term, is_elective'),
+            .select('id, code, title, units, year_level, term, is_elective')
+            .eq('prospectus_id', student.prospectus_id),
         supabase.from('prerequisite')
             .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
         supabase.from('subject_offering')
@@ -278,6 +311,11 @@ async function loadKnowledgeBase() {
             .eq('academic_year', CURRENT_YEAR)
             .eq('term', CURRENT_TERM),
     ]);
+
+    console.log('[kb] prospectus', student.prospectus_id,
+                'subjects', subs.data?.length, subs.error?.message,
+                'rules', rules.data?.length, rules.error?.message,
+                'offerings', offerings.data?.length, offerings.error?.message);
 
     if (subs.error)  console.warn('subject load failed:', subs.error.message);
     if (rules.error) console.warn('rule load failed:', rules.error.message);
@@ -297,12 +335,12 @@ async function loadKnowledgeBase() {
 
 async function runAssessment(student) {
     if (!student || !student.record_verified) return null;
-    if (typeof CurricuLogicEngine === 'undefined') {
-        console.error('engine not loaded — check the script tag order');
+    if (!student.prospectus_id) {
+        console.warn('student has no prospectus_id — cannot assess');
         return null;
     }
 
-    const kb = await loadKnowledgeBase();
+    const kb = await loadKnowledgeBase(student);
     if (kb.subjects.length === 0) return null;
 
     return CurricuLogicEngine.assess(
@@ -631,75 +669,26 @@ async function loadProspectus() {
 
     prospectusLoaded = true;
 
-    if (!supabase || PREVIEW) return renderProspectusEmpty();
-
-    const { data, error } = await supabase
-        .from('subject')
-        .select('code, title, units, year_level, term, is_elective')
-        .order('year_level', { ascending: true })
-        .order('term', { ascending: true });
-
-    // An empty subject table is a legitimate state until the prospectus is
-    // published, not an error worth surfacing to the student.
-    if (error) {
-        console.warn('prospectus load failed:', error.message);
+    if (!supabase || PREVIEW || !STUDENT?.prospectus_id) {
         return renderProspectusEmpty();
     }
 
-    if (!data || data.length === 0) return renderProspectusEmpty();
-
-    if (note) note.textContent = `${data.length} subjects`;
-
-    const byYear = new Map();
-    for (const s of data) {
-        const key = `${s.year_level}-${s.term}`;
-        if (!byYear.has(key)) byYear.set(key, []);
-        byYear.get(key).push(s);
+    if (typeof window.ProspectusGrid === 'undefined') {
+        console.error('prospectusgrid.js not loaded — check the script tag');
+        return renderProspectusEmpty();
     }
 
-    const passed = new Set(RECORDS.filter(r => r.status === 'PASSED').map(r => r.subject_code));
+    const result = await runAssessment(STUDENT);
+    const sm = statusMap(result, RECORDS);
 
-    body.innerHTML = [...byYear.entries()].map(([key, subjects]) => {
-        const [year, term] = key.split('-');
-        const rows = subjects.map(s => `
-            <tr>
-                <td class="mono">${escapeHtml(s.code)}</td>
-                <td>
-                    ${escapeHtml(s.title)}
-                    ${s.is_elective ? '<span class="pill info">Elective</span>' : ''}
-                </td>
-                <td class="num">${escapeHtml(s.units)}</td>
-                <td>${passed.has(s.code)
-                    ? '<span class="pill ok">Passed</span>'
-                    : '<span class="pill waiting">Not taken</span>'}</td>
-            </tr>`).join('');
+    console.log('[prospectus] result?', !!result, 'statuses:', sm.size);
 
-        return `
-            <h3 class="group-head">${ordinal(Number(year))} · ${termLabel(Number(term))}</h3>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr><th>Code</th><th>Descriptive title</th><th class="num">Units</th><th>Status</th></tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>`;
-    }).join('');
-}
+    if (note && result) {
+        note.textContent =
+            `${result.completed.length} passed · ${result.eligible.length} available`;
+    }
 
-function renderProspectusEmpty() {
-    const body = $('prospectus-body');
-    if (!body) return;
-    body.innerHTML = `
-        <div class="empty">
-            <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
-            <h3>Curriculum not yet published</h3>
-            <p>
-                The BSIT prospectus has not been encoded in the system yet. Once it
-                is, every subject will appear here grouped by year and term, with
-                your status against each one.
-            </p>
-        </div>`;
+    await window.ProspectusGrid.render(supabase, STUDENT.prospectus_id, body, sm);
 }
 
 
@@ -741,7 +730,7 @@ function render(student, email) {
 
     const { data: student, error } = await supabase
         .from('university_student')
-        .select('id, first_name, last_name, student_id, email, year_level, is_approved, record_verified')
+        .select('id, user_id, student_id, first_name, last_name, email, year_level, is_approved, record_verified, prospectus_id')
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 

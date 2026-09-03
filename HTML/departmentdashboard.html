@@ -162,6 +162,40 @@
 
                 <section class="card">
                     <div class="card-head">
+                        <span class="card-title">Versions</span>
+                        <span class="card-note" id="pros-count"></span>
+                    </div>
+                    <div class="card-body" id="pros-body"></div>
+                </section>
+
+                <!-- Curriculum grid -->
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Curriculum</span>
+                        <select class="pg-version-select" id="pg-version" aria-label="Curriculum version"></select>
+                    </div>
+                    <div class="card-body">
+                        <div id="prospectus-grid"></div>
+                    </div>
+                </section>
+
+            </section>
+
+            <!-- Curriculum -->
+            <section class="view" id="view-curriculum" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Curriculum</h1>
+                    <p class="page-sub">
+                        Every subject in the active prospectus. Open a subject to edit
+                        the conditions a student must satisfy before taking it.
+                    </p>
+                </div>
+
+                <div id="curriculum-msg" class="msg" role="status"></div>
+
+                    <section class="card">
+                    <div class="card-head">
                         <span class="card-title">New version</span>
                         <button class="btn-small" id="toggle-new-pros">Show</button>
                     </div>
@@ -201,57 +235,7 @@
 
                     </div>
                 </section>
-
-                <section class="card">
-                    <div class="card-head">
-                        <span class="card-title">Versions</span>
-                        <span class="card-note" id="pros-count"></span>
-                    </div>
-                    <div class="card-body" id="pros-body"></div>
-                </section>
-
-                <!-- Curriculum grid -->
-                <section class="card">
-                    <div class="card-head">
-                        <span class="card-title">Curriculum</span>
-                        <select class="pg-version-select" id="pg-version" aria-label="Curriculum version"></select>
-                    </div>
-                    <div class="card-body">
-                        <div id="prospectus-grid"></div>
-                    </div>
-                </section>
-
-            </section>
-
-            <!-- Curriculum -->
-            <section class="view" id="view-curriculum" hidden>
-
-                <div class="page-head">
-                    <h1 class="page-title">Curriculum</h1>
-                    <p class="page-sub">
-                        Every subject in the active prospectus. Open a subject to edit
-                        the conditions a student must satisfy before taking it.
-                    </p>
-                </div>
-
-                <div id="curriculum-msg" class="msg" role="status"></div>
-
-                <section class="card">
-                    <div class="card-head">
-                        <span class="card-title">Editing</span>
-                        <span class="card-note" id="editing-note"></span>
-                    </div>
-                    <div class="card-body">
-                        <div class="toolbar">
-                            <div class="field">
-                                <label for="edit-prospectus">Prospectus version</label>
-                                <select id="edit-prospectus"></select>
-                            </div>
-                        </div>
-                        <p class="hint" id="editing-warning"></p>
-                    </div>
-                </section>
-
+                
                 <section class="card">
                     <div class="card-head">
                         <span class="card-title">Upload a curriculum</span>
@@ -760,5 +744,6 @@
 <script src="../JS/config.js"></script>
 <script src="../JS/prospectusgrid.js"></script>
 <script src="../JS/departmentdashboard.js"></script>
+<script src="../JS/studentpreview.js"></script>
 </body>
 </html>
