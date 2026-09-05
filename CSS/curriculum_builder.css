@@ -1,0 +1,255 @@
+/* curriculumbuilder.css — build a curriculum by hand.
+   Scoped under .cb. Load after dashboard.css. */
+
+/* The builder must never be wider than the card it sits in. Grid tracks
+   default to min-content, so without min-width:0 the two semester tables
+   push the whole container out and the stats bar overflows with it. */
+.cb { max-width: 100%; min-width: 0; overflow-x: hidden; }
+.cb > * { min-width: 0; }
+
+/* stats */
+.cb .cb-stats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 1rem; }
+.cb .cb-stat  { background: var(--surface-2, #F1F5F9); border-radius: 10px; padding: 12px 14px; }
+.cb .cb-stat .k { margin: 0; font-size: 13px; color: var(--ink-2, #475569); }
+.cb .cb-stat .v { margin: 2px 0 0; font: 600 24px/1.2 var(--font-display, 'Space Grotesk', sans-serif); }
+.cb .cb-stat .u { margin: 2px 0 0; font-size: 12px; color: var(--ink-3, #94A3B8); }
+.cb .cb-stat.ok  { background: #ECFDF5; }
+.cb .cb-stat.ok .k, .cb .cb-stat.ok .v { color: #059669; }
+.cb .cb-stat.bad { background: #FEF2F2; }
+.cb .cb-stat.bad .k, .cb .cb-stat.bad .v { color: #DC2626; }
+
+/* tabs */
+.cb .cb-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line, #E2E8F0); margin-bottom: 16px; overflow-x: auto; overflow-y: hidden; }
+.cb .cb-tab { font: 500 13px/1 var(--font-body, 'Inter', sans-serif); padding: 9px 16px; border: none; background: none; color: var(--ink-2, #475569); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.cb .cb-tab:hover { color: var(--ink, #0F172A); }
+.cb .cb-tab.on { color: var(--accent, #4F46E5); border-bottom-color: var(--accent, #4F46E5); }
+.cb .cb-count { display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: #FEE2E2; color: #DC2626; font-size: 11px; }
+.cb .cb-n { display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2, #F1F5F9); color: var(--ink-2, #475569); font-size: 11px; }
+
+/* panels */
+.cb .cb-sems { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; margin-bottom: 16px; }
+.cb .cb-summer { max-width: calc(50% - 8px); }
+.cb .cb-panel { min-width: 0; background: var(--surface, #FFF); border: 1px solid var(--line, #E2E8F0); border-radius: 12px; overflow: visible; }
+.cb .cb-panel-head { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--line, #E2E8F0); background: var(--surface-2, #F1F5F9); font-size: 14px; font-weight: 500; border-radius: 12px 12px 0 0; }
+.cb .cb-dim { color: var(--ink-3, #94A3B8); font-weight: 400; font-size: 13px; }
+.cb .cb-panel-foot { padding: 10px 16px; border-top: 1px solid var(--line, #E2E8F0); }
+.cb .cb-panel-foot button { font-size: 13px; }
+
+/* table */
+.cb table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.cb th { font: 500 11px/1 var(--font-body, 'Inter', sans-serif); color: var(--ink-3, #94A3B8); text-transform: uppercase; letter-spacing: .04em; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line, #E2E8F0); }
+.cb td { padding: 5px 10px; border-bottom: 1px solid var(--line, #E2E8F0); vertical-align: middle; }
+.cb tbody tr:last-child td { border-bottom: none; }
+.cb th.n, .cb td.n { text-align: center; width: 46px; }
+.cb td.cb-del { width: 30px; text-align: center; }
+.cb tr.cb-none td { padding: 16px 10px; text-align: center; font-size: 13px; color: var(--ink-3, #94A3B8); }
+
+.cb td input { width: 100%; height: 32px; padding: 0 8px; font: 400 13px/1 var(--font-body, 'Inter', sans-serif); border: 1px solid var(--line, #E2E8F0); border-radius: 6px; background: #FFF; }
+.cb td input::placeholder { color: #CBD5E1; }
+.cb td input:focus-visible { outline: 2px solid var(--accent, #4F46E5); outline-offset: 1px; border-color: transparent; }
+.cb td.n input { text-align: center; padding: 0 4px; }
+.cb td input[data-f="code"] { font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 12px; text-transform: uppercase; }
+
+.cb .cb-total { font: 500 13px/1 var(--font-mono, monospace); color: var(--ink-2, #475569); }
+
+.cb tr.cb-bad td input { border-color: #FCA5A5; background: #FFFBFB; }
+
+/* Column shares under table-layout:fixed. Code and prerequisite need
+   room; the title takes what is left. */
+.cb th:nth-child(1) { width: 22%; }
+.cb th:nth-child(6) { width: 26%; }
+.cb td { overflow: hidden; }
+
+/* prerequisite picker */
+.cb .cb-pre { position: relative; }
+.cb .cb-pick { position: relative; }
+.cb .cb-chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 32px; align-items: center; padding: 4px 8px; border: 1px solid var(--line, #E2E8F0); border-radius: 6px; cursor: pointer; background: #FFF; }
+.cb .cb-chips:hover { border-color: var(--line-strong, #CBD5E1); }
+.cb .cb-pick-empty { font-size: 12px; color: #CBD5E1; }
+.cb .cb-chip { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft, #EEF2FF); color: var(--accent, #4F46E5); font: 500 11px/1.5 var(--font-mono, monospace); }
+.cb .cb-chip.mark { background: #FFFBEB; color: #B45309; }
+
+.cb .cb-picker { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; width: 320px; background: #FFF; border: 1px solid var(--line-strong, #CBD5E1); border-radius: 10px; box-shadow: 0 8px 24px rgba(15,23,42,.12); overflow: hidden; }
+.cb .cb-pick-search { width: 100%; height: 34px; padding: 0 10px; border: none; border-bottom: 1px solid var(--line, #E2E8F0); font-size: 13px; }
+.cb .cb-pick-search:focus-visible { outline: none; }
+.cb .cb-pick-list { max-height: 260px; overflow-y: auto; padding: 4px 0; }
+.cb .cb-pick-group { margin: 0; padding: 6px 10px 3px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3, #94A3B8); }
+.cb .cb-pick-row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+.cb .cb-pick-row:hover { background: var(--surface-2, #F1F5F9); }
+.cb .cb-pick-row input { width: auto; height: auto; margin: 0; }
+.cb .cb-pick-code { font: 500 11px/1.4 var(--font-mono, monospace); min-width: 96px; }
+.cb .cb-pick-title { color: var(--ink-2, #475569); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb .cb-pick-none { margin: 0; padding: 14px 10px; text-align: center; font-size: 13px; color: var(--ink-3, #94A3B8); }
+.cb .cb-pick-foot { padding: 8px 10px; border-top: 1px solid var(--line, #E2E8F0); text-align: right; }
+.cb .cb-pick-done { font-size: 13px; }
+
+/* buttons — defined here rather than inherited, so the builder looks
+   right regardless of what dashboard.css names its button classes. */
+.cb button {
+    font: 500 13px/1 var(--font-body, 'Inter', sans-serif);
+    padding: 8px 14px;
+    border: 1px solid var(--line-strong, #CBD5E1);
+    border-radius: 8px;
+    background: #FFF;
+    color: var(--ink, #0F172A);
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+}
+.cb button:hover { background: var(--surface-2, #F1F5F9); }
+.cb button:active { background: #E2E8F0; }
+.cb button:focus-visible { outline: 2px solid var(--accent, #4F46E5); outline-offset: 1px; }
+
+.cb button.btn-primary,
+.cb #cb-create {
+    background: var(--accent, #4F46E5);
+    border-color: var(--accent, #4F46E5);
+    color: #FFF;
+}
+.cb button.btn-primary:hover,
+.cb #cb-create:hover { background: #4338CA; border-color: #4338CA; }
+
+/* add-subject sits inside a panel foot; quieter than a primary action */
+.cb .cb-panel-foot button {
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--accent, #4F46E5);
+    border-color: transparent;
+    background: none;
+}
+.cb .cb-panel-foot button:hover {
+    background: var(--accent-soft, #EEF2FF);
+    border-color: transparent;
+}
+
+/* row delete is an icon, not a button shape */
+.cb .cb-del button {
+    width: 26px; height: 26px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--ink-3, #94A3B8);
+    font-size: 16px;
+    line-height: 1;
+    border-radius: 6px;
+}
+.cb .cb-del button:hover { background: #FEE2E2; color: #DC2626; }
+
+.cb .cb-pick-done {
+    padding: 5px 12px;
+    font-size: 13px;
+    background: var(--accent, #4F46E5);
+    border-color: var(--accent, #4F46E5);
+    color: #FFF;
+}
+.cb .cb-pick-done:hover { background: #4338CA; }
+
+/* actions */
+.cb .cb-actions { display: flex; align-items: center; gap: 8px; padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line, #E2E8F0); }
+.cb .cb-actions button[disabled] { opacity: .5; cursor: not-allowed; }
+.cb .cb-hint { margin-left: auto; font-size: 13px; color: var(--ink-2, #475569); }
+
+@media (max-width: 1080px) {
+    .cb .cb-sems { grid-template-columns: 1fr; }
+    .cb .cb-summer { max-width: 100%; }
+    .cb .cb-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ---- preview ----
+   Full-width read-only view of what has been typed. The builder's cells
+   are inputs and clip long titles; this is where the operator checks the
+   wording before committing. Rendered from memory, so it works on an
+   unsaved draft. */
+
+.cbp-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(15, 23, 42, .45);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 3rem 1.5rem; overflow-y: auto;
+}
+.cbp-modal {
+    width: 100%; max-width: 68rem;
+    background: var(--canvas, #F8FAFC);
+    border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, .25);
+    overflow: hidden;
+}
+
+.cbp-bar {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 16px 20px;
+    background: #FFF;
+    border-bottom: 1px solid var(--line, #E2E8F0);
+    position: sticky; top: 0; z-index: 2;
+}
+.cbp-title { margin: 0; font: 600 16px/1.3 var(--font-display, 'Space Grotesk', sans-serif); }
+.cbp-sub   { margin: 2px 0 0; font-size: 13px; color: var(--ink-2, #475569); }
+.cbp-close {
+    width: 30px; height: 30px; padding: 0;
+    border: none; background: none; border-radius: 6px;
+    font-size: 22px; line-height: 1; color: var(--ink-3, #94A3B8); cursor: pointer;
+}
+.cbp-close:hover { background: var(--surface-2, #F1F5F9); color: var(--ink, #0F172A); }
+
+.cbp-body { padding: 15px; }
+.cbp-year {
+    margin: 20px 0 10px;
+    font: 600 14px/1.3 var(--font-display, 'Space Grotesk', sans-serif);
+    color: var(--ink-2, #475569);
+}
+.cbp-body > .cbp-year:first-child { margin-top: 0; }
+.cbp-sems { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
+
+.cbp-panel {
+    background: #FFF;
+    border: 1px solid var(--line, #E2E8F0);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 14px;
+}
+.cbp-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 10px 14px;
+    background: var(--surface-2, #F1F5F9);
+    border-bottom: 1px solid var(--line, #E2E8F0);
+    font-size: 13px; font-weight: 500;
+}
+.cbp-dim { color: var(--ink-3, #94A3B8); font-weight: 400; }
+
+.cbp-panel table { width: 100%; border-collapse: collapse; }
+.cbp-panel th {
+    font: 500 11px/1 var(--font-body, 'Inter', sans-serif);
+    color: var(--ink-3, #94A3B8);
+    text-transform: uppercase; letter-spacing: .04em;
+    text-align: left; padding: 7px 14px;
+    border-bottom: 1px solid var(--line, #E2E8F0);
+}
+.cbp-panel td {
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--line, #E2E8F0);
+    font-size: 13px;
+    vertical-align: top;
+    /* The point of the preview: titles wrap instead of being clipped. */
+    white-space: normal;
+    word-break: break-word;
+}
+.cbp-panel tbody tr:last-child td { border-bottom: none; }
+.cbp-panel th.n, .cbp-panel td.n { text-align: center; width: 42px; }
+.cbp-panel td.n.b { font-weight: 500; }
+.cbp-code { font: 500 12px/1.4 var(--font-mono, 'JetBrains Mono', monospace); white-space: nowrap; }
+.cbp-pre  { font: 400 11px/1.5 var(--font-mono, monospace); color: var(--ink-2, #475569); }
+.cbp-mark { color: #B45309; }
+
+.cbp-foot {
+    display: flex; justify-content: space-between;
+    padding: 9px 14px;
+    background: var(--surface-2, #F1F5F9);
+    border-top: 1px solid var(--line, #E2E8F0);
+    font-size: 12px;
+}
+.cbp-foot span:first-child { text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2, #475569); }
+.cbp-foot span:last-child  { font: 500 12px/1.4 var(--font-mono, monospace); }
+
+@media (max-width: 900px) {
+    .cbp-sems { grid-template-columns: 1fr; }
+    .cbp-overlay { padding: 1rem; }
+}
