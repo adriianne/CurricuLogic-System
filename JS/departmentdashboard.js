@@ -236,6 +236,7 @@ async function loadCurriculum() {
        follows EDITING rather than assuming the active version. Defaulting
        to active keeps the common case one click shorter. */
     if (!EDITING) EDITING = active;
+        mountCurriculumBuilder(); 
 
     const pros = EDITING;
 
@@ -286,7 +287,7 @@ function afterLoad() {
 /* dashboard */
 
 function renderStats() {
-    const units   = SUBJECTS.reduce((t, s) => t + Number(s.units || 0), 0);
+   const units = SUBJECTS.filter(s => s.term != null).reduce((t, s) => t + Number(s.units || 0), 0);
     const gated   = new Set(RULES.map(r => r.subject_id));
     const ungated = SUBJECTS.filter(s => s.year_level >= 2 && !gated.has(s.id)).length;
 
@@ -740,349 +741,26 @@ $('add-rule')?.addEventListener('click', addRule);
 
 /* curriculum upload */
 
-const SUBJ_HEADERS   = ['code','title','units','year_level','term','is_elective'];
-const PREREQ_HEADERS = ['subject_code','prerequisite_code','requirement_type',
-                        'rule_group','threshold_value'];
 
-let PENDING_SUBJECTS = [];
-let PENDING_RULES    = [];
 
 /* Which version the Curriculum tab is editing. Defaults to the active
    one; a draft has to be selectable or a new version could never be
    filled in. */
+/* The year picker lives inside the builder now — it can also offer years
+   that have no prospectus row yet, which the card-head select could not.
+   This keeps only the warning about editing a live curriculum. */
 function renderEditingSelector() {
-    const sel = $('edit-prospectus');
-    if (!sel) return;
-
-    if (VERSIONS.length === 0) {
-        sel.innerHTML = EDITING
-            ? `<option value="${EDITING.id}">${escapeHtml(EDITING.academic_year)}</option>`
-            : '<option value="">No prospectus</option>';
-    } else {
-        sel.innerHTML = VERSIONS.map(v =>
-            `<option value="${v.id}" ${EDITING?.id === v.id ? 'selected' : ''}>` +
-            `${escapeHtml(v.academic_year)}${v.is_active ? ' — active' : ''}` +
-            `</option>`).join('');
-    }
-
-    const note = $('editing-note');
-    if (note) note.textContent = EDITING ? `${SUBJECTS.length} subjects` : '';
-
     const warn = $('editing-warning');
-    if (warn) {
-        warn.textContent = EDITING?.is_active
+    if (!warn) return;
+
+    warn.textContent = !EDITING ? ''
+        : EDITING.is_active
             ? 'This is the active version. Changes affect student recommendations immediately.'
             : 'This is a draft. Changes do not affect students until it is made active.';
-    }
-}
-
-$('edit-prospectus')?.addEventListener('change', async (e) => {
-    const picked = VERSIONS.find(v => v.id === Number(e.target.value));
-    if (!picked) return;
-    EDITING = picked;
-    clearCurriculumUploads();
-    await loadCurriculum();
-});
-
-$('toggle-curr-upload')?.addEventListener('click', () => {
-    const pane = $('curr-upload-pane');
-    pane.hidden = !pane.hidden;
-    $('toggle-curr-upload').textContent = pane.hidden ? 'Show' : 'Hide';
-});
-
-function clearCurriculumUploads() {
-    PENDING_SUBJECTS = [];
-    PENDING_RULES = [];
-    ['subj-preview','prereq-preview'].forEach(id => { const b = $(id); if (b) b.innerHTML = ''; });
-    ['subj-file','prereq-file'].forEach(id => { const f = $(id); if (f) f.value = ''; });
-}
-
-function downloadCsv(name, headers, rows) {
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const csv = [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = name; a.click();
-    URL.revokeObjectURL(url);
-}
-
-$('subj-template')?.addEventListener('click', () => {
-    downloadCsv('subjects-template.csv', SUBJ_HEADERS, [
-        { code: 'CC-INTCOM11', title: 'Introduction to Computing',
-          units: 3, year_level: 1, term: 1, is_elective: 'false' },
-    ]);
-});
-
-$('prereq-template')?.addEventListener('click', () => {
-    downloadCsv('prerequisites-template.csv', PREREQ_HEADERS, [
-        { subject_code: 'CC-COMPROG12', prerequisite_code: 'CC-COMPROG11',
-          requirement_type: 'prerequisite', rule_group: 1, threshold_value: '' },
-        { subject_code: 'IT-CPSTONE30', prerequisite_code: '',
-          requirement_type: 'standing', rule_group: 1, threshold_value: 3 },
-    ]);
-});
-
-
-/* subjects */
-
-$('subj-file')?.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    showMsg('curriculum-msg', '');
-
-    try {
-        const rows = await readScheduleFile(file);   // same reader, any sheet
-        validateSubjects(rows);
-    } catch (err) {
-        console.error(err);
-        showMsg('curriculum-msg', 'Could not read that file. ' + err.message);
-    }
-});
-
-function validateSubjects(rows) {
-    const existing = new Set(SUBJECTS.map(s => norm(s.code)));
-    const seen = new Set();
-    const ok = [], bad = [];
-
-    for (const r of rows) {
-        const code = (r.code || '').trim().toUpperCase();
-
-        if (!code)      { bad.push({ line: r.__line, why: 'No course code.' }); continue; }
-        if (!r.title)   { bad.push({ line: r.__line, code, why: 'No descriptive title.' }); continue; }
-
-        if (!SUBJECT_CODE_PATTERN.test(code)) {
-            bad.push({ line: r.__line, code,
-                why: 'Code must look like CC-INTCOM11 or ENGL 100.' });
-            continue;
-        }
-
-        if (existing.has(norm(code))) {
-            bad.push({ line: r.__line, code, why: 'Already in this prospectus.' });
-            continue;
-        }
-
-        /* A file repeating a code would insert it twice — the unique
-           constraint is per prospectus, and both rows would be new. */
-        if (seen.has(norm(code))) {
-            bad.push({ line: r.__line, code, why: 'Repeated earlier in this file.' });
-            continue;
-        }
-        seen.add(norm(code));
-
-        const units = Number(r.units);
-        const year  = Number(r.year_level);
-        const term  = Number(r.term);
-
-        if (!Number.isFinite(units) || units <= 0) {
-            bad.push({ line: r.__line, code, why: 'Units must be a positive number.' });
-            continue;
-        }
-        if (!Number.isInteger(year) || year < 1 || year > 5) {
-            bad.push({ line: r.__line, code, why: 'year_level must be 1 to 5.' });
-            continue;
-        }
-        if (!Number.isInteger(term) || term < 1 || term > 3) {
-            bad.push({ line: r.__line, code, why: 'term must be 1, 2, or 3.' });
-            continue;
-        }
-
-        ok.push({
-            code, title: r.title.trim(), units,
-            year_level: year, term,
-            is_elective: String(r.is_elective).toLowerCase() === 'true',
-        });
-    }
-
-    PENDING_SUBJECTS = ok;
-    renderUploadPreview('subj-preview', ok, bad, 'subject', commitSubjects, (r) => `
-        <td class="mono">${escapeHtml(r.code)}</td>
-        <td>${escapeHtml(r.title)}</td>
-        <td class="num">${r.units}</td>
-        <td class="dim">${ordinal(r.year_level)} · ${termLabel(r.term)}</td>`,
-        ['Code','Descriptive title','Units','Term']);
-}
-
-async function commitSubjects() {
-    if (PENDING_SUBJECTS.length === 0) return;
-
-    const payload = PENDING_SUBJECTS.map(r => ({
-        ...r, prospectus_id: EDITING.id, created_by: STAFF_ID,
-    }));
-
-    if (PREVIEW) {
-        clearCurriculumUploads();
-        return showMsg('curriculum-msg', `${payload.length} subjects added (preview only).`, 'success');
-    }
-
-    const { error } = await supabase.from('subject').insert(payload);
-
-    if (error) {
-        console.error('subject upload failed:', error.message);
-        return showMsg('curriculum-msg', 'Could not save those subjects. ' + error.message);
-    }
-
-    const n = payload.length;
-    clearCurriculumUploads();
-    await loadCurriculum();
-    showMsg('curriculum-msg',
-        `${n} subject${n === 1 ? '' : 's'} added. Prerequisites can be uploaded now.`, 'success');
 }
 
 
-/* prerequisites */
 
-$('prereq-file')?.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    showMsg('curriculum-msg', '');
-
-    if (SUBJECTS.length === 0) {
-        return showMsg('curriculum-msg',
-            'Upload the subjects first — a rule refers to subjects by code.');
-    }
-
-    try {
-        const rows = await readScheduleFile(file);
-        validateRules(rows);
-    } catch (err) {
-        console.error(err);
-        showMsg('curriculum-msg', 'Could not read that file. ' + err.message);
-    }
-});
-
-function validateRules(rows) {
-    const byCode = new Map(SUBJECTS.map(s => [norm(s.code), s]));
-    const ok = [], bad = [];
-
-    for (const r of rows) {
-        const type = (r.requirement_type || 'prerequisite').trim().toLowerCase();
-        const gated = byCode.get(norm(r.subject_code));
-
-        if (!gated) {
-            bad.push({ line: r.__line, code: r.subject_code,
-                why: `${r.subject_code} is not in this prospectus.` });
-            continue;
-        }
-
-        if (!['prerequisite','co_requisite','standing'].includes(type)) {
-            bad.push({ line: r.__line, code: r.subject_code,
-                why: `"${type}" is not a condition type.` });
-            continue;
-        }
-
-        const group = Number(r.rule_group) || 1;
-
-        if (type === 'standing') {
-            const threshold = Number(r.threshold_value);
-            if (!Number.isFinite(threshold)) {
-                bad.push({ line: r.__line, code: r.subject_code,
-                    why: 'A standing rule needs the year that must be completed.' });
-                continue;
-            }
-            ok.push({ subject_id: gated.id, prerequisite_subject_id: null,
-                requirement_type: type, rule_type: 'and', rule_group: group,
-                threshold_value: threshold, _code: gated.code, _needs: `through year ${threshold}` });
-            continue;
-        }
-
-        const required = byCode.get(norm(r.prerequisite_code));
-        if (!required) {
-            bad.push({ line: r.__line, code: r.subject_code,
-                why: `${r.prerequisite_code || '(blank)'} is not in this prospectus.` });
-            continue;
-        }
-
-        /* A subject cannot require itself, and a prerequisite scheduled at
-           or after its dependent can never be satisfied in sequence. Both
-           are transcription errors rather than curriculum decisions. */
-        if (required.id === gated.id) {
-            bad.push({ line: r.__line, code: r.subject_code, why: 'A subject cannot require itself.' });
-            continue;
-        }
-
-        const pos = (x) => x.year_level * 10 + x.term;
-        if (pos(required) >= pos(gated)) {
-            bad.push({ line: r.__line, code: r.subject_code,
-                why: `${required.code} runs at the same time or later than ${gated.code}.` });
-            continue;
-        }
-
-        ok.push({ subject_id: gated.id, prerequisite_subject_id: required.id,
-            requirement_type: type, rule_type: 'and', rule_group: group,
-            threshold_value: null, _code: gated.code, _needs: required.code });
-    }
-
-    PENDING_RULES = ok;
-    renderUploadPreview('prereq-preview', ok, bad, 'condition', commitRules, (r) => `
-        <td class="mono">${escapeHtml(r._code)}</td>
-        <td>${escapeHtml(r.requirement_type)}</td>
-        <td class="mono">${escapeHtml(r._needs)}</td>
-        <td class="num">${r.rule_group}</td>`,
-        ['Subject','Type','Requires','Group']);
-}
-
-async function commitRules() {
-    if (PENDING_RULES.length === 0) return;
-
-    const payload = PENDING_RULES.map(({ _code, _needs, ...r }) => ({
-        ...r, created_by: STAFF_ID,
-    }));
-
-    if (PREVIEW) {
-        clearCurriculumUploads();
-        return showMsg('curriculum-msg', `${payload.length} conditions added (preview only).`, 'success');
-    }
-
-    const { error } = await supabase.from('prerequisite').insert(payload);
-
-    if (error) {
-        console.error('rule upload failed:', error.message);
-        return showMsg('curriculum-msg', 'Could not save those conditions. ' + error.message);
-    }
-
-    const n = payload.length;
-    clearCurriculumUploads();
-    await loadCurriculum();
-    showMsg('curriculum-msg', `${n} condition${n === 1 ? '' : 's'} added.`, 'success');
-}
-
-
-/* Shared preview. Nothing is written until the operator has seen what
-   will be written and what was refused. */
-function renderUploadPreview(boxId, ok, bad, noun, onCommit, cellsFor, headers) {
-    const box = $(boxId);
-    if (!box) return;
-
-    const btnId = boxId + '-commit';
-
-    box.innerHTML = `
-        <div class="notice ${bad.length ? 'pending' : 'info'}">
-            <i class="fa-solid ${bad.length ? 'fa-triangle-exclamation' : 'fa-circle-info'}" aria-hidden="true"></i>
-            <div>
-                <strong>${ok.length} ready${bad.length ? `, ${bad.length} rejected` : ''}</strong>
-                ${bad.length
-                    ? bad.slice(0, 10).map(b =>
-                        `Line ${b.line}${b.code ? ' (' + escapeHtml(b.code) + ')' : ''}: ${escapeHtml(b.why)}`).join('<br>')
-                      + (bad.length > 10 ? `<br>and ${bad.length - 10} more` : '')
-                    : 'Every row checked out.'}
-            </div>
-        </div>
-
-        ${ok.length ? `
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
-                    <tbody>${ok.slice(0, 12).map(r => `<tr>${cellsFor(r)}</tr>`).join('')}</tbody>
-                </table>
-                ${ok.length > 12 ? `<p class="dim">and ${ok.length - 12} more</p>` : ''}
-            </div>
-            <button class="btn-accent" id="${btnId}" style="margin-top: var(--s2)">
-                <i class="fa-solid fa-check" aria-hidden="true"></i>
-                <span>Save ${ok.length} ${noun}${ok.length === 1 ? '' : 's'}</span>
-            </button>` : ''}`;
-
-    $(btnId)?.addEventListener('click', onCommit);
-}
 
 
 /* prospectus versions */
@@ -1494,6 +1172,32 @@ function blockedPanel(what, because, href, hrefLabel) {
         </div>`;
 }
 
+/* One-file curriculum upload. Re-mounted whenever the editing version
+   changes, because prospectusId is baked into the commit. */
+function mountCurriculumBuilder() {
+    if (!window.CurriculumBuilder || !EDITING) return;
+
+    window.CurriculumBuilder.mount(supabase, {
+        mountEl:      $('cb-grid'),
+        prospectusId: EDITING.id,
+        programId:    EDITING.program_id,
+        versions:     VERSIONS,
+        staffId:      STAFF_ID,
+        userId:       AUTH_UID,
+        onVersionChange: (id) => {
+            if (id) EDITING = VERSIONS.find(v => v.id === id) ?? EDITING;
+            renderEditingSelector();
+            loadCurriculum();
+        },
+        onError: (m) => showMsg('curriculum-msg', m),
+        onDone:  (m) => {
+            showMsg('curriculum-msg', m, 'success');
+            loadProspectusList();
+            loadCurriculum();
+        },
+    });
+}
+
 
 /* schedule */
 
@@ -1528,9 +1232,9 @@ function initSchedule() {
     showScheduleForm(true);
 
     if (!scheduleReady) {
-        const y = $('sched-year');
-        if (y && !y.value) y.value = currentAcademicYear();
+        renderYearOptions();
         renderOfferingOptions();
+        renderSectionOptions();
         scheduleReady = true;
     }
     refreshTemplateCount();
@@ -1557,6 +1261,42 @@ function renderScheduleBlocked() {
         'curriculum has to be encoded first. Every row uploaded now would be ' +
         'rejected for referencing a subject that does not exist.',
         '#curriculum', 'Encode the curriculum');
+}
+
+/* Only years that have a prospectus. A free-typed year is how a stray
+   keystroke files a term under 2092, where no query will ever find it. */
+function renderYearOptions() {
+    const sel = $('sched-year');
+    if (!sel) return;
+
+    const years = [...new Set(VERSIONS.map(v => v.academic_year))].sort((a, b) => b - a);
+    if (!years.length) years.push(currentAcademicYear());
+
+    sel.innerHTML = years
+        .map(y => `<option value="${y}">${y}\u2013${y + 1}</option>`)
+        .join('');
+
+    const active = VERSIONS.find(v => v.is_active);
+    sel.value = String(active?.academic_year ?? years[0]);
+}
+
+/* Sections follow the year level of the chosen subject, so BSIT-2A is
+   offered for a second-year subject and BSIT-1A is not. */
+function renderSectionOptions() {
+    const sel = $('o-section');
+    if (!sel) return;
+
+    const subject = SUBJECTS.find(s => s.id === Number($('o-subject')?.value));
+    const level   = subject?.year_level;
+
+    if (!level) {
+        sel.innerHTML = '<option value="">Choose a subject first</option>';
+        return;
+    }
+
+    sel.innerHTML = SECTION_LETTERS
+        .map(l => `<option value="BSIT-${level}${l}">BSIT-${level}${l}</option>`)
+        .join('');
 }
 
 function renderOfferingOptions() {
@@ -1674,6 +1414,7 @@ function renderOfferings() {
 }
 
 $('sched-year')?.addEventListener('change', loadOfferings);
+$('o-subject')?.addEventListener('change', renderSectionOptions);
 $('sched-term')?.addEventListener('change', loadOfferings);
 
 $('toggle-upload')?.addEventListener('click', () => {
@@ -1693,8 +1434,12 @@ $('toggle-offering')?.addEventListener('click', () => {
    what will be written — the GradeFile design in the ERD implies the same
    pattern, so schedule upload follows it. */
 
-const CSV_HEADERS = ['code','title','year_level','term','section',
-                     'days','start_time','end_time','room','instructor','capacity'];
+/* edp_code is the registrar's identifier for an offering and is filled in
+   by hand. capacity was dropped — it is not enforced anywhere, and an
+   unused column in a sheet invites someone to fill it in expecting it to
+   mean something. */
+const CSV_HEADERS = ['edp_code','code','title','year_level','term','section',
+                     'days','start_time','end_time','room','instructor'];
 
 const SECTION_LETTERS = ['A','B','C','D'];
 
@@ -1719,12 +1464,13 @@ function buildTemplateRows() {
         .filter(s => term === 'all' || String(s.term) === String(term))
         .filter(s => electives || !s.is_elective)
         .flatMap(s => SECTION_LETTERS.slice(0, sections).map(letter => ({
+            edp_code:   '',
             code:       s.code,
             title:      s.title,
             year_level: s.year_level,
             term:       s.term,
             section:    `BSIT-${s.year_level}${letter}`,
-            days: '', start_time: '', end_time: '', room: '', instructor: '', capacity: '',
+            days: '', start_time: '', end_time: '', room: '', instructor: '',
         })));
 }
 
@@ -1909,7 +1655,7 @@ async function commitUpload() {
         end_time:       row.end_time || null,
         room:           row.room || null,
         instructor:     row.instructor || null,
-        capacity:       row.capacity ? Number(row.capacity) : null,
+        edp_code:       row.edp_code || null,
         created_by:     STAFF_ID,
     }));
 
