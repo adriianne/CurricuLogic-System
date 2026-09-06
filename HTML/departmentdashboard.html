@@ -10,6 +10,7 @@
     <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
     <link rel="stylesheet" href="../CSS/dashboard.css">
     <link rel="stylesheet" href="../CSS/prospectus.css">
+    <link rel="stylesheet" href="../CSS/curriculum_builder.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -182,7 +183,7 @@
             </section>
 
             <!-- Curriculum -->
-            <section class="view" id="view-curriculum" hidden>
+            <section class="view view-wide" id="view-curriculum" hidden>
 
                 <div class="page-head">
                     <h1 class="page-title">Curriculum</h1>
@@ -194,145 +195,13 @@
 
                 <div id="curriculum-msg" class="msg" role="status"></div>
 
-                    <section class="card">
+            <section class="card">
                     <div class="card-head">
-                        <span class="card-title">New version</span>
-                        <button class="btn-small" id="toggle-new-pros">Show</button>
+                        <span class="card-title">Build curriculum</span>
                     </div>
-                    <div class="card-body" id="new-pros-pane" hidden>
-
-                        <p class="review-hint">
-                            A new curriculum is usually the previous one with a few
-                            changes, so copying forward and amending is less
-                            error-prone than re-encoding 58 subjects. A copy starts
-                            inactive — nothing changes for students until you
-                            activate it.
-                        </p>
-
-                        <div class="form-grid">
-                            <div class="field field-sm">
-                                <label for="p-year">Effective year</label>
-                                <input type="number" id="p-year" min="2000" max="2100" step="1">
-                            </div>
-                            <div class="field field-sm">
-                                <label for="p-term">Starting term</label>
-                                <select id="p-term">
-                                    <option value="1">1st Sem</option>
-                                    <option value="2">2nd Sem</option>
-                                    <option value="3">Summer</option>
-                                </select>
-                            </div>
-                            <div class="field">
-                                <label for="p-source">Start from</label>
-                                <select id="p-source"></select>
-                            </div>
-                        </div>
-
-                        <button class="btn-accent" id="create-pros">
-                            <i class="fa-solid fa-plus" aria-hidden="true"></i>
-                            <span>Create version</span>
-                        </button>
-
-                    </div>
-                </section>
-                
-                <section class="card">
-                    <div class="card-head">
-                        <span class="card-title">Upload a curriculum</span>
-                        <button class="btn-small" id="toggle-curr-upload">Show</button>
-                    </div>
-                    <div class="card-body" id="curr-upload-pane" hidden>
-
-                        <p class="review-hint">
-                            Two files, subjects first. Prerequisites reference
-                            subjects by code, so they cannot be checked until the
-                            subjects exist. Excel or CSV.
-                        </p>
-
-                        <h3 class="group-head">1 &mdash; Subjects</h3>
-                        <p class="hint">
-                            Columns: <span class="mono">code, title, units,
-                            year_level, term, is_elective</span>
-                        </p>
-                        <div class="upload-row">
-                            <input type="file" id="subj-file" accept=".xlsx,.xls,.csv">
-                            <button class="btn-small" id="subj-template">
-                                <i class="fa-solid fa-download" aria-hidden="true"></i>
-                                Template
-                            </button>
-                        </div>
-                        <div id="subj-preview"></div>
-
-                        <h3 class="group-head">2 &mdash; Prerequisites</h3>
-                        <p class="hint">
-                            Columns: <span class="mono">subject_code,
-                            prerequisite_code, requirement_type, rule_group,
-                            threshold_value</span>. Conditions sharing a rule_group
-                            are alternatives; different groups must all be met.
-                        </p>
-                        <div class="upload-row">
-                            <input type="file" id="prereq-file" accept=".xlsx,.xls,.csv">
-                            <button class="btn-small" id="prereq-template">
-                                <i class="fa-solid fa-download" aria-hidden="true"></i>
-                                Template
-                            </button>
-                        </div>
-                        <div id="prereq-preview"></div>
-
-                    </div>
-                </section>
-
-                <section class="card">
-                    <div class="card-head">
-                        <span class="card-title">Add a subject</span>
-                        <button class="btn-small" id="toggle-add">Show form</button>
-                    </div>
-                    <div class="card-body" id="add-subject-pane" hidden>
-
-                        <div class="form-grid">
-                            <div class="field">
-                                <label for="s-code">Course code</label>
-                                <input type="text" id="s-code" placeholder="IT-NEWSUBJ41" autocomplete="off">
-                            </div>
-                            <div class="field">
-                                <label for="s-title">Descriptive title</label>
-                                <input type="text" id="s-title" placeholder="Advanced Topics in IT" autocomplete="off">
-                            </div>
-                            <div class="field field-sm">
-                                <label for="s-units">Units</label>
-                                <input type="number" id="s-units" placeholder="3" min="0.5" step="0.5">
-                            </div>
-                            <div class="field field-sm">
-                                <label for="s-year">Year level</label>
-                                <select id="s-year">
-                                    <option value="1">1st Year</option>
-                                    <option value="2">2nd Year</option>
-                                    <option value="3">3rd Year</option>
-                                    <option value="4">4th Year</option>
-                                </select>
-                            </div>
-                            <div class="field field-sm">
-                                <label for="s-term">Term</label>
-                                <select id="s-term">
-                                    <option value="1">1st Sem</option>
-                                    <option value="2">2nd Sem</option>
-                                    <option value="3">Summer</option>
-                                </select>
-                            </div>
-                            <div class="field field-sm">
-                                <label for="s-elective">Elective</label>
-                                <select id="s-elective">
-                                    <option value="false">No</option>
-                                    <option value="true">Yes</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <button class="btn-accent" id="add-subject">
-                            <i class="fa-solid fa-plus" aria-hidden="true"></i>
-                            <span>Add subject</span>
-                        </button>
-
+                    <div class="card-body">
+                        <p class="hint" id="editing-warning"></p>
+                        <div id="cb-grid"></div>
                     </div>
                 </section>
 
@@ -445,7 +314,7 @@
             </section>
 
             <!-- Schedule -->
-            <section class="view" id="view-schedule" hidden>
+            <section class="view view-wide" id="view-schedule" hidden>
 
                 <div class="page-head">
                     <h1 class="page-title">Schedule</h1>
@@ -467,7 +336,7 @@
                         <div class="toolbar">
                             <div class="field field-sm">
                                 <label for="sched-year">Academic year</label>
-                                <input type="number" id="sched-year" min="2000" max="2100" step="1">
+                                <select id="sched-year"></select>
                             </div>
                             <div class="field field-sm">
                                 <label for="sched-term">Term</label>
@@ -565,7 +434,7 @@
                             </div>
                             <div class="field field-sm">
                                 <label for="o-section">Section</label>
-                                <input type="text" id="o-section" placeholder="BSIT-2A" autocomplete="off">
+                                <select id="o-section"></select>
                             </div>
                             <div class="field field-sm">
                                 <label for="o-days">Days</label>
@@ -743,7 +612,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../JS/config.js"></script>
 <script src="../JS/prospectusgrid.js"></script>
+<script src="../JS/curriculum_builder.js"></script>
 <script src="../JS/departmentdashboard.js"></script>
-<script src="../JS/studentpreview.js"></script>
 </body>
 </html>
