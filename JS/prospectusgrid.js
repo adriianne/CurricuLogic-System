@@ -27,6 +27,16 @@ const slug = (code) => 'pg-' + String(code).replace(/[^A-Za-z0-9]/g, '');
 
 let CUR = 0;
 let MOUNT = null;
+let STATUS = null;   // Map subject_id -> { state, detail }
+
+/* Status vocabulary, matching what assess() returns. */
+const CHIP = {
+    passed:   ['ok',      'Passed'],
+    enrolled: ['info',    'Taking'],
+    eligible: ['open',    'Can take'],
+    retake:   ['danger',  'Retake'],
+    blocked:  ['locked',  'Locked'],
+};
 
 
 /*  data  */
@@ -34,8 +44,12 @@ let MOUNT = null;
 async function load(supabase, prospectusId) {
     const [subs, pres] = await Promise.all([
         supabase.from('subject')
-            .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, category')
+            .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, elective_type, category')
             .eq('prospectus_id', prospectusId)
+            /* Retired subjects keep their row so existing academic records
+               still resolve, but they are no longer part of the curriculum
+               and must not appear in it. */
+            .eq('is_active', true)
             .order('year_level').order('term').order('code'),
         supabase.from('prerequisite')
             .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
@@ -66,10 +80,23 @@ async function load(supabase, prospectusId) {
 
 /*  rendering  */
 
+function statusCell(subject) {
+    const st = STATUS?.get(subject.id);
+    if (!st) return '<td class="pg-st"></td>';
+
+    const [cls, label] = CHIP[st.state] ?? ['', st.state];
+    const why = st.detail ? ` title="${esc(st.detail)}"` : '';
+
+    return `<td class="pg-st"><span class="pg-chip ${cls}"${why}>${label}</span></td>`;
+}
+
 function preCell(subject, rules) {
-    if (subject.is_elective) {
-        // Placeholder slots carry a marker, not a prerequisite.
-        const m = /^IT-FRE/.test(subject.code) ? '\u25CF\u25CF' : '\u25CF';
+    /* The bullet belongs to the eight placeholder slots that sit in a
+       semester and mean "choose one from the catalogue". Catalogue courses
+       themselves have real prerequisite chains — ELPHP2 requires ELPHP1 —
+       and testing is_elective alone painted the marker over all of them. */
+    if (subject.is_elective && subject.year_level != null) {
+        const m = subject.elective_type === 'FREE' ? '\u25CF\u25CF' : '\u25CF';
         return `<span class="pg-mark">${m}</span>`;
     }
 
@@ -89,13 +116,16 @@ function panel(label, rows, rules, showSplit) {
     const body = rows.map(s => {
         const lec = Number(s.lec_units ?? 0);
         const lab = Number(s.lab_units ?? 0);
-        return `<tr class="${s.is_elective ? 'pg-slot' : ''}" id="${slug(s.code)}">
+        const st = STATUS?.get(s.id);
+        const cls = [s.is_elective ? 'pg-slot' : '', st ? 'is-' + st.state : ''].join(' ').trim();
+        return `<tr class="${cls}" id="${slug(s.code)}">
             <td class="pg-code">${esc(s.code)}</td>
             <td>${esc(s.title)}</td>
             ${showSplit ? `<td class="n pg-u">${lec || ''}</td>
                            <td class="n pg-u">${lab || ''}</td>` : ''}
             <td class="n pg-u t">${Number(s.units)}</td>
             <td class="pg-pre">${preCell(s, rules)}</td>
+            ${STATUS ? statusCell(s) : ''}
         </tr>`;
     }).join('');
 
@@ -110,14 +140,20 @@ function panel(label, rows, rules, showSplit) {
                 ${showSplit ? '<th class="n">Lec</th><th class="n">Lab</th>' : ''}
                 <th class="n">${showSplit ? 'Tot' : 'Units'}</th>
                 <th>Prerequisite</th>
-            </tr></thead>
+                ${STATUS ? '<th>Status</th>' : ''}</tr></thead>
             <tbody>${body}</tbody>
         </table>
         <div class="pg-foot"><span class="k">Total</span><span class="v">${total} units</span></div>
     </div>`;
 }
 
-function summary(subjects) {
+function summary(all) {
+    /* Only scheduled subjects count toward the programme total. Catalogue
+       electives have no term — a student picks four to fill the eight
+       elective slots, and those slots already carry the 24 units. Summing
+       the catalogue as well would report 257 instead of 176. */
+    const subjects = all.filter(s => s.term != null);
+
     const totals = new Map();
     let uncategorised = 0;
 
@@ -159,6 +195,7 @@ function electivePanel(label, note, rows, rules) {
         <td>${esc(s.title)}</td>
         <td class="n pg-u t">${Number(s.units)}</td>
         <td class="pg-pre">${preCell(s, rules)}</td>
+        ${STATUS ? statusCell(s) : ''}
     </tr>`).join('');
 
     return `<div class="pg-panel">
@@ -167,7 +204,8 @@ function electivePanel(label, note, rows, rules) {
         </div>
         <table>
             <thead><tr><th>Code</th><th>Descriptive Title</th>
-            <th class="n">Units</th><th>Prerequisite</th></tr></thead>
+            <th class="n">Units</th><th>Prerequisite</th>
+            ${STATUS ? '<th>Status</th>' : ''}</tr></thead>
             <tbody>${body}</tbody>
         </table>
     </div>`;
@@ -216,9 +254,10 @@ function jump(code) {
 
 /*  entry point  */
 
-async function render(supabase, prospectusId, mountEl) {
+async function render(supabase, prospectusId, mountEl, statuses = null) {
     MOUNT = mountEl;
     CUR = 0;
+    STATUS = statuses;
     MOUNT.className = 'pros-grid';
     MOUNT.innerHTML = '<div class="pg-empty">Loading curriculum\u2026</div>';
 
@@ -243,7 +282,13 @@ async function render(supabase, prospectusId, mountEl) {
     // worse than a column that is not there.
     const showSplit = subjects.some(s => Number(s.lab_units) > 0);
 
-    const years = [...new Set(subjects.map(s => s.year_level))].sort();
+    /* Catalogue electives have no year — a student chooses when to take
+       them. Without this filter they produce a phantom "Year null" tab
+       alongside the four real ones, on every dashboard. They belong in
+       the elective panels below the stage. */
+    const years = [...new Set(subjects.map(s => s.year_level))]
+        .filter(y => y != null)
+        .sort((a, b) => a - b);
 
     const tabs = years.map((y, i) =>
         `<button class="pg-tab${i === 0 ? ' on' : ''}" data-year="${i}">
@@ -268,8 +313,17 @@ async function render(supabase, prospectusId, mountEl) {
 
     // The catalogue lives in elective_group_member once encoded. Until
     // then these render an empty state rather than a blank table.
-    const itEl  = subjects.filter(s => s.is_elective && /^IT-EL/.test(s.code) === false && /^EL/.test(s.code));
-    const frEl  = subjects.filter(s => s.is_elective && /^FRE/.test(s.code));
+    /* Catalogue entries are the ones with no year — options a student
+       picks, as against the placeholder slots that sit in a semester and
+       carry the 24 elective units.
+
+       Split on elective_type rather than the code prefix. The convention
+       was wrong on this very curriculum: the free elective slots are coded
+       IT-FRE_____, which starts with IT-, so prefix matching filed all
+       four of them as IT electives with nothing to flag it. */
+    const cat   = subjects.filter(s => s.year_level == null);
+    const frEl  = cat.filter(s => s.elective_type === 'FREE');
+    const itEl  = cat.filter(s => s.elective_type !== 'FREE');
 
     MOUNT.innerHTML = `
         <div class="pg-tabs">${tabs}</div>
@@ -310,4 +364,4 @@ async function render(supabase, prospectusId, mountEl) {
 
 window.ProspectusGrid = { render };
 
-})();
+})();g

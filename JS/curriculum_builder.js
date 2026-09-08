@@ -70,6 +70,7 @@ let TAB    = 1;         // 1-4, or 'el'
 let SEQ    = 1;
 let PICKER = null;      // open prerequisite popover
 let SELECTED_YEAR = null;   // may be a year with no prospectus row yet
+let DRAFT_BATCH   = null;   // survives a re-mount; OPTS does not
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
     c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -102,9 +103,10 @@ const HEAVY_TERM = 27;
 
 /* ---- rows ---- */
 
-function blank(year, term) {
+function blank(year, term, electiveType = null) {
     return {
         uid: SEQ++,
+        electiveType,          // 'IT' or 'FREE' for catalogue rows
         code: '', title: '',
         lec: null, lab: null,
         year, term,
@@ -114,7 +116,8 @@ function blank(year, term) {
 }
 
 const inCell   = (y, t) => ROWS.filter(r => r.year === y && r.term === t);
-const catalog  = ()     => ROWS.filter(r => r.year === null);
+const catalog  = (type) => ROWS.filter(r =>
+    r.year === null && (type ? r.electiveType === type : true));
 const scheduled= ()     => ROWS.filter(r => r.year !== null);
 
 /* Where a subject sits in the curriculum, as a sortable number.
@@ -451,24 +454,72 @@ function tableHtml(label, rows, year, term) {
     </div>`;
 }
 
-function bodyHtml() {
-    if (TAB === 'el') {
-        return tableHtml('Elective catalogue', catalog(), null, null);
-    }
+/* Tab order, so a switch knows whether it is moving forwards or back and
+   can slide in the matching direction. */
+const TABS = [1, 2, 3, 4, 'it', 'free'];
+
+function paneHtml(tab) {
+    /* IT and free electives are separate lists in the printed prospectus
+       and are chosen from separately — four of each. Keeping them in one
+       tab meant the type had to be inferred from the code afterwards,
+       and that inference was wrong for the IT-FRE slots. */
+    if (tab === 'it')   return tableHtml('IT elective courses', catalog('IT'), null, null);
+    if (tab === 'free') return tableHtml('Free elective courses', catalog('FREE'), null, null);
 
     let html = `<div class="cb-sems">
-        ${tableHtml(TERMS[1], inCell(TAB, 1), TAB, 1)}
-        ${tableHtml(TERMS[2], inCell(TAB, 2), TAB, 2)}
+        ${tableHtml(TERMS[1], inCell(tab, 1), tab, 1)}
+        ${tableHtml(TERMS[2], inCell(tab, 2), tab, 2)}
     </div>`;
 
     // Summer exists in the third year of BSIT. Offer it there, and show
     // it anywhere it already holds subjects.
-    const summer = inCell(TAB, 3);
-    if (TAB === 3 || summer.length) {
-        html += `<div class="cb-summer">${tableHtml(TERMS[3], summer, TAB, 3)}</div>`;
+    const summer = inCell(tab, 3);
+    if (tab === 3 || summer.length) {
+        html += `<div class="cb-summer">${tableHtml(TERMS[3], summer, tab, 3)}</div>`;
     }
 
     return html;
+}
+
+/* Every year is rendered and stacked, as the prospectus grid does, so a
+   switch is a slide rather than a repaint. The rows are inputs, so they
+   all exist in the DOM at once — fine at 58 subjects, and it means a
+   half-typed row is still there when you come back to it. */
+function bodyHtml() {
+    const cur = TABS.indexOf(TAB);
+
+    return `<div class="cb-stage">${TABS.map((t, i) => {
+        const cls = i === cur ? 'on' : 'off ' + (i < cur ? 'l' : 'r');
+        return `<div class="cb-pane ${cls}" data-pane="${i}">${paneHtml(t)}</div>`;
+    }).join('')}</div>`;
+}
+
+function sizeStage() {
+    const stage = MOUNT?.querySelector('.cb-stage');
+    const pane  = MOUNT?.querySelector(`.cb-pane[data-pane="${TABS.indexOf(TAB)}"]`);
+    if (stage && pane) stage.style.height = pane.offsetHeight + 'px';
+}
+
+/* Slide without repainting. A full render would drop focus and lose any
+   half-typed value in the pane being left. */
+function showTab(tab) {
+    if (tab === TAB) return;
+
+    const from = TABS.indexOf(TAB);
+    const to   = TABS.indexOf(tab);
+    TAB = tab;
+
+    MOUNT.querySelectorAll('.cb-tab').forEach(b => {
+        const raw = b.dataset.tab;
+        const v = (raw === 'it' || raw === 'free') ? raw : Number(raw);
+        b.classList.toggle('on', v === tab);
+    });
+
+    MOUNT.querySelectorAll('.cb-pane').forEach((p, i) => {
+        p.className = 'cb-pane ' + (i === to ? 'on' : 'off ' + (i < to ? 'l' : 'r'));
+    });
+
+    sizeStage();
 }
 
 /* The action bar repaints on every keystroke, so it lives in its own
@@ -479,7 +530,7 @@ function actionsHtml() {
     const bad = badRows().length;
 
     return `<div class="cb-actions">
-        <button id="cb-draft">Save as draft</button>
+        <button id="cb-draft">Save progress</button>
         <button class="btn-primary" id="cb-create" ${bad || !n ? 'disabled' : ''}>
             Create curriculum
         </button>
@@ -497,15 +548,23 @@ function render() {
         return `<button class="cb-tab${TAB === y ? ' on' : ''}" data-tab="${y}">
             ${YEARS[y]}${bad ? ` <span class="cb-count">${bad}</span>` : ''}
         </button>`;
-    }).join('') + `<button class="cb-tab${TAB === 'el' ? ' on' : ''}" data-tab="el">
-        Electives${catalog().length ? ` <span class="cb-n">${catalog().length}</span>` : ''}
-    </button>`;
+    }).join('')
+        + `<button class="cb-tab${TAB === 'it' ? ' on' : ''}" data-tab="it">
+            IT electives${catalog('IT').length
+                ? ` <span class="cb-n">${catalog('IT').length}</span>` : ''}
+        </button>`
+        + `<button class="cb-tab${TAB === 'free' ? ' on' : ''}" data-tab="free">
+            Free electives${catalog('FREE').length
+                ? ` <span class="cb-n">${catalog('FREE').length}</span>` : ''}
+        </button>`;
 
     MOUNT.innerHTML = versionHtml()
         + statsHtml()
         + `<div class="cb-tabs">${tabs}</div>`
         + `<div class="cb-body">${bodyHtml()}</div>`
         + actionsHtml();
+
+    sizeStage();
 }
 
 
@@ -523,13 +582,39 @@ function render() {
 
 const TARGET_UNITS = 176;   // BSIT. Advisory only — other programmes differ.
 
-function preflight() {
+/* Codes already in the chosen curriculum year. The database has a unique
+   constraint on (prospectus_id, code), so a collision fails the whole
+   insert with a raw Postgres message. Better to name the offending codes
+   before anything is attempted. */
+async function existingCodes() {
+    if (!OPTS.prospectusId) return new Set();   // a new year holds nothing
+
+    const { data, error } = await SB.from('subject')
+        .select('code')
+        .eq('prospectus_id', OPTS.prospectusId);
+
+    if (error) {
+        console.warn('could not read existing codes:', error.message);
+        return null;                            // distinct from "none found"
+    }
+
+    return new Set((data ?? []).map(r => String(r.code).toUpperCase()));
+}
+
+function preflight(taken) {
     const blockers = [];
     const warnings = [];
     const rows     = filled();
 
     if (!rows.length) {
         blockers.push('There are no subjects to save.');
+        return { blockers, warnings };
+    }
+
+    if (!rows.some(r => !r.dbId)) {
+        blockers.push('Nothing new to publish \u2014 every subject here is ' +
+                      'already in this curriculum year. Edit an existing ' +
+                      'subject from the Subjects table below.');
         return { blockers, warnings };
     }
 
@@ -548,22 +633,31 @@ function preflight() {
         }
     }
 
-    const years = [1, 2, 3, 4].filter(y => rows.some(r => r.year === y));
-
-    // A year with subjects in one semester and none in the other is
-    // almost always a half-finished entry.
-    for (const y of years) {
-        for (const t of [1, 2]) {
-            if (!inCell(y, t).some(r => r.code.trim())) {
-                warnings.push(`${YEARS[y]} has no ${TERMS[t].toLowerCase()} subjects.`);
-            }
+    if (taken === null) {
+        warnings.push('Could not check for codes already in this curriculum year.');
+    } else if (taken?.size) {
+        const clash = rows.filter(r => taken.has(r.code.trim().toUpperCase()))
+                          .map(r => r.code.trim().toUpperCase());
+        if (clash.length) {
+            blockers.push(
+                `Already in this curriculum year: ${clash.slice(0, 6).join(', ')}` +
+                (clash.length > 6 ? ` and ${clash.length - 6} more.` : '.'));
         }
     }
 
-    // A gap in the middle — year 3 present, year 2 empty.
-    if (years.length) {
-        for (let y = 1; y <= Math.max(...years); y++) {
-            if (!years.includes(y)) warnings.push(`${YEARS[y]} is empty.`);
+    const years = [1, 2, 3, 4].filter(y => rows.some(r => r.year === y));
+
+    /* A curriculum is published as a whole. A four-year programme with
+       year 3 missing is not a partial curriculum — it is one that would
+       tell a student they have nothing to take. Incomplete work belongs
+       in Save progress, which is what that button is for. */
+    for (const y of [1, 2, 3, 4]) {
+        const missing = [1, 2].filter(t => !inCell(y, t).some(r => r.code.trim()));
+
+        if (missing.length === 2) {
+            blockers.push(`${YEARS[y]} has no subjects.`);
+        } else if (missing.length === 1) {
+            blockers.push(`${YEARS[y]} has no ${TERMS[missing[0]].toLowerCase()} subjects.`);
         }
     }
 
@@ -582,8 +676,11 @@ function preflight() {
         warnings.push(`${total} units total, against ${TARGET_UNITS} for a full BSIT curriculum.`);
     }
 
-    if (!catalog().some(r => r.code.trim())) {
-        warnings.push('No elective catalogue. Students will see every elective as available.');
+    for (const [type, label] of [['IT', 'IT'], ['FREE', 'free']]) {
+        if (!catalog(type).some(r => r.code.trim())) {
+            warnings.push(`No ${label} elective catalogue. Students will see ` +
+                          `every ${label} elective as available.`);
+        }
     }
 
     return { blockers, warnings };
@@ -746,16 +843,28 @@ function bind() {
         OPTS.prospectusId = known?.id ?? null;
 
         ROWS = [];
-        for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
         TAB = 1;
         validate();
         render();
+
+        // Show what the year already holds; start empty only if it is new.
+        loadExisting(OPTS.prospectusId).then(data => {
+            if (data) return applyExisting(data);
+            for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
+            validate();
+            render();
+        });
+
         OPTS.onVersionChange?.(OPTS.prospectusId, year);
     });
 
     MOUNT.addEventListener('click', (e) => {
         const tab = e.target.closest('.cb-tab');
-        if (tab) { closePicker(); TAB = tab.dataset.tab === 'el' ? 'el' : Number(tab.dataset.tab); return render(); }
+        if (tab) {
+            closePicker();
+            const v = tab.dataset.tab;
+            return showTab(v === 'it' || v === 'free' ? v : Number(v));
+        }
 
         const add = e.target.closest('[data-add]');
         if (add) {
@@ -873,7 +982,9 @@ function updateStats() {
 /* ---- persistence ---- */
 
 function toSubjectRows() {
-    return filled().map(r => ({
+    /* Rows loaded from an existing year carry dbId and are already stored.
+       Re-inserting them would collide with the unique code constraint. */
+    return filled().filter(r => !r.dbId).map(r => ({
         prospectus_id: OPTS.prospectusId,
         created_by:    OPTS.staffId,
         code:          r.code.trim().toUpperCase(),
@@ -884,6 +995,10 @@ function toSubjectRows() {
         year_level:    r.year,
         term:          r.term,
         is_elective:   r.year === null || /^IT-EL|^IT-FRE/.test(r.code.trim().toUpperCase()),
+        elective_type: r.electiveType
+            ?? (/^IT-FRE/.test(r.code.trim().toUpperCase()) ? 'FREE'
+              : /^IT-EL/.test(r.code.trim().toUpperCase())  ? 'IT'
+              : null),
     }));
 }
 
@@ -892,13 +1007,17 @@ async function saveDraft() {
         return OPTS.onError?.('Nothing to save yet \u2014 add a subject first.');
     }
 
-    // stg_subject and stg_prerequisite exist for exactly this and have
-    // been unused. A draft does not belong in the live subject table.
-    const batch = OPTS.draftBatchId ?? crypto.randomUUID();
-    OPTS.draftBatchId = batch;
+    /* One batch per curriculum year per person. Held at module level
+       because OPTS is replaced on every re-mount, which is why earlier
+       saves left a new batch behind each time. */
+    DRAFT_BATCH = DRAFT_BATCH ?? (crypto.randomUUID
+        ? crypto.randomUUID()
+        : String(Date.now()) + Math.random().toString(16).slice(2));
 
-    const rows = filled().map((r, i) => ({
-        batch_id:    batch,
+    const rows = filled();
+
+    const subjects = rows.map((r, i) => ({
+        batch_id:    DRAFT_BATCH,
         uploaded_by: OPTS.userId,
         row_number:  i + 1,
         code:        r.code.trim().toUpperCase(),
@@ -911,22 +1030,203 @@ async function saveDraft() {
         error_message:     r.errors.join(' ') || null,
     }));
 
-    await SB.from('stg_subject').delete().eq('batch_id', batch);
-    const { error } = await SB.from('stg_subject').insert(rows);
+    /* Prerequisites go to stg_prerequisite by CODE, not id — the subjects
+       do not exist yet, so there is nothing to point at. Saving subjects
+       without these would lose every rule the operator picked. */
+    const rules = [];
+    rows.forEach((r, i) => {
+        r.prereqs.forEach((p, g) => {
+            const target = p.uid ? ROWS.find(x => x.uid === p.uid) : null;
+            rules.push({
+                batch_id:          DRAFT_BATCH,
+                uploaded_by:       OPTS.userId,
+                row_number:        i + 1,
+                subject_code:      r.code.trim().toUpperCase(),
+                prerequisite_code: target ? target.code.trim().toUpperCase() : null,
+                requirement_type:  p.standing ? 'standing' : 'prerequisite',
+                rule_type:         'and',
+                rule_group:        g + 1,
+                threshold_value:   p.standing ?? null,
+                validation_status: 'ok',
+            });
+        });
+    });
 
-    if (error) {
-        console.error('draft save failed:', error.message);
-        return OPTS.onError?.('Could not save the draft. ' + error.message);
+    await SB.from('stg_subject').delete().eq('batch_id', DRAFT_BATCH);
+    await SB.from('stg_prerequisite').delete().eq('batch_id', DRAFT_BATCH);
+
+    const a = await SB.from('stg_subject').insert(subjects);
+    if (a.error) {
+        console.error('draft subjects failed:', a.error.message);
+        return OPTS.onError?.('Could not save the draft. ' + a.error.message);
     }
 
-    OPTS.onDone?.(`Draft saved — ${rows.length} subjects.`);
+    if (rules.length) {
+        const b = await SB.from('stg_prerequisite').insert(rules);
+        if (b.error) {
+            console.error('draft rules failed:', b.error.message);
+            return OPTS.onError?.(
+                `Subjects saved but the ${rules.length} prerequisites did not. ` +
+                b.error.message);
+        }
+    }
+
+    /* "Draft" collided with a draft prospectus — a version row that is not
+       yet active. This is neither: the subjects have not been created, so
+       nothing appears in the Prospectus view until Create curriculum is
+       pressed. Say so, or the next person looks for them there. */
+    OPTS.onDone?.(
+        `Progress saved \u2014 ${subjects.length} subjects, ${rules.length} rule` +
+        `${rules.length === 1 ? '' : 's'}. Not published yet: reopen this page ` +
+        'to carry on, then Create curriculum to publish it.');
 }
 
-/* The button opens the pre-flight. commit() below does the writing, and
-   is only reachable once the operator has seen what was found. */
-function create() {
-    confirmCreate(preflight());
+
+/* Load a curriculum year that already holds subjects, so selecting it
+   shows what is there rather than an empty table. Without this the
+   builder could only ever add to a year, never see it. */
+async function loadExisting(prospectusId) {
+    if (!prospectusId) return null;
+
+    const [subs, rules] = await Promise.all([
+        SB.from('subject')
+            .select('id, code, title, lec_units, lab_units, year_level, term, elective_type')
+            .eq('prospectus_id', prospectusId)
+            .eq('is_active', true)
+            .order('year_level').order('term').order('code'),
+        SB.from('prerequisite')
+            .select('subject_id, prerequisite_subject_id, requirement_type, threshold_value, rule_group'),
+    ]);
+
+    if (subs.error) { console.warn('load failed:', subs.error.message); return null; }
+    if (!subs.data?.length) return null;
+
+    const ids = new Set(subs.data.map(r => r.id));
+
+    return {
+        subjects: subs.data,
+        rules: (rules.data ?? []).filter(r => ids.has(r.subject_id)),
+    };
 }
+
+/* Existing rows come back with their database id, so a later save can
+   tell an edit from an insert. */
+function applyExisting(data) {
+    ROWS = [];
+    SEQ  = 1;
+
+    const byId = new Map();
+
+    for (const r of data.subjects) {
+        const row = blank(r.year_level, r.term);
+        row.code       = String(r.code ?? '').toUpperCase();
+        row.title      = r.title ?? '';
+        row.lec        = r.lec_units == null ? null : Number(r.lec_units);
+        row.lab          = Number(r.lab_units) || null;
+        row.labTouched   = true;
+        row.electiveType = r.elective_type ?? null;
+        row.dbId         = r.id;        // marks this row as already saved
+
+        ROWS.push(row);
+        byId.set(r.id, row);
+    }
+
+    for (const rule of data.rules) {
+        const owner = byId.get(rule.subject_id);
+        if (!owner) continue;
+
+        if (rule.requirement_type === 'standing') {
+            owner.prereqs.push({ standing: Number(rule.threshold_value) || 2 });
+        } else {
+            const target = byId.get(rule.prerequisite_subject_id);
+            if (target) owner.prereqs.push({ uid: target.uid });
+        }
+    }
+
+    validate();
+    render();
+}
+
+
+/* Read the most recent draft back into the builder. Without this the
+   rows are written and unreachable, which is worse than not saving. */
+async function loadDraft() {
+    if (!OPTS.userId) return null;
+
+    const { data: subs, error } = await SB.from('stg_subject')
+        .select('batch_id, row_number, code, title, units, year_level, term, uploaded_at')
+        .eq('uploaded_by', OPTS.userId)
+        .not('batch_id', 'is', null)
+        .order('uploaded_at', { ascending: false })
+        .order('row_number', { ascending: true });
+
+    if (error) { console.warn('draft load failed:', error.message); return null; }
+    if (!subs?.length) return null;
+
+    const batch = subs[0].batch_id;
+    const mine  = subs.filter(r => r.batch_id === batch);
+
+    const { data: rules } = await SB.from('stg_prerequisite')
+        .select('subject_code, prerequisite_code, requirement_type, threshold_value, rule_group')
+        .eq('batch_id', batch);
+
+    return { batch, subjects: mine, rules: rules ?? [] };
+}
+
+function applyDraft(draft) {
+    ROWS = [];
+    SEQ  = 1;
+
+    const byCode = new Map();
+    for (const r of draft.subjects) {
+        const row = blank(r.year_level, r.term);
+        row.code  = String(r.code ?? '').toUpperCase();
+        row.title = r.title ?? '';
+
+        // stg_subject holds total units only; split it the way the builder
+        // would have, and let the operator correct anything unusual.
+        const u = Number(r.units || 0);
+        row.lec = u === 3 ? 2 : u;
+        row.lab = u === 3 ? 1 : null;
+        row.labTouched = true;
+
+        ROWS.push(row);
+        byCode.set(row.code, row);
+    }
+
+    for (const rule of draft.rules) {
+        const owner = byCode.get(String(rule.subject_code ?? '').toUpperCase());
+        if (!owner) continue;
+
+        if (rule.requirement_type === 'standing') {
+            owner.prereqs.push({ standing: Number(rule.threshold_value) || 2 });
+        } else {
+            const target = byCode.get(String(rule.prerequisite_code ?? '').toUpperCase());
+            if (target) owner.prereqs.push({ uid: target.uid });
+        }
+    }
+
+    DRAFT_BATCH = draft.batch;
+    validate();
+    render();
+}
+
+
+/* The button opens the pre-flight; commit() below does the writing, and
+   is only reachable once the operator has seen what the check found.
+   Codes are compared against the chosen curriculum year first, because a
+   collision there fails the whole insert with a raw Postgres message. */
+async function create() {
+    const btn = MOUNT.querySelector('#cb-create');
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking\u2026'; }
+
+    const taken = await existingCodes();
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Create curriculum'; }
+
+    confirmCreate(preflight(taken));
+}
+
 
 async function commit() {
     if (badRows().length || !filled().length) return;
@@ -964,7 +1264,24 @@ async function commit() {
     if (error) {
         console.error('subject insert failed:', error.message);
         if (btn) { btn.disabled = false; btn.textContent = 'Create curriculum'; }
-        return OPTS.onError?.('Could not create the curriculum. ' + error.message);
+
+        // The pre-flight checks codes first, so this is either a race or a
+        // constraint the check does not cover. Say which in plain terms.
+        /* Postgres names the offending value in error.details, e.g.
+           "Key (prospectus_id, code)=(7, IT-EL) already exists." Showing
+           the constraint name alone leaves the operator hunting. */
+        let msg = 'Could not create the curriculum. ' + error.message;
+
+        if (/subject_prospectus_id_code_key|duplicate key/.test(error.message)) {
+            const hit = /=\(\s*\d+\s*,\s*([^)]+)\)/.exec(error.details ?? '');
+            msg = hit
+                ? `The code ${hit[1].trim()} appears more than once. Every subject ` +
+                  'in a curriculum year needs its own code — elective slots included.'
+                : 'Two subjects share a code. Every subject in a curriculum year ' +
+                  'needs its own code — elective slots included.';
+        }
+
+        return OPTS.onError?.(msg);
     }
 
     // Rules second — they need the ids the insert just returned.
@@ -1002,6 +1319,13 @@ async function commit() {
         }
     }
 
+    // The draft has become a curriculum; it should not be offered again.
+    if (DRAFT_BATCH) {
+        await SB.from('stg_prerequisite').delete().eq('batch_id', DRAFT_BATCH);
+        await SB.from('stg_subject').delete().eq('batch_id', DRAFT_BATCH);
+        DRAFT_BATCH = null;
+    }
+
     const n = data.length;
     ROWS = [];
     OPTS.onDone?.(`${n} subjects and ${rules.length} rules created.`);
@@ -1022,11 +1346,31 @@ function mount(supabase, opts) {
 
     if (!MOUNT.dataset.bound) {
         bind();
+        window.addEventListener('resize', sizeStage);
         MOUNT.dataset.bound = '1';
     }
 
-    const current = (OPTS.versions ?? []).find(v => v.id === OPTS.prospectusId);
-    SELECTED_YEAR = current?.academic_year ?? new Date().getFullYear();
+    /* Keep the chosen year across a re-mount. loadCurriculum() remounts
+       the builder, and mount() replaces OPTS wholesale — so both the year
+       AND the prospectus id have to be restored here.
+
+       Restoring only the year was worse than restoring neither: the banner
+       showed the year the operator picked while prospectusId silently
+       reverted to the caller's active version, so subjects were written to
+       the live curriculum under another year's name. */
+    if (SELECTED_YEAR === null) {
+        const current = (OPTS.versions ?? []).find(v => v.id === OPTS.prospectusId);
+        SELECTED_YEAR = current?.academic_year ?? new Date().getFullYear();
+    } else {
+        const chosen = (OPTS.versions ?? []).find(v => v.academic_year === SELECTED_YEAR);
+        // null is correct for a year with no prospectus row yet — commit()
+        // creates one. What must not happen is falling back to the caller's id.
+        OPTS.prospectusId = chosen?.id ?? null;
+    }
+
+    if (!OPTS.versions?.length) {
+        console.warn('CurriculumBuilder: no versions passed — every year will show as New');
+    }
 
     if (!ROWS.length) {
         // Start with a few empty rows so the table is not a blank slab.
@@ -1035,8 +1379,30 @@ function mount(supabase, opts) {
 
     validate();
     render();
+
+    // Offer the last draft once per mount, and only when the table is
+    // empty — never overwrite work in progress.
+    if (!DRAFT_BATCH) {
+        loadDraft().then(draft => {
+            if (!draft || filled().length) return;
+
+            const when = draft.subjects[0]?.uploaded_at
+                ? new Date(draft.subjects[0].uploaded_at).toLocaleString()
+                : 'earlier';
+
+            if (confirm(
+                `Carry on from ${when}? ` +
+                `${draft.subjects.length} subjects, ${draft.rules.length} rule` +
+                `${draft.rules.length === 1 ? '' : 's'} unpublished.`)) {
+                applyDraft(draft);
+            }
+        });
+    }
 }
 
-window.CurriculumBuilder = { mount, reset: () => { ROWS = []; SEQ = 1; render(); } };
+window.CurriculumBuilder = {
+    mount,
+    reset: () => { ROWS = []; SEQ = 1; SELECTED_YEAR = null; render(); },
+};
 
 })();

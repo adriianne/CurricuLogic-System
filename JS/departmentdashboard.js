@@ -252,7 +252,7 @@ async function loadCurriculum() {
 
     const { data: subs, error: subErr } = await supabase
         .from('subject')
-        .select('id, code, title, units, year_level, term, is_elective')
+        .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, is_active')
         .eq('prospectus_id', EDITING.id)
         .order('year_level').order('term').order('code');
 
@@ -583,9 +583,146 @@ function openSubject(id) {
         `${s.title} · ${s.units} units · ${ordinal(s.year_level)} ${termLabel(s.term)}` +
         (s.is_elective ? ' · Elective' : ''));
 
+    fillEditForm(s);
     renderRules();
     renderSubjectOptions();
 }
+
+
+/* edit and retire */
+
+function fillEditForm(s) {
+    const set = (id, v) => { const el = $(id); if (el) el.value = v ?? ''; };
+
+    set('e-code',  s.code);
+    set('e-title', s.title);
+    set('e-lec',   s.lec_units ?? '');
+    set('e-lab',   s.lab_units || '');
+    set('e-year',  s.year_level ?? '');
+    set('e-term',  s.term ?? '');
+
+    const state  = $('subject-state');
+    const retire = $('e-retire');
+
+    if (state) {
+        state.textContent = s.is_active === false ? 'Retired' : '';
+    }
+    if (retire) {
+        retire.textContent = s.is_active === false ? 'Restore subject' : 'Retire subject';
+    }
+}
+
+async function saveSubjectEdit() {
+    if (!CURRENT_SUBJECT) return;
+
+    if (PREVIEW) {
+        return showMsg('rule-msg', 'Saved (preview only \u2014 not stored).', 'success');
+    }
+
+    const num = (id) => {
+        const v = $(id)?.value.trim();
+        return v === '' || v == null ? null : Number(v);
+    };
+
+    const { data, error } = await supabase.rpc('update_subject', {
+        target_id:  CURRENT_SUBJECT.id,
+        p_code:     $('e-code')?.value ?? '',
+        p_title:    $('e-title')?.value ?? '',
+        p_lec:      num('e-lec') ?? 0,
+        p_lab:      num('e-lab') ?? 0,
+        p_year:     num('e-year'),
+        p_term:     num('e-term'),
+        p_category: null,
+    });
+
+    if (error) {
+        console.error('update_subject failed:', error.message);
+        return showMsg('rule-msg', error.message);
+    }
+
+    /* Renaming a subject that students have already taken is worth
+       flagging: prerequisites resolve by id and survive, but grade files
+       and schedule templates match on the printed code. */
+    let msg = `${data.code} saved.`;
+    if (data.code_changed && data.records) {
+        msg += ` The code changed and ${data.records} academic record` +
+               `${data.records === 1 ? '' : 's'} reference it \u2014 any grade file ` +
+               'prepared against the old code will no longer match.';
+    }
+
+    showMsg('rule-msg', msg, 'success');
+    await loadCurriculum();
+    openSubject(CURRENT_SUBJECT.id);
+}
+
+async function retireSubject() {
+    if (!CURRENT_SUBJECT) return;
+
+    if (PREVIEW) {
+        return showMsg('rule-msg', 'Retired (preview only \u2014 not stored).', 'success');
+    }
+
+    const restoring = CURRENT_SUBJECT.is_active === false;
+
+    if (restoring) {
+        const { error } = await supabase.rpc('retire_subject', {
+            target_id: CURRENT_SUBJECT.id, restore: true, confirm: true,
+        });
+        if (error) return showMsg('rule-msg', error.message);
+
+        showMsg('rule-msg', `${CURRENT_SUBJECT.code} is back in the curriculum.`, 'success');
+        await loadCurriculum();
+        return openSubject(CURRENT_SUBJECT.id);
+    }
+
+    // First call reports what retiring would affect; it does not act.
+    const { data: check, error: e1 } = await supabase.rpc('retire_subject', {
+        target_id: CURRENT_SUBJECT.id, restore: false, confirm: false,
+    });
+
+    if (e1) {
+        console.error('retire check failed:', e1.message);
+        return showMsg('rule-msg', e1.message);
+    }
+
+    const lines = [`Retire ${check.code}?`, ''];
+
+    if (check.records) {
+        lines.push(`${check.records} academic record${check.records === 1 ? '' : 's'} ` +
+                   'reference it. Those grades stay readable.');
+    }
+    if (check.dependents?.length) {
+        lines.push('',
+            `These subjects require it: ${check.dependents.join(', ')}.`,
+            'They will be left with a condition no student can satisfy, so ' +
+            'remove or change those rules first.');
+    }
+    if (check.offerings) {
+        lines.push('', `${check.offerings} scheduled offering${
+            check.offerings === 1 ? '' : 's'} reference it.`);
+    }
+
+    lines.push('', 'It stops appearing in the prospectus and stops being ' +
+                   'recommended. Nothing is deleted.');
+
+    if (!window.confirm(lines.join('\n'))) return;
+
+    const { error: e2 } = await supabase.rpc('retire_subject', {
+        target_id: CURRENT_SUBJECT.id, restore: false, confirm: true,
+    });
+
+    if (e2) {
+        console.error('retire failed:', e2.message);
+        return showMsg('rule-msg', e2.message);
+    }
+
+    showMsg('rule-msg', `${check.code} retired.`, 'success');
+    await loadCurriculum();
+    openSubject(CURRENT_SUBJECT.id);
+}
+
+$('e-save')?.addEventListener('click', saveSubjectEdit);
+$('e-retire')?.addEventListener('click', retireSubject);
 
 function renderRules() {
     const body  = $('rules-body');
@@ -771,7 +908,7 @@ async function loadProspectusList() {
 
     if (PREVIEW) {
         VERSIONS = [{ id: 3, academic_year: 2023, academic_term: 1, is_active: true,
-                      published_at: null, subject_count: 58 }];
+                      published_at: null, subject_count: 58, student_count: 1 }];
         return renderVersions();
     }
 
@@ -799,8 +936,18 @@ async function loadProspectusList() {
        scale. */
     await Promise.all(VERSIONS.map(async (v) => {
         const { data: subs } = await supabase
-            .from('subject').select('id').eq('prospectus_id', v.id);
+            .from('subject').select('id').eq('prospectus_id', v.id).eq('is_active', true);
         v.subject_count = subs?.length ?? 0;
+
+        /* Students pinned to this version. "Active" says where new
+           students go; this says who is still on it, which is the number
+           that decides whether a version can be retired. */
+        const { count: stud } = await supabase
+            .from('university_student')
+            .select('id', { count: 'exact', head: true })
+            .eq('prospectus_id', v.id);
+
+        v.student_count = stud ?? 0;
     }));
 
     renderVersions();
@@ -855,17 +1002,21 @@ function renderVersions() {
             <table class="data-table">
                 <thead>
                     <tr><th>Effective year</th><th>Starts</th>
-                        <th class="num">Subjects</th><th>Status</th><th></th></tr>
+                        <th class="num">Subjects</th><th class="num">Students</th>
+                        <th>Status</th><th></th></tr>
                 </thead>
                 <tbody>${VERSIONS.map(v => `
                     <tr>
                         <td class="mono">${escapeHtml(v.academic_year)}</td>
                         <td class="dim">${termLabel(v.academic_term)}</td>
                         <td class="num">${v.subject_count}</td>
+                        <td class="num">${v.student_count
+                            ? escapeHtml(v.student_count)
+                            : '<span class="dim">\u2014</span>'}</td>
                         <td>${versionStatus(v)}</td>
                         <td class="num">
                             ${v.is_active
-                                ? '<span class="dim">In use</span>'
+                                ? '<span class="dim">Default</span>'
                                 : `<button class="btn-small" data-activate="${v.id}"
                                      ${v.subject_count === 0 ? 'disabled title="Encode subjects first"' : ''}>
                                      Make active
@@ -879,55 +1030,6 @@ function renderVersions() {
     body.querySelectorAll('[data-activate]').forEach(b =>
         b.addEventListener('click', () => activateVersion(Number(b.dataset.activate))));
 
-    function renderVersions() {
-    const body  = $('pros-body');
-    const count = $('pros-count');
-    if (!body) return;
-
-    if (count) {
-        count.textContent = VERSIONS.length
-            ? `${VERSIONS.length} version${VERSIONS.length === 1 ? '' : 's'}`
-            : '';
-    }
-
-    if (VERSIONS.length === 0) {
-        body.innerHTML = `
-            <div class="empty">
-                <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
-                <h3>No prospectus yet</h3>
-                <p>Create the first version above, then encode its subjects.</p>
-            </div>`;
-        return;
-    }
-
-    body.innerHTML = `
-        <div class="table-wrap">
-            <table class="data-table">
-                <thead>
-                    <tr><th>Effective year</th><th>Starts</th>
-                        <th class="num">Subjects</th><th>Status</th><th></th></tr>
-                </thead>
-                <tbody>${VERSIONS.map(v => `
-                    <tr>
-                        <td class="mono">${escapeHtml(v.academic_year)}</td>
-                        <td class="dim">${termLabel(v.academic_term)}</td>
-                        <td class="num">${v.subject_count}</td>
-                        <td>${versionStatus(v)}</td>
-                        <td class="num">
-                            ${v.is_active
-                                ? '<span class="dim">In use</span>'
-                                : `<button class="btn-small" data-activate="${v.id}"
-                                     ${v.subject_count === 0 ? 'disabled title="Encode subjects first"' : ''}>
-                                     Make active
-                                   </button>`}
-                        </td>
-                    </tr>`).join('')}
-                </tbody>
-            </table>
-        </div>`;
-    body.querySelectorAll('[data-activate]').forEach(b =>
-        b.addEventListener('click', () => activateVersion(Number(b.dataset.activate))));
-    }
     // Curriculum grid, switchable by version.
     const sel = $('pg-version');
     if (!sel || !window.ProspectusGrid || !VERSIONS.length) return;
@@ -1026,12 +1128,23 @@ async function activateVersion(id) {
     const v = VERSIONS.find(x => x.id === id);
     const current = VERSIONS.find(x => x.is_active);
 
-    /* Switching the active version changes what every student is assessed
-       against. Worth a confirmation rather than a single click. */
+    /* "Active" means the version a newly registered student is placed on,
+       and the one this dashboard opens by default. It does not move
+       anyone: students carry their own prospectus_id and are assessed
+       against that, which is how a returnee stays on the curriculum they
+       enrolled under. Several versions are legitimately in use at once.
+
+       The old wording claimed every student would be reassessed against
+       the new version. That was never true and it made the action look
+       far more dangerous than it is. */
     const ok = window.confirm(
-        `Make the ${v.academic_year} prospectus active?\n\n` +
-        (current ? `${current.academic_year} becomes inactive. ` : '') +
-        'Every student will be assessed against the new version from now on.');
+        `Make ${v.academic_year}\u2013${v.academic_year + 1} the version for new students?\n\n` +
+        'Students already enrolled keep the curriculum they are on, ' +
+        'including returnees.' +
+        (current
+            ? `\n\n${current.academic_year}\u2013${current.academic_year + 1} stops being the default `
+              + 'but remains in use by the students on it.'
+            : ''));
 
     if (!ok) return;
 
@@ -1050,7 +1163,9 @@ async function activateVersion(id) {
     await loadProspectusList();
     await loadCurriculum();
 
-    showMsg('pros-msg', `${v.academic_year} is now the active prospectus.`, 'success');
+    showMsg('pros-msg',
+        `New students will be placed on ${v.academic_year}\u2013${v.academic_year + 1}.`,
+        'success');
 }
 
 
