@@ -64,6 +64,7 @@ const VIEWS = {
     requests:  'Account requests',
     students:  'Students',
     student:   'Student detail',
+    prospectus:'Prospectus',
     profile:   'Profile',
 };
 
@@ -95,7 +96,75 @@ function showView(name, param) {
     if (name === 'requests') renderRequests();
     if (name === 'students') renderStudents();
     if (name === 'student' && param) openStudent(param);
+    if (name === 'prospectus') loadProspectus();
 }
+
+/* prospectus */
+
+/* Read-only. The Registrar verifies academic records, and a record only
+   means something against the curriculum it is measured by — so the
+   version picker matters here as much as the grid. Authoring stays with
+   Department Staff; there is no write path on this page. */
+
+let VERSIONS        = [];
+let prospectusReady = false;
+
+async function loadProspectus() {
+    const body = $('prospectus-grid');
+    const sel  = $('pros-version');
+    if (!body || !sel) return;
+
+    if (typeof window.ProspectusGrid === 'undefined') {
+        console.error('prospectusgrid.js not loaded');
+        body.innerHTML = '<div class="empty"><h3>Could not load the curriculum</h3></div>';
+        return;
+    }
+
+    if (!prospectusReady) {
+        if (PREVIEW || !supabase) {
+            body.innerHTML = '<div class="empty"><h3>Preview mode</h3>' +
+                '<p>The curriculum is not loaded in preview.</p></div>';
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('prospectus')
+            .select('id, academic_year, is_active')
+            .order('academic_year', { ascending: false });
+
+        if (error) {
+            console.warn('version load failed:', error.message);
+            body.innerHTML = '<div class="empty"><h3>Could not load versions</h3></div>';
+            return;
+        }
+
+        VERSIONS = data ?? [];
+
+        if (!VERSIONS.length) {
+            body.innerHTML = '<div class="empty">' +
+                '<h3>No curriculum published</h3>' +
+                '<p>Department Staff has not published a prospectus yet.</p></div>';
+            return;
+        }
+
+        sel.innerHTML = VERSIONS.map(v =>
+            `<option value="${v.id}">${v.academic_year}\u2013${v.academic_year + 1}` +
+            `${v.is_active ? ' \u00b7 Active' : ' \u00b7 Draft'}</option>`).join('');
+
+        const active = VERSIONS.find(v => v.is_active) ?? VERSIONS[0];
+        sel.value = String(active.id);
+
+        // onchange rather than addEventListener: this runs again whenever
+        // the view is opened, and listeners would stack.
+        sel.onchange = () => window.ProspectusGrid.render(
+            supabase, Number(sel.value), body);
+
+        prospectusReady = true;
+    }
+
+    await window.ProspectusGrid.render(supabase, Number(sel.value), body);
+}
+
 
 function route() {
     const { name, param } = parseHash();

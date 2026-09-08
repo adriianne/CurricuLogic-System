@@ -9,6 +9,7 @@
 
     <link rel="icon" type="image/png" href="../assets/CurriculogicLogo.png">
     <link rel="stylesheet" href="../CSS/dashboard.css">
+    <link rel="stylesheet" href="../CSS/prospectus.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body>
@@ -37,6 +38,9 @@
             </a>
             <a href="#students" data-view="students">
                 <i class="fa-solid fa-users" aria-hidden="true"></i> Students
+            </a>
+            <a href="#prospectus" data-view="prospectus">
+                <i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Prospectus
             </a>
             <a href="#profile" data-view="profile">
                 <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
@@ -250,6 +254,32 @@
 
             </section>
 
+            <!-- Prospectus -->
+            <section class="view view-wide" id="view-prospectus" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Prospectus</h1>
+                    <p class="page-sub">
+                        The curriculum a student's record is checked against. Read-only —
+                        subjects and prerequisites are authored by Department Staff.
+                    </p>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">BS Information Technology</span>
+                        <span class="card-note">
+                            <label for="pros-version">Curriculum year</label>
+                            <select id="pros-version"></select>
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div id="prospectus-grid"></div>
+                    </div>
+                </section>
+
+            </section>
+
             <!-- Profile -->
             <section class="view" id="view-profile" hidden>
 
@@ -296,6 +326,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../JS/config.js"></script>
+<script src="../JS/prospectusgrid.js"></script>
 <script src="../JS/registrardashboard.js"></script>
 </body>
 </html>
