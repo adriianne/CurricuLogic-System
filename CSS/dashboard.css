@@ -255,6 +255,13 @@ ul { list-style: none; }
 
 .content { padding: var(--s4); max-width: 76rem; }
 
+/* 76rem keeps prose and ordinary tables readable. A few views are wide
+   data grids that need the room instead — the curriculum builder puts
+   seven editable columns across two side-by-side tables. Those opt in
+   with .view-wide rather than every view losing the reading width. */
+.content:has(> .view-wide:not([hidden])),
+.content.is-wide { max-width: none; }
+
 .page-head { margin-bottom: var(--s4); }
 
 .page-title {
