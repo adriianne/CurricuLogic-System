@@ -4,7 +4,10 @@
 /* The builder must never be wider than the card it sits in. Grid tracks
    default to min-content, so without min-width:0 the two semester tables
    push the whole container out and the stats bar overflows with it. */
-.cb { max-width: 100%; min-width: 0; overflow-x: hidden; }
+/* No overflow clipping here: the prerequisite popover is 320px wide and
+   anchored inside a table cell, so it has to be allowed past the edge.
+   min-width:0 is what stops the tables forcing the container wide. */
+.cb { max-width: 100%; min-width: 0; }
 .cb > * { min-width: 0; }
 
 /* stats */
@@ -58,18 +61,35 @@
    room; the title takes what is left. */
 .cb th:nth-child(1) { width: 22%; }
 .cb th:nth-child(6) { width: 26%; }
+/* Fixed layout needs cells to clip their text, but the prerequisite
+   popover is positioned inside one of them — clipping it leaves only
+   the search box visible. */
 .cb td { overflow: hidden; }
+.cb td.cb-pre { overflow: visible; }
+.cb tr:has(.cb-picker) td { overflow: visible; }
 
 /* prerequisite picker */
 .cb .cb-pre { position: relative; }
 .cb .cb-pick { position: relative; }
-.cb .cb-chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 32px; align-items: center; padding: 4px 8px; border: 1px solid var(--line, #E2E8F0); border-radius: 6px; cursor: pointer; background: #FFF; }
-.cb .cb-chips:hover { border-color: var(--line-strong, #CBD5E1); }
-.cb .cb-pick-empty { font-size: 12px; color: #CBD5E1; }
+/* Reads as a select rather than a text field: caret on the right, and a
+   pointer cursor. It opens a checkbox list, so it must not look typeable. */
+.cb .cb-chips {
+    display: flex; align-items: center; gap: 6px;
+    min-height: 32px; padding: 4px 6px 4px 8px;
+    border: 1px solid var(--line-strong, #CBD5E1);
+    border-radius: 6px;
+    cursor: pointer;
+    background: #FFF;
+}
+.cb .cb-chips:hover { border-color: var(--accent, #4F46E5); }
+.cb .cb-chips:focus-visible { outline: 2px solid var(--accent, #4F46E5); outline-offset: 1px; }
+.cb .cb-chip-wrap { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.cb .cb-caret { color: var(--ink-3, #94A3B8); font-size: 10px; line-height: 1; flex: none; }
+.cb .cb-pick-empty { font-size: 12px; color: var(--ink-3, #94A3B8); }
 .cb .cb-chip { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft, #EEF2FF); color: var(--accent, #4F46E5); font: 500 11px/1.5 var(--font-mono, monospace); }
 .cb .cb-chip.mark { background: #FFFBEB; color: #B45309; }
 
-.cb .cb-picker { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; width: 320px; background: #FFF; border: 1px solid var(--line-strong, #CBD5E1); border-radius: 10px; box-shadow: 0 8px 24px rgba(15,23,42,.12); overflow: hidden; }
+.cb .cb-picker { position: absolute; z-index: 40; top: calc(100% + 4px); right: 0; width: 340px; background: #FFF; border: 1px solid var(--line-strong, #CBD5E1); border-radius: 10px; box-shadow: 0 8px 24px rgba(15,23,42,.12); overflow: hidden; }
 .cb .cb-pick-search { width: 100%; height: 34px; padding: 0 10px; border: none; border-bottom: 1px solid var(--line, #E2E8F0); font-size: 13px; }
 .cb .cb-pick-search:focus-visible { outline: none; }
 .cb .cb-pick-list { max-height: 260px; overflow-y: auto; padding: 4px 0; }
@@ -77,7 +97,13 @@
 .cb .cb-pick-row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
 .cb .cb-pick-row:hover { background: var(--surface-2, #F1F5F9); }
 .cb .cb-pick-row input { width: auto; height: auto; margin: 0; }
-.cb .cb-pick-code { font: 500 11px/1.4 var(--font-mono, monospace); min-width: 96px; }
+/* Wide enough for CC-COMPROG11 without wrapping. */
+.cb .cb-pick-code { font: 500 11px/1.4 var(--font-mono, monospace); min-width: 88px; }
+
+/* A standing marker is two or three characters, so reserving a full
+   code column leaves a gap and squeezes the label into an ellipsis. */
+.cb .cb-pick-row[data-standing] .cb-pick-code { min-width: 26px; }
+.cb .cb-pick-row[data-standing] .cb-pick-title { white-space: normal; }
 .cb .cb-pick-title { color: var(--ink-2, #475569); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cb .cb-pick-none { margin: 0; padding: 14px 10px; text-align: center; font-size: 13px; color: var(--ink-3, #94A3B8); }
 .cb .cb-pick-foot { padding: 8px 10px; border-top: 1px solid var(--line, #E2E8F0); text-align: right; }
@@ -143,6 +169,11 @@
 }
 .cb .cb-pick-done:hover { background: #4338CA; }
 
+/* a semester at its unit ceiling */
+.cb .cb-full { margin-left: 8px; font-size: 12px; color: var(--ink-3, #94A3B8); }
+.cb .cb-panel-foot button[disabled] { opacity: .45; cursor: not-allowed; }
+.cb .cb-panel-foot button[disabled]:hover { background: none; }
+
 /* actions */
 .cb .cb-actions { display: flex; align-items: center; gap: 8px; padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line, #E2E8F0); }
 .cb .cb-actions button[disabled] { opacity: .5; cursor: not-allowed; }
@@ -167,7 +198,7 @@
     padding: 3rem 1.5rem; overflow-y: auto;
 }
 .cbp-modal {
-    width: 100%; max-width: 68rem;
+    width: 100%; max-width: 76rem;
     background: var(--canvas, #F8FAFC);
     border-radius: 14px;
     box-shadow: 0 20px 50px rgba(15, 23, 42, .25);
@@ -190,14 +221,17 @@
 }
 .cbp-close:hover { background: var(--surface-2, #F1F5F9); color: var(--ink, #0F172A); }
 
-.cbp-body { padding: 15px; }
+.cbp-body { padding: 20px; }
 .cbp-year {
     margin: 20px 0 10px;
     font: 600 14px/1.3 var(--font-display, 'Space Grotesk', sans-serif);
     color: var(--ink-2, #475569);
 }
 .cbp-body > .cbp-year:first-child { margin-top: 0; }
-.cbp-sems { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
+/* One panel per row. Side by side halves the width, and a title like
+   "Technical Writing & Presentation Skills in IT" then has to wrap —
+   which is the thing the preview exists to avoid. */
+.cbp-sems { display: block; }
 
 .cbp-panel {
     background: #FFF;
@@ -227,10 +261,11 @@
     padding: 7px 14px;
     border-bottom: 1px solid var(--line, #E2E8F0);
     font-size: 13px;
-    vertical-align: top;
-    /* The point of the preview: titles wrap instead of being clipped. */
-    white-space: normal;
-    word-break: break-word;
+    vertical-align: middle;
+    /* Titles stay on one line. The panel is full width, so they fit. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .cbp-panel tbody tr:last-child td { border-bottom: none; }
 .cbp-panel th.n, .cbp-panel td.n { text-align: center; width: 42px; }
@@ -252,4 +287,194 @@
 @media (max-width: 900px) {
     .cbp-sems { grid-template-columns: 1fr; }
     .cbp-overlay { padding: 1rem; }
+}
+
+/* The prerequisite cell is a control, not a text field. Without the caret
+   and the hover state it reads as somewhere to type, which is exactly the
+   thing the dropdown exists to prevent. */
+.cb .cb-chips {
+    position: relative;
+    padding-right: 26px;
+    background-image: none;
+}
+.cb .cb-chips:hover,
+.cb .cb-chips:focus-visible {
+    border-color: var(--accent, #4F46E5);
+    background: var(--accent-soft, #EEF2FF);
+}
+.cb .cb-chips:focus-visible { outline: 2px solid var(--accent, #4F46E5); outline-offset: 1px; }
+
+.cb .cb-caret {
+    position: absolute;
+    right: 8px; top: 50%;
+    width: 9px; height: 6px;
+    transform: translateY(-50%);
+    background: currentColor;
+    color: var(--ink-3, #94A3B8);
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    pointer-events: none;
+}
+.cb .cb-chips:hover .cb-caret { color: var(--accent, #4F46E5); }
+
+.cb .cb-chiplist { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.cb .cb-pick-empty { font-size: 12px; color: var(--ink-3, #94A3B8); }
+
+/* Heavy-term notice. A warning, not a block — semesters legitimately
+   range from 6 units in summer to 26 in first year. */
+.cb .cb-warn {
+    margin: 0;
+    padding: 8px 16px;
+    background: #FFFBEB;
+    border-top: 1px solid #FDE68A;
+    font-size: 12px;
+    color: #B45309;
+}
+
+/* An option ruled out by what is already chosen. Dimmed rather than
+   hidden, so it is clear the option exists and why it cannot be picked. */
+.cb .cb-pick-row.is-locked { opacity: .4; cursor: not-allowed; }
+.cb .cb-pick-row.is-locked:hover { background: none; }
+
+/* Pre-flight. Blockers and warnings are visually distinct because they
+   mean different things: one stops the save, the other is the operator's
+   call. */
+.cb-confirm { max-width: 34rem; }
+.cb-cf-head {
+    margin: 0 0 8px;
+    font-size: 13px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: .04em;
+}
+.cb-cf-head.bad  { color: #DC2626; }
+.cb-cf-head.warn { color: #B45309; }
+.cb-cf-head + .cb-cf-list { margin-bottom: 18px; }
+
+.cb-cf-list { margin: 0; padding: 0; list-style: none; }
+.cb-cf-list li {
+    position: relative;
+    padding: 7px 0 7px 20px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--line, #E2E8F0);
+}
+.cb-cf-list li:last-child { border-bottom: none; }
+.cb-cf-list li::before {
+    position: absolute; left: 2px; top: 7px;
+    font-weight: 600;
+}
+.cb-cf-list li.bad::before  { content: '\00d7'; color: #DC2626; }
+.cb-cf-list li.warn::before { content: '!';     color: #B45309; }
+
+.cb-cf-ok { margin: 0; font-size: 13px; color: #059669; }
+
+.cb-cf-foot {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 14px 20px;
+    background: #FFF;
+    border-top: 1px solid var(--line, #E2E8F0);
+}
+.cb-cf-foot button {
+    font: 500 13px/1 var(--font-body, 'Inter', sans-serif);
+    padding: 8px 14px;
+    border: 1px solid var(--line-strong, #CBD5E1);
+    border-radius: 8px;
+    background: #FFF; cursor: pointer;
+}
+.cb-cf-foot .btn-primary {
+    background: var(--accent, #4F46E5);
+    border-color: var(--accent, #4F46E5);
+    color: #FFF;
+}
+.cb-cf-foot .btn-primary:hover { background: #4338CA; }
+
+/* Version selector in the Build curriculum card head. The year is not
+   decoration — building into the active version changes what students
+   see immediately, and the warning below the head says so. */
+.card-head #edit-prospectus {
+    font: 400 13px/1 var(--font-body, 'Inter', sans-serif);
+    padding: 5px 26px 5px 10px;
+    margin: 0 8px;
+    border: 1px solid var(--line-strong, #CBD5E1);
+    border-radius: 8px;
+    background: #FFF no-repeat right 8px center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394A3B8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    color: var(--ink, #0F172A);
+    cursor: pointer;
+    appearance: none;
+}
+.card-head label[for="edit-prospectus"] {
+    font-size: 13px;
+    color: var(--ink-2, #475569);
+}
+#editing-note { font-size: 13px; color: var(--ink-3, #94A3B8); }
+
+#editing-warning {
+    margin: 0 0 14px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: var(--surface-2, #F1F5F9);
+    color: var(--ink-2, #475569);
+}
+
+/* Which prospectus version is being built. Prominent because entering 58
+   subjects against the wrong year is expensive to undo. */
+.cb .cb-version {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: var(--accent-soft, #EEF2FF);
+    border: 1px solid #C7D2FE;
+    border-radius: 10px;
+}
+.cb .cb-version .k {
+    margin: 0;
+    font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--accent, #4F46E5);
+}
+.cb .cb-version .v {
+    margin: 2px 0 0;
+    font: 600 18px/1.2 var(--font-display, 'Space Grotesk', sans-serif);
+    font-variant-numeric: tabular-nums;
+}
+.cb .cb-version select {
+    height: 34px;
+    padding: 0 30px 0 10px;
+    border: 1px solid #C7D2FE;
+    border-radius: 8px;
+    background: #FFF no-repeat right 10px center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%234F46E5' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    font: 400 13px/1 var(--font-body, 'Inter', sans-serif);
+    color: var(--ink, #0F172A);
+    cursor: pointer;
+    appearance: none;
+}
+.cb .cb-version select:focus-visible { outline: 2px solid var(--accent, #4F46E5); outline-offset: 1px; }
+
+@media (max-width: 640px) {
+    .cb .cb-version { flex-direction: column; align-items: stretch; }
+}
+
+/* Year panes, matching the prospectus grid: every year rendered and
+   stacked, the switch a directional slide rather than a repaint.
+
+   Repainting would drop focus and lose a half-typed row in the pane being
+   left, which matters here in a way it does not on a read-only grid. */
+.cb .cb-stage {
+    position: relative;
+    transition: height .3s cubic-bezier(.4, 0, .2, 1);
+}
+.cb .cb-pane {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    transition: opacity .26s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
+}
+.cb .cb-pane.on    { opacity: 1; transform: translateX(0); pointer-events: auto; z-index: 2; }
+.cb .cb-pane.off   { opacity: 0; pointer-events: none; z-index: 1; }
+.cb .cb-pane.off.l { transform: translateX(-24px); }
+.cb .cb-pane.off.r { transform: translateX(24px); }
+
+@media (prefers-reduced-motion: reduce) {
+    .cb .cb-pane, .cb .cb-stage { transition: none; }
+    .cb .cb-pane.off.l, .cb .cb-pane.off.r { transform: none; }
 }
