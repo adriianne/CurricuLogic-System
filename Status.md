@@ -133,16 +133,3 @@ enough for advisory decisions.
 | Bootstrap administrator | First admin provisioned out-of-band. Deliberate, unwritten. |
 | SECURITY DEFINER rationale | Guard inside the function, EXECUTE revoked. Worth stating. |
 | Staging rationale | Bad rules cannot reach the knowledge base. Worth stating. |
-
----
-
-## The honest summary
-
-Eleven modules are built and most work. The knowledge base is complete
-and verified. The engine is written and appears sound on reading.
-
-It has no tests, and its output is not visible in any interface.
-
-Everything else on this list is an improvement to something that already
-works. Those two are the difference between a well-built CRUD
-application and an expert system.
