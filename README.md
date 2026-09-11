@@ -60,10 +60,6 @@ Student IDs are stored bare (`2401187`). The `uc-` prefix exists only at
 the login boundary. Storing the prefixed form inserts cleanly and then
 fails login silently.
 
-The hyphen in `uc-` is required. `UC2401187` is one keystroke from a
-bare ID, and accepting both reintroduces the ambiguity the prefix exists
-to remove.
-
 ---
 
 ### PDF extraction is not reliable for this document
