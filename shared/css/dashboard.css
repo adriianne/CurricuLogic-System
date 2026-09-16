@@ -24,6 +24,85 @@
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* Buttons had no rules anywhere in this stylesheet, so every button on
+   every dashboard was running on the browser default — a grey box with a
+   1px outset border. This is the base every .btn-small, #p-save,
+   #cb-create and similar id-selected button already relies on; adding it
+   here fixes all of them at once rather than one card at a time. */
+button {
+    font: 500 0.86rem/1 inherit;
+    padding: 0.62rem 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    transition: background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+button:hover  { background: var(--canvas); border-color: #d8dee9; }
+button:active { background: #eef1f6; }
+button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.25);
+    border-color: var(--indigo);
+}
+button:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+    background: #fff;
+}
+
+/* Primary action — the one button on a view that actually writes.
+   Matched by class or by id, since several views (curriculum builder,
+   profile forms) reach a specific button by id rather than a shared
+   class. */
+button.btn-primary,
+#cb-create, #p-save, #e-save, #o-save {
+    background: var(--indigo);
+    border-color: var(--indigo);
+    color: #fff;
+    font-weight: 600;
+}
+button.btn-primary:hover,
+#cb-create:hover, #p-save:hover, #e-save:hover, #o-save:hover {
+    background: var(--indigo-dark);
+    border-color: var(--indigo-dark);
+}
+button.btn-primary:disabled,
+#cb-create:disabled, #p-save:disabled, #e-save:disabled, #o-save:disabled {
+    background: var(--indigo);
+    border-color: var(--indigo);
+    opacity: .55;
+}
+
+/* Destructive action — retire, delete, remove. Quiet until hovered, so a
+   row of buttons does not read as "two equally important choices" when
+   one of them is undoing the other's work. */
+#e-retire, .btn-danger, [data-del] {
+    background: #fff;
+    border-color: var(--line);
+    color: #b42318;
+}
+#e-retire:hover, .btn-danger:hover, [data-del]:hover {
+    background: #fef2f2;
+    border-color: #fca5a5;
+}
+
+/* Small utility buttons — Template, Show/Hide, per-row actions. Same
+   shape, less visual weight, so they do not compete with the primary
+   action on the same card. */
+.btn-small {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 6px;
+}
+
+/* Buttons that sit in a row (.review-actions, .cb-actions and similar)
+   should not all stretch to fill the space evenly. */
+.review-actions, .cb-actions {
+    align-items: center;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
                  'Helvetica Neue', Arial, sans-serif;
@@ -1271,4 +1350,38 @@ body.is-preview .topbar  { top: var(--preview-bar); }
         transition-duration: 0.01ms !important;
         animation-duration: 0.01ms !important;
     }
+}
+/* Edit profile card. Uses the shared .form-grid and .review-actions, with
+   a few rules of its own so the card does not read as a bare unstyled
+   form dropped onto the page. */
+#p-save { position: relative; }
+#p-save:disabled { opacity: .6; cursor: not-allowed; }
+
+.card-body .hint {
+    margin-top: var(--s3, 1rem);
+    padding-top: var(--s2, 0.6rem);
+    border-top: 1px solid var(--line, #E2E8F0);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: var(--slate, #64748B);
+}
+
+/* Keep the save action visually separate from the field grid, and give
+   the hint room to breathe underneath rather than sitting flush against
+   the button. */
+.card-body .form-grid + .review-actions {
+    margin-top: var(--s3, 1rem);
+    padding-top: var(--s3, 1rem);
+    border-top: 1px solid var(--line, #E2E8F0);
+}
+
+/* Microsoft Edge injects its own built-in password-reveal icon inside
+   every type="password" field automatically, completely separate from
+   our own .toggle-pw eye button in auth.js. Without this, both icons
+   appear stacked next to each other in Edge, which looks like a
+   duplicate even though only one of them is actually ours. Chrome and
+   Firefox do not have this behavior, so this rule has no effect there. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+    display: none;
 }

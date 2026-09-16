@@ -118,9 +118,23 @@ function panel(label, rows, rules, showSplit) {
         const lab = Number(s.lab_units ?? 0);
         const st = STATUS?.get(s.id);
         const cls = [s.is_elective ? 'pg-slot' : '', st ? 'is-' + st.state : ''].join(' ').trim();
+
+        // A placeholder elective slot (a real subject has not been chosen
+        // yet) gets a clear instruction instead of a blank or generic
+        // title, and a link scrolling to the actual catalogue the student
+        // picks from. This does not enforce the choice -- the engine has
+        // no concept of "this slot is filled" -- it only tells the
+        // student honestly that a choice exists and where to make it.
+        const isFreeSlot = s.is_elective && /^IT-FRE/.test(s.code);
+        const catalogueId = 'pg-catalogue-' + (isFreeSlot ? 'freeelectivecourses' : 'itelectivecourses');
+        const titleCell = s.is_elective
+            ? `<span class="pg-slot-hint" data-jump-catalogue="${catalogueId}">`
+              + `Choose 1 \u2014 see ${isFreeSlot ? 'Free' : 'IT'} Elective Courses</span>`
+            : esc(s.title);
+
         return `<tr class="${cls}" id="${slug(s.code)}">
             <td class="pg-code">${esc(s.code)}</td>
-            <td>${esc(s.title)}</td>
+            <td>${titleCell}</td>
             ${showSplit ? `<td class="n pg-u">${lec || ''}</td>
                            <td class="n pg-u">${lab || ''}</td>` : ''}
             <td class="n pg-u t">${Number(s.units)}</td>
@@ -182,7 +196,8 @@ function summary(all) {
 
 function electivePanel(label, note, rows, rules) {
     if (!rows.length) {
-        return `<div class="pg-panel">
+        const emptyId = 'pg-catalogue-' + label.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+        return `<div class="pg-panel" id="${emptyId}">
             <div class="pg-panel-head"><h3>${esc(label)}</h3></div>
             <div class="pg-empty">
                 The elective catalogue has not been encoded yet.
@@ -198,7 +213,9 @@ function electivePanel(label, note, rows, rules) {
         ${STATUS ? statusCell(s) : ''}
     </tr>`).join('');
 
-    return `<div class="pg-panel">
+    const panelId = 'pg-catalogue-' + label.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+
+    return `<div class="pg-panel" id="${panelId}">
         <div class="pg-panel-head">
             <h3>${esc(label)}</h3><span class="pg-note">${esc(note)}</span>
         </div>
@@ -355,7 +372,18 @@ async function render(supabase, prospectusId, mountEl, statuses = null) {
         if (tab) return show(Number(tab.dataset.year));
 
         const lk = e.target.closest('[data-jump]');
-        if (lk) jump(lk.dataset.jump);
+        if (lk) return jump(lk.dataset.jump);
+
+        const catLink = e.target.closest('[data-jump-catalogue]');
+        if (catLink) {
+            const target = document.getElementById(catLink.dataset.jumpCatalogue);
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                target.style.transition = 'background .3s';
+                target.style.background = 'var(--accent-soft, #EEF2FF)';
+                setTimeout(() => { target.style.background = ''; }, 1600);
+            }
+        }
     });
 
     sizeStage();
@@ -364,4 +392,4 @@ async function render(supabase, prospectusId, mountEl, statuses = null) {
 
 window.ProspectusGrid = { render };
 
-})();g
+})();

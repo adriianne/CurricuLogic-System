@@ -341,49 +341,244 @@ function closePicker() {
 }
 
 
-/* ---- rendering ---- */
-
-/* Which prospectus version these subjects will land in. Versions are
-   created and activated in the Prospectus view; this only switches
-   between the ones that exist, so a department can build next year's
-   curriculum while this year's stays active. */
-/* Years offered: every version that exists, plus a span around the
-   present so a curriculum can be started for a year nobody has created
-   yet. Choosing a new year creates the prospectus row on save, always as
-   a draft — activation stays in the Prospectus view, so there is still
-   one place that decides what students are assessed against. */
 function yearOptions() {
     const list = OPTS.versions ?? [];
-    const now  = new Date().getFullYear();
-
+    const now = new Date().getFullYear();
+    
+    // Build map of existing years with their ACTUAL database status
     const known = new Map(list.map(v => [v.academic_year, v]));
-    const years = new Set(known.keys());
-    for (let y = now - 4; y <= now + 3; y++) years.add(y);
-
-    return [...years].sort((a, b) => b - a).map(y => {
-        const v = known.get(y);
-        return {
+    
+    // Determine which years to show
+    const years = new Map();
+    
+    // Generate future years (current + 5 years ahead)
+    for (let y = now - 1; y <= now + 5; y++) {
+        const existing = known.get(y);
+        const isNew = existing === undefined;
+        const isDraft = existing !== undefined && !existing.is_active;
+        const isActive = existing?.is_active || false;
+        
+        // ⭐ Build label based on ACTUAL database status
+        let label = `${y}–${y + 1}`;
+        if (isActive) {
+            label += ' · Active';
+        } else if (isDraft) {
+            label += ' · Draft';
+        } else {
+            label += ' · New';
+        }
+        
+        years.set(y, {
             year: y,
-            id: v?.id ?? null,
-            label: `${y}\u2013${y + 1}` +
-                   (v ? (v.is_active ? ' \u00b7 Active' : ' \u00b7 Draft') : ' \u00b7 New'),
-        };
+            id: existing?.id ?? null,
+            is_active: isActive,
+            is_draft: isDraft,
+            is_new: isNew,
+            label: label,
+        });
+    }
+    
+    // Check for any draft years outside our range
+    const result = [];
+    for (const [year, data] of years) {
+        // Skip Active years (they shouldn't be editable)
+        if (data.is_active) continue;
+        result.push(data);
+    }
+    
+    // Add any existing draft years outside our generated range
+    for (const v of list) {
+        if (!years.has(v.academic_year) && !v.is_active) {
+            result.push({
+                year: v.academic_year,
+                id: v.id,
+                is_active: false,
+                is_draft: true,
+                is_new: false,
+                label: `${v.academic_year}–${v.academic_year + 1} · Draft`,
+            });
+        }
+    }
+    
+    // Sort: newest first, with Drafts showing before New
+    result.sort((a, b) => {
+        // Draft years come before New years
+        if (a.is_draft && b.is_new) return -1;
+        if (a.is_new && b.is_draft) return 1;
+        // Otherwise sort by year (newest first)
+        return b.year - a.year;
     });
+    
+    return result;
+}
+
+function showCustomYearInput() {
+    // Create overlay for custom year input
+    const overlay = document.createElement('div');
+    overlay.className = 'cbp-overlay';
+    overlay.innerHTML = `
+        <div class="cbp-modal" role="dialog" aria-label="Add custom year">
+            <div class="cbp-bar">
+                <div>
+                    <p class="cbp-title">Add Custom Academic Year</p>
+                    <p class="cbp-sub">Enter a new academic year that isn't already in use.</p>
+                </div>
+                <button class="cbp-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="cbp-body">
+                <div class="field" style="margin-bottom: var(--s3);">
+                    <label for="custom-year-input" style="display: block; font-weight: 600; margin-bottom: 0.35rem;">
+                        Academic Year (YYYY)
+                    </label>
+                    <input type="number" id="custom-year-input" 
+                           min="2000" max="2100" step="1"
+                           placeholder="e.g., 2027"
+                           style="width: 100%; padding: 0.7rem; border: 1.5px solid var(--line); border-radius: 8px; font-size: 0.95rem;">
+                    <p id="custom-year-error" style="color: #dc2626; font-size: 0.85rem; margin-top: 0.35rem; display: none;"></p>
+                </div>
+            </div>
+            <div class="cb-cf-foot" style="display: flex; gap: var(--s2); justify-content: flex-end; padding-top: var(--s3); border-top: 1px solid var(--line);">
+                <button class="cb-cf-cancel" style="padding: 0.5rem 1.2rem;">Cancel</button>
+                <button class="btn-primary" id="confirm-custom-year" style="padding: 0.5rem 1.2rem;">
+                    <i class="fa-solid fa-plus"></i> Add Year
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const close = () => {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+    };
+
+    const onKey = (e) => {
+        if (e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', onKey);
+
+    // Focus the input
+    const input = overlay.querySelector('#custom-year-input');
+    const error = overlay.querySelector('#custom-year-error');
+    setTimeout(() => input?.focus(), 100);
+
+    // Close handlers
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay || e.target.closest('.cbp-close') || e.target.closest('.cb-cf-cancel')) {
+            close();
+        }
+    });
+
+    // Confirm handler
+    overlay.querySelector('#confirm-custom-year')?.addEventListener('click', async () => {
+        const year = Number(input?.value?.trim());
+        error.style.display = 'none';
+
+        // Validate
+        if (!year || year < 2000 || year > 2100) {
+            error.textContent = 'Please enter a valid year between 2000 and 2100.';
+            error.style.display = 'block';
+            return;
+        }
+
+        // Check if year already exists
+        const existing = (OPTS.versions ?? []).find(v => v.academic_year === year);
+        if (existing) {
+            error.textContent = `Year ${year} already exists as ${existing.is_active ? 'Active' : 'Draft'}.`;
+            error.style.display = 'block';
+            return;
+        }
+
+        close();
+
+        // Create the new prospectus
+        const { data, error: insertError } = await SB.from('prospectus')
+            .insert({
+                program_id: OPTS.programId || 1,
+                academic_year: year,
+                academic_term: 1,
+                is_active: false,
+                created_by: OPTS.staffId,
+            })
+            .select('id, academic_year, is_active')
+            .single();
+
+        if (insertError) {
+            console.error('Failed to create custom year:', insertError.message);
+            OPTS.onError?.('Could not create the custom year. ' + insertError.message);
+            return;
+        }
+
+        // Update versions
+        const newVersion = {
+            id: data.id,
+            academic_year: data.academic_year,
+            is_active: false,
+            subject_count: 0,
+            student_count: 0,
+        };
+        OPTS.versions = [...(OPTS.versions ?? []), newVersion];
+
+        // ⭐ FIX: Refresh version status to ensure "Draft" shows correctly
+        refreshVersionStatus();
+
+        // Select the new year
+        SELECTED_YEAR = year;
+        OPTS.prospectusId = data.id;
+
+        // Clear existing rows (start fresh for new year)
+        ROWS = [];
+        for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
+        validate();
+
+        // Re-render
+        render();
+
+        // Notify parent
+        if (OPTS.onVersionChange) {
+            OPTS.onVersionChange(OPTS.prospectusId, year);
+        }
+
+        OPTS.onDone?.(`Academic year ${year} created as a draft. Add subjects to get started.`);
+            });
 }
 
 function versionHtml() {
     const opts = yearOptions();
-    const sel  = SELECTED_YEAR;
+    const sel = SELECTED_YEAR;
 
+    // Check if the selected year is active (should not happen)
+    const isActive = (OPTS.versions ?? []).find(v => v.academic_year === sel)?.is_active;
+    if (isActive) {
+        // If somehow the selected year is active, reset to null (Select Year)
+        SELECTED_YEAR = null;
+        OPTS.prospectusId = null;
+    }
+
+    // Build options HTML with "Select Year" as default
+    let optionsHtml = `<option value="">Select Year</option>`;
+    
+    optionsHtml += opts.map(o => {
+        const isSelected = o.year === sel;
+        const disabled = o.is_active; // Active years are disabled
+        return `<option value="${o.year}" ${isSelected ? 'selected' : ''} ${disabled ? 'disabled style="color: #94a3b8;"' : ''}>
+            ${o.label}
+        </option>`;
+    }).join('');
+
+    // Only show custom year option if a year is selected
     return `<div class="cb-version">
         <div>
             <p class="k">Curriculum year</p>
-            <p class="v">${sel}\u2013${sel + 1}</p>
+            <p class="v">${sel ? `${sel}–${sel + 1}` : '—'}</p>
         </div>
-        <select id="cb-version-pick" aria-label="Select curriculum year">
-            ${opts.map(o => `<option value="${o.year}"${
-                o.year === sel ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}
-        </select>
+        <div style="display: flex; gap: var(--s2); align-items: center;">
+            <select id="cb-version-pick" aria-label="Select curriculum year" style="flex: 1;" value="${sel || ''}">
+                ${optionsHtml}
+                ${sel ? '<option value="__custom__">+ Add custom year…</option>' : ''}
+            </select>
+        </div>
     </div>`;
 }
 
@@ -528,17 +723,37 @@ function showTab(tab) {
 function actionsHtml() {
     const n   = filled().length;
     const bad = badRows().length;
+    const hasExisting = filled().some(r => r.dbId); // Check if any rows are saved
 
     return `<div class="cb-actions">
-        <button id="cb-draft">Save progress</button>
-        <button class="btn-primary" id="cb-create" ${bad || !n ? 'disabled' : ''}>
-            Create curriculum
-        </button>
+        <button id="cb-draft" ${!n ? 'disabled' : ''}>Save Progress</button>
+        ${hasExisting 
+            ? `<span class="cb-hint" style="color: #059669;">✓ ${n} subjects saved</span>`
+            : `<button class="btn-primary" id="cb-create" ${bad || !n ? 'disabled' : ''}>
+                Create curriculum
+               </button>`
+        }
         <button id="cb-preview" ${!n ? 'disabled' : ''}>Preview</button>
-        <span class="cb-hint">${
-            !n    ? 'Add at least one subject'
-            : bad ? `Fix ${bad} issue${bad === 1 ? '' : 's'} to continue`
-            : `${n} subject${n === 1 ? '' : 's'} ready`}</span>
+        <span class="cb-hint">${!n ? 'Add at least one subject' : bad ? `Fix ${bad} issue${bad === 1 ? '' : 's'}` : 'Ready'}</span>
+    </div>`;
+}
+
+/* Sits above the manual editing area. Uploading a PDF here populates
+   ROWS the same way the manual "+ Add subject" flow does -- nothing
+   is treated as trusted until the staff member reviews it below and
+   presses Create. */
+function aiUploadHtml() {
+    return `<div class="cb-ai-upload">
+        <div class="cb-ai-upload-head">
+            <strong>AI-assisted curriculum upload</strong>
+            <span class="cb-dim">Upload a curriculum or prospectus PDF to prefill the table below</span>
+        </div>
+        <label class="cb-ai-upload-btn">
+            <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i>
+            Upload PDF
+            <input type="file" id="ai-document-input" accept="application/pdf" hidden>
+        </label>
+        <div id="ai-analyze-status" class="msg" role="status"></div>
     </div>`;
 }
 
@@ -559,12 +774,43 @@ function render() {
         </button>`;
 
     MOUNT.innerHTML = versionHtml()
+        + aiUploadHtml()
         + statsHtml()
         + `<div class="cb-tabs">${tabs}</div>`
         + `<div class="cb-body">${bodyHtml()}</div>`
         + actionsHtml();
 
     sizeStage();
+}
+
+function refreshVersionStatus() {
+    if (!OPTS.versions || !OPTS.versions.length) return;
+    
+    // Fetch fresh status for all versions
+    const versionIds = OPTS.versions.map(v => v.id).filter(id => id !== null);
+    if (!versionIds.length) return;
+    
+    SB.from('prospectus')
+        .select('id, is_active, published_at')
+        .in('id', versionIds)
+        .then(({ data, error }) => {
+            if (error) {
+                console.warn('Failed to refresh version status:', error.message);
+                return;
+            }
+            
+            // Update OPTS.versions with fresh status
+            for (const fresh of data) {
+                const idx = OPTS.versions.findIndex(v => v.id === fresh.id);
+                if (idx !== -1) {
+                    OPTS.versions[idx].is_active = fresh.is_active;
+                    OPTS.versions[idx].published_at = fresh.published_at;
+                }
+            }
+            
+            // Re-render to show updated statuses
+            render();
+        });
 }
 
 
@@ -822,40 +1068,273 @@ function openPreview() {
 
 /* ---- events ---- */
 
+/* AI-assisted extraction. Uploads a PDF to the analyze-curriculum-
+   document Edge Function, which sends it to Gemini and returns either
+   a rejection (not a curriculum document) or structured subject rows.
+   Extracted rows are placed into ROWS exactly like a manually-typed
+   row would be -- same shape, same validation, same review table,
+   same Save/Create path. Nothing here writes to Supabase directly;
+   the staff member must still press Create to commit anything. */
+
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            // FileReader gives a data: URL; the Edge Function wants the
+            // base64 payload alone, after the comma.
+            const result = reader.result;
+            const base64 = result.substring(result.indexOf(',') + 1);
+            resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+async function analyzeDocument(file) {
+    const statusEl = document.getElementById('ai-analyze-status');
+    const setStatus = (msg, cls) => {
+        if (!statusEl) return;
+        statusEl.textContent = msg;
+        statusEl.className = 'msg' + (cls ? ' ' + cls : '');
+    };
+
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+        return setStatus('Please upload a PDF file.', 'error');
+    }
+
+    setStatus('Reading document\u2026');
+
+    let base64;
+    try {
+        base64 = await fileToBase64(file);
+    } catch (err) {
+        console.error('file read failed:', err);
+        return setStatus('Could not read that file.', 'error');
+    }
+
+    setStatus('Analyzing with AI\u2026 this can take a moment.');
+
+    const { data, error } = await SB.functions.invoke('analyze-curriculum-document', {
+        body: { fileBase64: base64, mimeType: 'application/pdf' },
+    });
+
+    if (error) {
+        console.error('analyze-curriculum-document failed:', error);
+        return setStatus('The analysis service failed. Try again in a moment.', 'error');
+    }
+
+    if (!data || data.is_curriculum_document !== true) {
+        const reason = data?.rejection_reason || 'This does not appear to be a curriculum or prospectus document.';
+        return setStatus('Rejected: ' + reason, 'error');
+    }
+
+    const extracted = Array.isArray(data.subjects) ? data.subjects : [];
+
+    if (!extracted.length) {
+        return setStatus('The document was recognized as a curriculum, but no subjects could be extracted. You can still enter them manually below.', 'error');
+    }
+
+    // Build every row first, keyed by the code the AI extracted, so
+    // prerequisites (which the AI returns as code strings) can be
+    // resolved to the correct row's internal uid in a second pass --
+    // prereqs are stored as { uid }, not as codes, and a row's uid does
+    // not exist until the row itself has been created.
+    ROWS = [];
+    const byCode = new Map();
+
+    for (const item of extracted) {
+        const row = blank(item.year_level ?? null, item.term ?? null);
+        row.code  = String(item.code ?? '').trim().toUpperCase();
+        row.title = String(item.title ?? '').trim();
+        row.lec   = Number.isFinite(item.lecture_units) ? item.lecture_units : null;
+        row.lab   = Number.isFinite(item.laboratory_units) ? item.laboratory_units : null;
+        row._aiPrereqCodes = Array.isArray(item.prerequisites) ? item.prerequisites : [];
+        ROWS.push(row);
+        if (row.code) byCode.set(row.code, row);
+    }
+
+    for (const row of ROWS) {
+        for (const prereqCode of row._aiPrereqCodes) {
+            const target = byCode.get(String(prereqCode).trim().toUpperCase());
+            // A prerequisite the AI named but that does not match any
+            // extracted subject is dropped rather than guessed at -- the
+            // reviewer sees the row with that prerequisite simply absent
+            // and can add it manually via the existing picker if needed.
+            if (target) row.prereqs.push({ uid: target.uid });
+        }
+        delete row._aiPrereqCodes;
+    }
+
+    TAB = ROWS.find(r => r.year)?.year ?? 1;
+    validate();
+    render();
+
+    setStatus(
+        `Extracted ${extracted.length} subject${extracted.length === 1 ? '' : 's'}. `
+        + 'Review every row below, then press Create to save -- nothing has been saved yet.',
+        'success',
+    );
+}
+
 function bind() {
     MOUNT.addEventListener('change', (e) => {
-        const pick = e.target.closest('#cb-version-pick');
-        if (!pick) return;
 
-        const year = Number(pick.value);
-        if (year === SELECTED_YEAR) return;
-
-        // Rows belong to the version they were entered against, so
-        // switching mid-build would file them under the wrong curriculum.
-        if (filled().length && !confirm(
-            'Switch curriculum year? Subjects entered here will be cleared.')) {
-            pick.value = String(SELECTED_YEAR);
+        // AI document upload. Handled first and returns immediately --
+        // this input's change event has nothing to do with the version
+        // picker or row fields the rest of this listener handles below.
+        if (e.target.id === 'ai-document-input') {
+            const file = e.target.files?.[0];
+            e.target.value = '';   // allow re-selecting the same file later
+            analyzeDocument(file);
             return;
         }
 
-        SELECTED_YEAR = year;
-        const known = (OPTS.versions ?? []).find(v => v.academic_year === year);
-        OPTS.prospectusId = known?.id ?? null;
+    const pick = e.target.closest('#cb-version-pick');
+    if (!pick) return;
 
+    // ⭐ Handle "Select Year" (empty value)
+    if (pick.value === '') {
+        // Clear the state without loading anything
+        SELECTED_YEAR = null;
+        OPTS.prospectusId = null;
         ROWS = [];
+        for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
         TAB = 1;
         validate();
         render();
+        if (OPTS.onVersionChange) {
+            OPTS.onVersionChange(null, null);
+        }
+        return;
+    }
 
-        // Show what the year already holds; start empty only if it is new.
+    // Handle custom year selection
+    if (pick.value === '__custom__') {
+        // Reset dropdown to previous selection while modal is open
+        const prevYear = SELECTED_YEAR;
+        pick.value = prevYear ? String(prevYear) : '';
+        
+        // Show custom year input
+        showCustomYearInput();
+        return;
+    }
+
+    const year = Number(pick.value);
+    if (year === SELECTED_YEAR) return;
+
+    // Check if the selected year is active (shouldn't happen)
+    const isActive = (OPTS.versions ?? []).find(v => v.academic_year === year)?.is_active;
+    if (isActive) {
+        OPTS.onError?.('Cannot edit an active curriculum. Please select a draft or new year.');
+        pick.value = SELECTED_YEAR ? String(SELECTED_YEAR) : '';
+        return;
+    }
+
+    // If there are unsaved changes, confirm before switching
+    if (filled().length && SELECTED_YEAR !== null && !confirm(
+        'Switch curriculum year? Unsaved subjects entered here will be cleared.')) {
+        pick.value = SELECTED_YEAR ? String(SELECTED_YEAR) : '';
+        return;
+    }
+
+    SELECTED_YEAR = year;
+    const known = (OPTS.versions ?? []).find(v => v.academic_year === year);
+    OPTS.prospectusId = known?.id ?? null;
+
+    // Clear rows and start fresh for the new year
+    ROWS = [];
+    for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
+    TAB = 1;
+    validate();
+
+    // Load existing subjects if the year already has a prospectus
+    if (OPTS.prospectusId) {
         loadExisting(OPTS.prospectusId).then(data => {
-            if (data) return applyExisting(data);
-            for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
-            validate();
-            render();
+            if (data) {
+                applyExisting(data);
+            } else {
+                render();
+            }
         });
+    } else {
+        render();
+    }
 
-        OPTS.onVersionChange?.(OPTS.prospectusId, year);
+    OPTS.onVersionChange?.(OPTS.prospectusId, year);
+    });
+
+    /* The click handler for every button this view renders — year tabs,
+       Add subject, delete row, the prerequisite picker, Preview, Save
+       Progress, Create curriculum. This entire block was missing: the
+       buttons rendered correctly in the HTML, but nothing was listening
+       for a click on any of them, so every one of them silently did
+       nothing. Restored from the last version where they worked. */
+    /* Typing into a row's code/title/lec/lab field never reached ROWS —
+       no input listener was attached to MOUNT at all, only 'change' (for
+       the year dropdown and the prerequisite picker) and 'click'. The
+       fields looked like they held what was typed, because the browser
+       keeps an <input>'s value on screen regardless — but the next full
+       render() replaces MOUNT.innerHTML from ROWS, which never received
+       the keystrokes, so anything that triggers a render (Add Subject,
+       a tab switch, opening the picker) appeared to "reset" every field.
+       It was never saving in the first place. */
+    MOUNT.addEventListener('input', (e) => {
+        const field = e.target.closest('input[data-f]');
+        if (!field) return;
+
+        const tr = field.closest('tr[data-uid]');
+        if (!tr) return;
+
+        const row = ROWS.find(r => r.uid === Number(tr.dataset.uid));
+        if (!row) return;
+
+        const key = field.dataset.f;
+
+        if (key === 'lec' || key === 'lab') {
+            const digits = field.value.replace(/[^0-9]/g, '').slice(0, 1);
+            if (field.value !== digits) field.value = digits;
+            row[key] = digits === '' ? null : Number(digits);
+
+            if (key === 'lab') {
+                // The operator has now typed a lab value directly, so the
+                // lec-driven suggestion below must stop overwriting it --
+                // that is what makes PE (2 lec, 0 lab) enterable at all.
+                row.labTouched = true;
+            }
+
+            /* Lec-driven suggestion, described in the file header but never
+               implemented: 2 lecture hours suggests 1 lab hour (the normal
+               shape of a lab subject), 3 lecture hours suggests none. It is
+               a suggestion, not a lock -- it only fires until the operator
+               has touched the lab field themselves. */
+            if (key === 'lec' && !row.labTouched) {
+                if (row.lec === 2) row.lab = 1;
+                else if (row.lec === 3) row.lab = null;
+
+                const labField = tr.querySelector('input[data-f="lab"]');
+                if (labField) labField.value = row.lab ?? '';
+            }
+        } else {
+            row[key] = field.value;
+        }
+
+        validate();
+
+        // Repaint only this row's own state, not the whole tree — a full
+        // render() here would blur the field the user is still typing in.
+        tr.classList.toggle('cb-bad', row.errors.length > 0);
+
+        const total = tr.querySelector('.cb-total');
+        if (total) total.textContent = unitsOf(row) || '';
+
+        const stats = MOUNT.querySelector('.cb-stats');
+        if (stats) stats.outerHTML = statsHtml();
+
+        const actions = MOUNT.querySelector('.cb-actions');
+        if (actions) actions.outerHTML = actionsHtml();
     });
 
     MOUNT.addEventListener('click', (e) => {
@@ -868,9 +1347,12 @@ function bind() {
 
         const add = e.target.closest('[data-add]');
         if (add) {
-            if (add.disabled) return;
             const [y, t] = add.dataset.add.split('-');
-            ROWS.push(y === 'el' ? blank(null, null) : blank(Number(y), Number(t)));
+            ROWS.push(
+                y === 'it'   ? blank(null, null, 'IT')
+              : y === 'free' ? blank(null, null, 'FREE')
+              : y === 'el'   ? blank(null, null)
+              :                blank(Number(y), Number(t)));
             validate();
             return render();
         }
@@ -879,7 +1361,6 @@ function bind() {
         if (del) {
             const uid = Number(del.dataset.del);
             ROWS = ROWS.filter(r => r.uid !== uid);
-            // Drop any rule that pointed at the removed subject.
             for (const r of ROWS) r.prereqs = r.prereqs.filter(p => p.uid !== uid);
             validate();
             return render();
@@ -896,80 +1377,8 @@ function bind() {
         if (e.target.closest('#cb-draft'))  return saveDraft();
         if (e.target.closest('#cb-create')) return create();
     });
-
-    MOUNT.addEventListener('input', (e) => {
-        const input = e.target.closest('input[data-f]');
-        if (!input) return;
-
-        const tr  = input.closest('tr');
-        const row = ROWS.find(r => r.uid === Number(tr.dataset.uid));
-        if (!row) return;
-
-        const f = input.dataset.f;
-
-        if (f === 'lec' || f === 'lab') {
-            /* One digit, nothing else. Letters, symbols and a second digit
-               never reach the field, so the only thing left to validate is
-               whether the digit itself is a legal value. */
-            const digits = input.value.replace(/\D/g, '').slice(0, 1);
-            if (digits !== input.value) input.value = digits;
-            row[f] = num(digits);
-
-            // Suggest the lab value from the lecture hours. Most 3-unit
-            // subjects with a laboratory are 2 + 1, and lecture-only ones
-            // are 3 + 0. PE is 2 + 0, so this only fills a lab box the
-            // user has not touched.
-            if (f === 'lec' && !row.labTouched) {
-                if (row.lec === 2)      row.lab = 1;
-                else if (row.lec === 3) row.lab = null;
-
-                const labInput = tr.querySelector('input[data-f="lab"]');
-                if (labInput) labInput.value = row.lab ?? '';
-            }
-
-            if (f === 'lab') row.labTouched = true;
-
-            const cell = tr.querySelector('.cb-total');
-            if (cell) cell.textContent = unitsOf(row) || '';
-        } else if (f === 'code') {
-            /* Uppercase and strip anything a code cannot contain, as it is
-               typed. Correcting silently on save would mean the operator
-               never sees what was actually stored. */
-            const clean = input.value.toUpperCase().replace(/[^A-Z0-9\- ]/g, '');
-            if (clean !== input.value) {
-                const at = input.selectionStart;
-                input.value = clean;
-                input.setSelectionRange(at, at);
-            }
-            row.code = clean;
-        } else {
-            row[f] = input.value;
-        }
-
-        // Revalidate quietly. A full repaint on every keystroke would
-        // steal focus mid-word.
-        validate();
-        tr.classList.toggle('cb-bad', row.errors.length > 0);
-        updateStats();
-    });
-
-    MOUNT.addEventListener('keydown', (e) => {
-        const cell = e.target.closest('.cb-chips');
-        if (!cell || (e.key !== 'Enter' && e.key !== ' ')) return;
-        e.preventDefault();
-        const pick = cell.closest('.cb-pick');
-        const row  = ROWS.find(r => r.uid === Number(pick?.dataset.uid));
-        if (row) openPicker(row, pick);
-    });
-
-    document.addEventListener('click', (e) => {
-        if (PICKER && !e.target.closest('.cb-pick')) closePicker();
-    });
 }
 
-/* Repaint only the bits that change as the user types. A full render
-   would steal focus mid-word; leaving them alone made the hint and the
-   Create button go stale. */
 function updateStats() {
     const stats = MOUNT.querySelector('.cb-stats');
     if (stats) stats.outerHTML = statsHtml();
@@ -1003,84 +1412,269 @@ function toSubjectRows() {
 }
 
 async function saveDraft() {
-    if (!filled().length) {
-        return OPTS.onError?.('Nothing to save yet \u2014 add a subject first.');
+    // Check if there's anything to save
+    const rowsToSave = filled();
+    if (!rowsToSave.length) {
+        return OPTS.onError?.('Nothing to save yet — add a subject first.');
     }
 
-    /* One batch per curriculum year per person. Held at module level
-       because OPTS is replaced on every re-mount, which is why earlier
-       saves left a new batch behind each time. */
-    DRAFT_BATCH = DRAFT_BATCH ?? (crypto.randomUUID
-        ? crypto.randomUUID()
-        : String(Date.now()) + Math.random().toString(16).slice(2));
+    // ──────────────────────────────────────────────────────────────
+    // STEP 1: Ensure we have a prospectus_id
+    // ──────────────────────────────────────────────────────────────
+    if (!OPTS.prospectusId) {
+        const { data, error } = await SB.from('prospectus')
+            .insert({
+                program_id: OPTS.programId || 1,
+                academic_year: SELECTED_YEAR || new Date().getFullYear(),
+                academic_term: 1,
+                is_active: false,
+                created_by: OPTS.staffId,
+            })
+            .select('id, academic_year, is_active, academic_term, published_at')
+            .single();
 
-    const rows = filled();
+        if (error) {
+            console.error('prospectus insert failed:', error.message);
+            return OPTS.onError?.('Could not create the curriculum year. ' + error.message);
+        }
 
-    const subjects = rows.map((r, i) => ({
-        batch_id:    DRAFT_BATCH,
-        uploaded_by: OPTS.userId,
-        row_number:  i + 1,
-        code:        r.code.trim().toUpperCase(),
-        title:       r.title.trim(),
-        units:       unitsOf(r),
-        year_level:  r.year,
-        term:        r.term,
-        is_elective: r.year === null,
-        validation_status: r.errors.length ? 'error' : 'ok',
-        error_message:     r.errors.join(' ') || null,
-    }));
-
-    /* Prerequisites go to stg_prerequisite by CODE, not id — the subjects
-       do not exist yet, so there is nothing to point at. Saving subjects
-       without these would lose every rule the operator picked. */
-    const rules = [];
-    rows.forEach((r, i) => {
-        r.prereqs.forEach((p, g) => {
-            const target = p.uid ? ROWS.find(x => x.uid === p.uid) : null;
-            rules.push({
-                batch_id:          DRAFT_BATCH,
-                uploaded_by:       OPTS.userId,
-                row_number:        i + 1,
-                subject_code:      r.code.trim().toUpperCase(),
-                prerequisite_code: target ? target.code.trim().toUpperCase() : null,
-                requirement_type:  p.standing ? 'standing' : 'prerequisite',
-                rule_type:         'and',
-                rule_group:        g + 1,
-                threshold_value:   p.standing ?? null,
-                validation_status: 'ok',
-            });
-        });
-    });
-
-    await SB.from('stg_subject').delete().eq('batch_id', DRAFT_BATCH);
-    await SB.from('stg_prerequisite').delete().eq('batch_id', DRAFT_BATCH);
-
-    const a = await SB.from('stg_subject').insert(subjects);
-    if (a.error) {
-        console.error('draft subjects failed:', a.error.message);
-        return OPTS.onError?.('Could not save the draft. ' + a.error.message);
-    }
-
-    if (rules.length) {
-        const b = await SB.from('stg_prerequisite').insert(rules);
-        if (b.error) {
-            console.error('draft rules failed:', b.error.message);
-            return OPTS.onError?.(
-                `Subjects saved but the ${rules.length} prerequisites did not. ` +
-                b.error.message);
+        OPTS.prospectusId = data.id;
+        const newVersion = {
+            id: data.id,
+            academic_year: data.academic_year,
+            academic_term: data.academic_term || 1,
+            is_active: data.is_active || false,
+            subject_count: 0,
+            student_count: 0,
+            published_at: data.published_at || null,
+        };
+        
+        if (!OPTS.versions) OPTS.versions = [];
+        OPTS.versions = [...OPTS.versions, newVersion];
+        
+        if (OPTS.onVersionChange) {
+            OPTS.onVersionChange(OPTS.prospectusId, SELECTED_YEAR);
         }
     }
 
-    /* "Draft" collided with a draft prospectus — a version row that is not
-       yet active. This is neither: the subjects have not been created, so
-       nothing appears in the Prospectus view until Create curriculum is
-       pressed. Say so, or the next person looks for them there. */
-    OPTS.onDone?.(
-        `Progress saved \u2014 ${subjects.length} subjects, ${rules.length} rule` +
-        `${rules.length === 1 ? '' : 's'}. Not published yet: reopen this page ` +
-        'to carry on, then Create curriculum to publish it.');
-}
+    // ──────────────────────────────────────────────────────────────
+    // STEP 2: Fetch ALL existing subjects for this prospectus
+    // ──────────────────────────────────────────────────────────────
+    const { data: existingSubjects } = await SB
+        .from('subject')
+        .select('id, code')
+        .eq('prospectus_id', OPTS.prospectusId);
 
+    const existingCodes = new Set((existingSubjects ?? []).map(s => s.code.toUpperCase()));
+
+    // After inserting subjects, refresh the version status from database
+const { data: freshVersion } = await SB
+    .from('prospectus')
+    .select('id, academic_year, is_active, academic_term, published_at')
+    .eq('id', OPTS.prospectusId)
+    .single();
+
+if (freshVersion) {
+    // Update the version in OPTS.versions
+    const idx = OPTS.versions.findIndex(v => v.id === freshVersion.id);
+    if (idx !== -1) {
+        OPTS.versions[idx] = {
+            ...OPTS.versions[idx],
+            is_active: freshVersion.is_active,
+            published_at: freshVersion.published_at,
+        };
+    }
+}
+    // ──────────────────────────────────────────────────────────────
+    // STEP 3: Filter out rows that already exist
+    // ──────────────────────────────────────────────────────────────
+    const newRows = rowsToSave.filter(r => 
+        r.code.trim() && !existingCodes.has(r.code.trim().toUpperCase())
+    );
+
+    const validRows = newRows.filter(r => r.errors.length === 0);
+
+    if (!validRows.length) {
+        if (newRows.length) {
+            return OPTS.onError?.('Cannot save: ' + newRows.filter(r => r.errors.length).length + ' row(s) have errors. Fix them first.');
+        }
+        render();
+        const versionToUpdate = OPTS.versions?.find(v => v.id === OPTS.prospectusId);
+        if (versionToUpdate) {
+            const { data: fresh } = await SB
+                .from('prospectus')
+                .select('is_active, published_at')
+                .eq('id', OPTS.prospectusId)
+                .single();
+            if (fresh) {
+                versionToUpdate.is_active = fresh.is_active;
+                versionToUpdate.published_at = fresh.published_at;
+                render();
+            }
+        }
+        return OPTS.onDone?.('All subjects already exist in this curriculum.');
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // STEP 4: Save new subjects
+    // ──────────────────────────────────────────────────────────────
+    const subjectRows = validRows.map(r => ({
+        prospectus_id: OPTS.prospectusId,
+        created_by: OPTS.staffId,
+        code: r.code.trim().toUpperCase(),
+        title: r.title.trim(),
+        units: (r.lec || 0) + (r.lab || 0),
+        lec_units: r.lec || 0,
+        lab_units: r.lab || 0,
+        year_level: r.year,
+        term: r.term,
+        is_elective: r.year === null,
+        is_active: true,
+        elective_type: r.electiveType 
+            || (/^IT-FRE/.test(r.code.trim().toUpperCase()) ? 'FREE'
+                : /^IT-EL/.test(r.code.trim().toUpperCase()) ? 'IT'
+                : null),
+    }));
+
+    const { data: inserted, error: subjectError } = await SB
+        .from('subject')
+        .insert(subjectRows)
+        .select('id, code');
+
+    if (subjectError) {
+        console.error('subject insert failed:', subjectError.message);
+        if (subjectError.message.includes('prospectus_id')) {
+            return OPTS.onError?.('Database error: Could not save subjects. The curriculum year may not exist. Please try creating a new year.');
+        }
+        return OPTS.onError?.('Could not save subjects. ' + subjectError.message);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // STEP 5: ⭐ BUILD COMPLETE CODE → ID MAP (EXISTING + NEW)
+    // ──────────────────────────────────────────────────────────────
+    const allSubjects = [...(existingSubjects ?? []), ...inserted];
+    const byCode = new Map(allSubjects.map(s => [s.code.toUpperCase(), s.id]));
+
+    // ──────────────────────────────────────────────────────────────
+    // STEP 6: Save prerequisites using the complete map
+    // ──────────────────────────────────────────────────────────────
+    const ruleRows = [];
+
+    for (const r of validRows) {
+        const subjectId = byCode.get(r.code.trim().toUpperCase());
+        if (!subjectId) continue;
+
+        // Check if prerequisites already exist for this subject
+        const { data: existingRules } = await SB
+            .from('prerequisite')
+            .select('id')
+            .eq('subject_id', subjectId);
+
+        if (existingRules && existingRules.length > 0) {
+            // Delete existing rules first (to avoid duplicates)
+            await SB
+                .from('prerequisite')
+                .delete()
+                .eq('subject_id', subjectId);
+        }
+
+        // Build new rules
+        r.prereqs.forEach((p, i) => {
+            if (p.standing) {
+                // Standing rule
+                ruleRows.push({
+                    subject_id: subjectId,
+                    prerequisite_subject_id: null,
+                    requirement_type: 'standing',
+                    rule_type: 'and',
+                    rule_group: i + 1,
+                    threshold_value: p.standing,
+                    created_by: OPTS.staffId,
+                });
+            } else {
+                // Find the target subject
+                const target = ROWS.find(x => x.uid === p.uid);
+                if (target) {
+                    const targetCode = target.code.trim().toUpperCase();
+                    const targetId = byCode.get(targetCode);
+                    
+                    // ⭐ This will now work for BOTH new AND existing subjects
+                    if (targetId) {
+                        ruleRows.push({
+                            subject_id: subjectId,
+                            prerequisite_subject_id: targetId,
+                            requirement_type: 'prerequisite',
+                            rule_type: 'and',
+                            rule_group: i + 1,
+                            threshold_value: null,
+                            created_by: OPTS.staffId,
+                        });
+                    } else {
+                        console.warn(`Prerequisite subject ${targetCode} not found in database.`);
+                    }
+                }
+            }
+        });
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // STEP 7: Insert prerequisites
+    // ──────────────────────────────────────────────────────────────
+    if (ruleRows.length) {
+        const { error: ruleError } = await SB
+            .from('prerequisite')
+            .insert(ruleRows);
+
+        if (ruleError) {
+            console.error('prerequisite insert failed:', ruleError.message);
+            // Don't rollback subjects, but warn the user
+            OPTS.onError?.('Subjects saved, but prerequisites failed: ' + ruleError.message);
+        } else {
+            console.log(`✅ Saved ${ruleRows.length} prerequisites`);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // STEP 8: Mark rows as saved and update counts
+    // ──────────────────────────────────────────────────────────────
+    const insertedMap = new Map(inserted.map(s => [s.code, s.id]));
+    for (const r of validRows) {
+        const savedId = insertedMap.get(r.code.trim().toUpperCase());
+        if (savedId) r.dbId = savedId;
+    }
+
+    const versionToUpdate = OPTS.versions?.find(v => v.id === OPTS.prospectusId);
+    if (versionToUpdate) {
+        versionToUpdate.subject_count = (versionToUpdate.subject_count || 0) + inserted.length;
+    }
+
+    DRAFT_BATCH = null;
+
+    // ──────────────────────────────────────────────────────────────
+    // STEP 9: Refresh UI and dispatch events
+    // ──────────────────────────────────────────────────────────────
+    if (OPTS.prospectusId) {
+        document.dispatchEvent(new CustomEvent('curriculum-saved', {
+            detail: {
+                prospectusId: OPTS.prospectusId,
+                count: inserted.length,
+                isDraft: true
+            }
+        }));
+    }
+
+    // ⭐ Refresh version status from database
+    refreshVersionStatus();
+
+    render();
+
+    if (OPTS.onVersionChange) {
+        OPTS.onVersionChange(OPTS.prospectusId);
+    }
+
+    const message = `${inserted.length} subject${inserted.length === 1 ? '' : 's'} saved with ${ruleRows.length} prerequisite${ruleRows.length === 1 ? '' : 's'}!`;
+    OPTS.onDone?.(message);
+}
 
 /* Load a curriculum year that already holds subjects, so selecting it
    shows what is there rather than an empty table. Without this the
@@ -1350,21 +1944,17 @@ function mount(supabase, opts) {
         MOUNT.dataset.bound = '1';
     }
 
-    /* Keep the chosen year across a re-mount. loadCurriculum() remounts
-       the builder, and mount() replaces OPTS wholesale — so both the year
-       AND the prospectus id have to be restored here.
-
-       Restoring only the year was worse than restoring neither: the banner
-       showed the year the operator picked while prospectusId silently
-       reverted to the caller's active version, so subjects were written to
-       the live curriculum under another year's name. */
+    /* ⭐ FIX: Do NOT auto-select a year on load.
+       The user must manually choose from the dropdown.
+       Only restore a previously selected year if it was explicitly set. */
     if (SELECTED_YEAR === null) {
-        const current = (OPTS.versions ?? []).find(v => v.id === OPTS.prospectusId);
-        SELECTED_YEAR = current?.academic_year ?? new Date().getFullYear();
+        // ⭐ Leave SELECTED_YEAR as null - "Select Year" will be shown
+        // Do NOT auto-select the first available year
+        SELECTED_YEAR = null;
+        OPTS.prospectusId = null;
     } else {
+        // If a year was previously selected, restore it
         const chosen = (OPTS.versions ?? []).find(v => v.academic_year === SELECTED_YEAR);
-        // null is correct for a year with no prospectus row yet — commit()
-        // creates one. What must not happen is falling back to the caller's id.
         OPTS.prospectusId = chosen?.id ?? null;
     }
 
@@ -1372,37 +1962,23 @@ function mount(supabase, opts) {
         console.warn('CurriculumBuilder: no versions passed — every year will show as New');
     }
 
-    if (!ROWS.length) {
-        // Start with a few empty rows so the table is not a blank slab.
-        for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
-    }
+    // Start with empty rows (no data loaded until year is selected)
+    ROWS = [];
+    for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
 
     validate();
     render();
 
-    // Offer the last draft once per mount, and only when the table is
-    // empty — never overwrite work in progress.
-    if (!DRAFT_BATCH) {
-        loadDraft().then(draft => {
-            if (!draft || filled().length) return;
-
-            const when = draft.subjects[0]?.uploaded_at
-                ? new Date(draft.subjects[0].uploaded_at).toLocaleString()
-                : 'earlier';
-
-            if (confirm(
-                `Carry on from ${when}? ` +
-                `${draft.subjects.length} subjects, ${draft.rules.length} rule` +
-                `${draft.rules.length === 1 ? '' : 's'} unpublished.`)) {
-                applyDraft(draft);
-            }
-        });
-    }
+    /* Progress is written into the draft curriculum itself now, and
+       selecting a year loads it through loadExisting(). The old resume
+       prompt read stg_subject, which nothing writes to any more — it would
+       offer a stale copy of work that has since moved on. */
 }
 
 window.CurriculumBuilder = {
     mount,
     reset: () => { ROWS = []; SEQ = 1; SELECTED_YEAR = null; render(); },
 };
+
 
 })();

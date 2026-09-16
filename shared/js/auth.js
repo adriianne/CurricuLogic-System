@@ -12,15 +12,40 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 if (!supabase) console.error('auth.js: Supabase client not created. Is config.js loaded?');
 
 const $ = (id) => document.getElementById(id);
+
+// home is relative to whatever login page is on screen when the redirect
+// fires — features/auth/html/<page>.html — not to this file. That is why
+// these changed when the dashboards moved into features/<role>/ folders:
+// the old bare filenames only worked when everything sat in one folder.
 const ROLES = {
-    university_student:   { label: 'University Student',   table: 'university_student',   home: 'studentdashboard.html' },
-    faculty_staff:        { label: 'Faculty Staff',        table: 'faculty_staff',        home: 'facultydashboard.html' },
-    registrar_staff:      { label: 'Registrar Staff',      table: 'registrar_staff',      home: 'registrardashboard.html' },
-    department_staff:     { label: 'Department Staff',     table: 'department_staff',     home: 'departmentdashboard.html' },
-    system_administrator: { label: 'System Administrator', table: 'system_administrator', home: 'admindashboard.html' },
+    university_student:   { label: 'University Student',   table: 'university_student',   home: '../../student/studentdashboard.html' },
+    faculty_staff:        { label: 'Faculty Staff',        table: 'faculty_staff',        home: '../../faculty/facultydashboard.html' },
+    registrar_staff:      { label: 'Registrar Staff',      table: 'registrar_staff',      home: '../../registrar/registrardashboard.html' },
+    department_staff:     { label: 'Department Staff',     table: 'department_staff',     home: '../../department/departmentdashboard.html' },
+    system_administrator: { label: 'System Administrator', table: 'system_administrator', home: '../../admin/admindashboard.html' },
 };
 
 const NO_PERSIST = ['registrar_staff', 'department_staff', 'system_administrator'];
+
+/* Which roles this specific login page will accept. Read from the page
+   itself via <body data-allowed-roles="..."> rather than hardcoded here,
+   since auth.js is shared by every login page and has no idea on its own
+   which one it is currently loaded into.
+
+   Without this, resolveRole() below matched against every actor table in
+   ROLES regardless of page -- a student typing real credentials into the
+   staff login page authenticated successfully and was sent to their own
+   dashboard, because nothing ever checked that a student should not be
+   allowed to authenticate from that page at all.
+
+   Falls back to allowing every role if the attribute is missing, so a
+   page that has not been updated yet still behaves as before -- the
+   restriction is opt-in per page. */
+const PAGE_ALLOWED_ROLES = (() => {
+    const raw = document.body?.dataset?.allowedRoles;
+    if (!raw) return null;
+    return raw.split(',').map(r => r.trim()).filter(Boolean);
+})();
 const GENERIC_FAIL = 'Invalid username or password.';
 
 const DEBUG_LOGIN = true;
@@ -60,6 +85,11 @@ document.querySelectorAll('.toggle-pw').forEach((btn) => {
 
 async function resolveRole(userId) {
     for (const [key, role] of Object.entries(ROLES)) {
+
+        // Skip any role this page does not accept, before even querying
+        // its table -- a student's credentials must never resolve to a
+        // student dashboard redirect from the staff login page.
+        if (PAGE_ALLOWED_ROLES && !PAGE_ALLOWED_ROLES.includes(key)) continue;
 
         const { data, error } = await supabase
             .from(role.table)
@@ -148,14 +178,22 @@ async function handleLogin() {
         const resolved = await resolveRole(data.user.id);
 
         if (!resolved) {
-            // Authenticated, but no actor row matched. Entirely different
-            // from a credential failure, and it should not look the same
-            // while developing.
+            // Authenticated, but no actor row matched -- either genuinely
+            // no account, or (just as likely now) a real account that
+            // this specific page does not accept, e.g. a student on the
+            // staff login page. Both must show the same generic message
+            // outside of DEBUG_LOGIN: confirming "your credentials are
+            // real, just not for this page" is still information leakage.
             console.warn('[FAIL: no actor row] authenticated uid', data.user.id,
-                         'has no row in any of the five actor tables');
+                         'has no row in any allowed table for this page',
+                         PAGE_ALLOWED_ROLES ?? '(all roles)');
             await supabase.auth.signOut();
             return showMsg(DEBUG_LOGIN
-                ? 'Signed in, but no account record is linked to this user.'
+                ? (PAGE_ALLOWED_ROLES
+                    ? 'This account exists but is not a ' +
+                      PAGE_ALLOWED_ROLES.map(k => ROLES[k]?.label ?? k).join('/') +
+                      ' account. Use the correct login page.'
+                    : 'Signed in, but no account record is linked to this user.')
                 : GENERIC_FAIL);
         }
 

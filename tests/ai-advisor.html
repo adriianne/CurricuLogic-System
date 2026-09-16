@@ -1,0 +1,417 @@
+--- HTML/ai-advisor.html (原始)
+
+
++++ HTML/ai-advisor.html (修改后)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UC Academic Advisor AI - CurricuLogic</title>
+    <link rel="stylesheet" href="../CSS/dashboard.css">
+    <style>
+        .ai-chat-container {
+            max-width: 900px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        .chat-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .chat-header h1 {
+            color: #1e40af;
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        .chat-header p {
+            color: #6b7280;
+            font-size: 1rem;
+        }
+        .program-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-top: 1rem;
+        }
+        .example-questions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+        .example-question {
+            background: #f3f4f6;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            border-left: 4px solid #3b82f6;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .example-question:hover {
+            background: #e5e7eb;
+            transform: translateX(4px);
+        }
+        .example-question p {
+            margin: 0;
+            color: #1f2937;
+            font-size: 0.9rem;
+        }
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #3b82f6;
+            text-decoration: none;
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <img src="../assets/logo.png" alt="UC Logo" class="logo">
+                <h2>CurricuLogic</h2>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="student-dashboard.html">Dashboard</a></li>
+                <li><a href="eligibility.html">Eligibility Check</a></li>
+                <li><a href="subjects.html">Subject Planning</a></li>
+                <li><a href="grades.html">My Grades</a></li>
+                <li><a href="ai-advisor.html" class="active">AI Advisor</a></li>
+                <li><a href="#" onclick="logout()">Logout</a></li>
+            </ul>
+        </nav>
+
+        <main class="main-content">
+            <div class="ai-chat-container">
+                <a href="student-dashboard.html" class="back-link">
+                    ← Back to Dashboard
+                </a>
+
+                <div class="chat-header">
+                    <h1>🤖 UC Academic Advisor AI</h1>
+                    <p>Your intelligent academic companion for all University of Cebu programs</p>
+                    <span class="program-badge" id="userProgram">Loading your program...</span>
+                </div>
+
+                <div id="ai-chat-root"></div>
+
+                <div class="example-questions">
+                    <div class="example-question" onclick="askQuestion('Can I take IT 302 this semester?')">
+                        <p>💡 "Can I take IT 302 this semester?"</p>
+                    </div>
+                    <div class="example-question" onclick="askQuestion('What are the prerequisites for Math 101?')">
+                        <p>💡 "What are the prerequisites for Math 101?"</p>
+                    </div>
+                    <div class="example-question" onclick="askQuestion('Am I eligible to enroll in next term?')">
+                        <p>💡 "Am I eligible to enroll in next term?"</p>
+                    </div>
+                    <div class="example-question" onclick="askQuestion('What subjects should I take next?')">
+                        <p>💡 "What subjects should I take next?"</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Load user program information
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/api/user-info');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.program) {
+                        document.getElementById('userProgram').textContent =
+                            `Studying: ${data.program}`;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load user info:', error);
+            }
+        }
+
+        // Ask question from example cards
+        function askQuestion(question) {
+            const event = new CustomEvent('ai-chat-input', { detail: question });
+            window.dispatchEvent(event);
+        }
+
+        // Logout function
+        function logout() {
+            // Implement logout logic
+            window.location.href = '../index.html';
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadUserInfo();
+
+            // Dynamically load React component
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/react@18/umd/react.production.min.js';
+            script.onload = () => {
+                const reactScript = document.createElement('script');
+                reactScript.src = 'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js';
+                reactScript.onload = () => {
+                    const babelScript = document.createElement('script');
+                    babelScript.src = 'https://unpkg.com/@babel/standalone/babel.min.js';
+                    babelScript.onload = () => {
+                        // Load the React component
+                        const componentScript = document.createElement('script');
+                        componentScript.type = 'text/babel';
+                        componentScript.textContent = `
+                            const { useState, useRef, useEffect } = React;
+
+                            function AIAdvisorChat() {
+                                const [messages, setMessages] = useState([
+                                    {
+                                        role: 'assistant',
+                                        content: "Hello! I'm your UC Academic Advisor. I can help you with:\\n- Checking if you're eligible for subjects\\n- Finding prerequisites for courses\\n- Planning your academic roadmap\\n\\nTry asking: \\"Can I take IT 302?\\" or \\"What are the prerequisites for Math 101?\\""
+                                    }
+                                ]);
+                                const [input, setInput] = useState('');
+                                const [isLoading, setIsLoading] = useState(false);
+                                const messagesEndRef = useRef(null);
+
+                                const scrollToBottom = () => {
+                                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                                };
+
+                                useEffect(() => {
+                                    scrollToBottom();
+                                }, [messages]);
+
+                                // Listen for example questions
+                                useEffect(() => {
+                                    const handleInput = (e) => {
+                                        setInput(e.detail);
+                                        handleSubmit(new Event('submit'), e.detail);
+                                    };
+                                    window.addEventListener('ai-chat-input', handleInput);
+                                    return () => window.removeEventListener('ai-chat-input', handleInput);
+                                }, []);
+
+                                const handleSubmit = async (e, preFilledInput) => {
+                                    e.preventDefault();
+                                    const textToSubmit = preFilledInput || input;
+                                    if (!textToSubmit.trim() || isLoading) return;
+
+                                    const userMessage = { role: 'user', content: textToSubmit.trim() };
+                                    setMessages(prev => [...prev, userMessage]);
+                                    setInput('');
+                                    setIsLoading(true);
+
+                                    try {
+                                        const response = await fetch('/api/ai-advisor', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ query: userMessage.content, history: messages })
+                                        });
+
+                                        if (!response.ok) throw new Error('Failed to get response');
+
+                                        const data = await response.json();
+
+                                        const assistantMessage = {
+                                            role: 'assistant',
+                                            content: data.data.answer
+                                        };
+
+                                        setMessages(prev => [...prev, assistantMessage]);
+                                    } catch (error) {
+                                        console.error('Chat error:', error);
+                                        setMessages(prev => [
+                                            ...prev,
+                                            {
+                                                role: 'assistant',
+                                                content: "Sorry, I encountered an error. Please try again."
+                                            }
+                                        ]);
+                                    } finally {
+                                        setIsLoading(false);
+                                    }
+                                };
+
+                                return React.createElement('div', {
+                                    className: 'ai-chat-widget',
+                                    style: {
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        height: '600px',
+                                        backgroundColor: 'white',
+                                        borderRadius: '0.5rem',
+                                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                                        border: '1px solid #e5e7eb'
+                                    }
+                                },
+                                    // Header
+                                    React.createElement('div', {
+                                        style: {
+                                            padding: '1rem',
+                                            borderBottom: '1px solid #e5e7eb',
+                                            background: 'linear-gradient(135deg, #1e40af, #4f46e5)',
+                                            borderTopLeftRadius: '0.5rem',
+                                            borderTopRightRadius: '0.5rem'
+                                        }
+                                    },
+                                        React.createElement('h2', {
+                                            style: { fontSize: '1.25rem', fontWeight: 'bold', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem' }
+                                        }, '🤖 UC Academic Advisor AI'),
+                                        React.createElement('p', {
+                                            style: { color: '#bfdbfe', fontSize: '0.875rem', marginTop: '0.25rem' }
+                                        }, 'Available for all UC programs')
+                                    ),
+
+                                    // Messages
+                                    React.createElement('div', {
+                                        style: {
+                                            flex: 1,
+                                            overflowY: 'auto',
+                                            padding: '1rem',
+                                            backgroundColor: '#f9fafb',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '1rem'
+                                        }
+                                    },
+                                        messages.map((msg, idx) =>
+                                            React.createElement('div', {
+                                                key: idx,
+                                                style: {
+                                                    display: 'flex',
+                                                    alignItems: 'flex-start',
+                                                    gap: '0.75rem',
+                                                    flexDirection: msg.role === 'user' ? 'row-reverse' : 'row'
+                                                }
+                                            },
+                                                React.createElement('div', {
+                                                    style: {
+                                                        width: '2rem',
+                                                        height: '2rem',
+                                                        borderRadius: '9999px',
+                                                        backgroundColor: msg.role === 'user' ? '#3b82f6' : '#16a34a',
+                                                        color: 'white',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        flexShrink: 0
+                                                    }
+                                                }, msg.role === 'user' ? '👤' : '🤖'),
+                                                React.createElement('div', {
+                                                    style: {
+                                                        maxWidth: '75%',
+                                                        padding: '0.75rem',
+                                                        borderRadius: '0.5rem',
+                                                        backgroundColor: msg.role === 'user' ? '#3b82f6' : 'white',
+                                                        color: msg.role === 'user' ? 'white' : '#1f2937',
+                                                        border: msg.role === 'user' ? 'none' : '1px solid #e5e7eb'
+                                                    }
+                                                },
+                                                    React.createElement('p', {
+                                                        style: { fontSize: '0.875rem', whiteSpace: 'pre-wrap', margin: 0 }
+                                                    }, msg.content)
+                                                )
+                                            )
+                                        ),
+                                        isLoading && React.createElement('div', {
+                                            style: { display: 'flex', alignItems: 'center', gap: '0.75rem' }
+                                        },
+                                            React.createElement('div', {
+                                                style: {
+                                                    width: '2rem',
+                                                    height: '2rem',
+                                                    borderRadius: '9999px',
+                                                    backgroundColor: '#16a34a',
+                                                    color: 'white',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center'
+                                                }
+                                            }, '🤖'),
+                                            React.createElement('div', {
+                                                style: {
+                                                    padding: '0.75rem',
+                                                    backgroundColor: 'white',
+                                                    border: '1px solid #e5e7eb',
+                                                    borderRadius: '0.5rem'
+                                                }
+                                            }, '⏳')
+                                        ),
+                                        React.createElement('div', { ref: messagesEndRef })
+                                    ),
+
+                                    // Input
+                                    React.createElement('form', {
+                                        onSubmit: handleSubmit,
+                                        style: {
+                                            padding: '1rem',
+                                            borderTop: '1px solid #e5e7eb',
+                                            backgroundColor: 'white',
+                                            borderBottomLeftRadius: '0.5rem',
+                                            borderBottomRightRadius: '0.5rem'
+                                        }
+                                    },
+                                        React.createElement('div', {
+                                            style: { display: 'flex', gap: '0.5rem' }
+                                        },
+                                            React.createElement('input', {
+                                                type: 'text',
+                                                value: input,
+                                                onChange: (e) => setInput(e.target.value),
+                                                placeholder: 'Ask about eligibility, prerequisites, or your study plan...',
+                                                disabled: isLoading,
+                                                style: {
+                                                    flex: 1,
+                                                    padding: '0.5rem 1rem',
+                                                    border: '1px solid #d1d5db',
+                                                    borderRadius: '0.5rem',
+                                                    outline: 'none'
+                                                }
+                                            }),
+                                            React.createElement('button', {
+                                                type: 'submit',
+                                                disabled: isLoading || !input.trim(),
+                                                style: {
+                                                    padding: '0.5rem 1rem',
+                                                    backgroundColor: isLoading || !input.trim() ? '#9ca3af' : '#3b82f6',
+                                                    color: 'white',
+                                                    borderRadius: '0.5rem',
+                                                    border: 'none',
+                                                    cursor: isLoading || !input.trim() ? 'not-allowed' : 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.5rem'
+                                                }
+                                            }, isLoading ? '⏳' : '📤 Send')
+                                        )
+                                    )
+                                );
+                            }
+
+                            ReactDOM.render(
+                                React.createElement(AIAdvisorChat),
+                                document.getElementById('ai-chat-root')
+                            );
+                        `;
+                        document.head.appendChild(componentScript);
+                    };
+                    document.head.appendChild(babelScript);
+                };
+                document.head.appendChild(reactScript);
+            };
+            document.head.appendChild(script);
+        });
+    </script>
+</body>
+</html>

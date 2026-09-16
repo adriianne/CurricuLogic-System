@@ -18,7 +18,7 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 const $ = (id) => document.getElementById(id);
 
-const LOGIN_PAGE = 'staffloginpage.html';
+const LOGIN_PAGE = '../auth/html/staffloginpage.html';
 
 let AUTH_UID = null;
 let FACULTY  = null;

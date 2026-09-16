@@ -7,10 +7,10 @@
 
     <title>Department dashboard — CurricuLogic</title>
 
-    <link rel="icon" type="image/png" href="../Images/CurriculogicLogo.png">
-    <link rel="stylesheet" href="../CSS/dashboard.css">
-    <link rel="stylesheet" href="../CSS/prospectus.css">
-    <link rel="stylesheet" href="../CSS/curriculum_builder.css">
+    <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../../shared/css/dashboard.css">
+    <link rel="stylesheet" href="../prospectus/prospectus.css">
+    <link rel="stylesheet" href="../curriculum/curriculum_builder.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -24,7 +24,7 @@
     <aside class="sidebar">
 
         <div class="side-brand">
-            <img src="../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
+            <img src="../../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
             <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
         </div>
 
@@ -301,12 +301,13 @@
                         </div>
                         <div class="review-actions">
                             <button class="btn-primary" id="e-save">Save changes</button>
-                            <button id="e-retire">Retire subject</button>
+                            <button id="e-retire">Set inactive</button>
                         </div>
                         <p class="hint">
-                            Retiring removes a subject from the curriculum without
-                            deleting it. Grades already recorded against it stay
-                            readable.
+                            An inactive subject is out of the curriculum but not
+                            deleted. It stops appearing in the prospectus and stops
+                            being recommended, and grades already recorded against
+                            it stay readable.
                         </p>
                     </div>
                 </section>
@@ -657,6 +658,40 @@
                             </div>
                         </dl>
                     </div>
+
+                </section>
+
+                <!-- Edit profile -->
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Edit profile</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="profile-msg" class="msg" role="status"></div>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="p-first">First name</label>
+                                <input type="text" id="p-first" autocomplete="given-name">
+                            </div>
+                            <div class="field">
+                                <label for="p-last">Last name</label>
+                                <input type="text" id="p-last" autocomplete="family-name">
+                            </div>
+                            <div class="field">
+                                <label for="p-dept">Department</label>
+                                <input type="text" id="p-dept" autocomplete="organization">
+                            </div>
+                        </div>
+                        <div class="review-actions">
+                            <button class="btn-primary" id="p-save">Save changes</button>
+                        </div>
+                        <p class="hint">
+                            Employee ID and university email are held in college records
+                            and cannot be changed here. To correct either, contact the
+                            System Administrator.
+                        </p>
+                    </div>
+
                 </section>
 
             </section>
@@ -665,10 +700,11 @@
     </div>
 </div>
 
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="../JS/config.js"></script>
-<script src="../JS/prospectusgrid.js"></script>
-<script src="../JS/curriculum_builder.js"></script>
-<script src="../JS/departmentdashboard.js"></script>
+<script src="../../shared/js/config.js"></script>
+<script src="../../shared/js/prospectusgrid.js"></script>
+<script src="../curriculum/curriculum_builder.js"></script>
+<script src="departmentdashboard.js"></script>
 </body>
 </html>

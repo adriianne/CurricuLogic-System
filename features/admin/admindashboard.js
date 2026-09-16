@@ -18,7 +18,7 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 const $ = (id) => document.getElementById(id);
 
-const LOGIN_PAGE = 'adminloginpage.html';
+const LOGIN_PAGE = '../auth/html/adminloginpage.html';
 
 let AUTH_UID = null;
 let ADMIN    = null;
@@ -525,17 +525,28 @@ async function createAccount() {
     const last       = $('a-last-name').value.trim();
     const email      = $('a-email').value.trim();
     const employeeId = $('a-employee-id').value.trim();
+    const studentId  = $('a-student-id')?.value.trim() ?? '';
+    const yearLevel  = $('a-year-level')?.value ?? '';
     const role       = $('a-role').value;
     const department = $('a-department').value.trim() || 'College of Computer Studies';
     const password   = $('a-password').value;
     const confirm    = $('a-confirm').value;
 
-    // Validation
+    // Validation. Employee ID is only meaningful for staff roles; a
+    // student has no employee record at all, so requiring it here was
+    // what made the single-account form unable to create a student even
+    // after "University Student" is selectable in the dropdown.
     if (!first)     return showMsg(boxId, 'Enter a first name.');
     if (!last)      return showMsg(boxId, 'Enter a last name.');
     if (!email)     return showMsg(boxId, 'Enter an email address.');
     if (!EMAIL_RE.test(email)) return showMsg(boxId, 'Enter a valid email address.');
-    if (!employeeId) return showMsg(boxId, 'Enter an employee ID.');
+
+    if (role === 'student') {
+        if (!studentId) return showMsg(boxId, 'Enter a student ID.');
+    } else {
+        if (!employeeId) return showMsg(boxId, 'Enter an employee ID.');
+    }
+
     if (!password || password.length < 8) return showMsg(boxId, 'Password must be at least 8 characters.');
     if (password !== confirm) return showMsg(boxId, 'The two passwords do not match.');
 
@@ -562,15 +573,21 @@ async function createAccount() {
             return;
         }
 
-        // Call the RPC to create the account
-        const { data, error } = await supabase.rpc('create_staff_account', {
+        // create_user_account is the generic RPC -- it already accepts a
+        // role plus both employee/student identifiers as optional, which is
+        // what the bulk-upload path uses. create_staff_account was staff-only
+        // and required an employee ID unconditionally, which is why this form
+        // could never create a student even once the role were selectable.
+        const { data, error } = await supabase.rpc('create_user_account', {
             p_first_name: first,
             p_last_name: last,
             p_email: email,
             p_password: password,
-            p_employee_id: employeeId,
             p_role: role,
+            p_employee_id: role === 'student' ? null : employeeId,
+            p_student_id: role === 'student' ? studentId : null,
             p_department: department,
+            p_year_level: role === 'student' ? yearLevel : null,
         });
 
         if (error) {
@@ -592,11 +609,26 @@ async function createAccount() {
 }
 
 function clearCreateForm() {
-    ['a-first-name', 'a-last-name', 'a-email', 'a-employee-id', 'a-department', 'a-password', 'a-confirm']
-        .forEach(id => { $(id).value = ''; });
+    ['a-first-name', 'a-last-name', 'a-email', 'a-employee-id', 'a-student-id', 'a-department', 'a-password', 'a-confirm']
+        .forEach(id => { const el = $(id); if (el) el.value = ''; });
     $('a-role').value = 'faculty';
+    updateRoleFields();
     $('a-first-name').focus();
 }
+
+// Show Employee ID for staff roles, Student ID + Year level for a student.
+// The two field sets are mutually exclusive, not just cosmetically --
+// createAccount() sends only the pair matching the selected role, and a
+// hidden field the user never touched should not be read as if it were.
+function updateRoleFields() {
+    const isStudent = $('a-role').value === 'student';
+    $('a-employee-id-wrap').hidden = isStudent;
+    $('a-student-id-wrap').hidden  = !isStudent;
+    $('a-year-level-wrap').hidden  = !isStudent;
+}
+
+$('a-role')?.addEventListener('change', updateRoleFields);
+updateRoleFields();
 
 $('create-account')?.addEventListener('click', createAccount);
 

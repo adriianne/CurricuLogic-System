@@ -19,7 +19,7 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 const $ = (id) => document.getElementById(id);
 
-const LOGIN_PAGE = 'loginpage.html';
+const LOGIN_PAGE = '../auth/html/loginpage.html';
 
 /* Session state, populated at boot. */
 let AUTH_UID        = null;   // auth.users.id  == university_student.user_id

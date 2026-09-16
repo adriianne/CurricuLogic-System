@@ -1,4 +1,4 @@
-    <!DOCTYPE html>
+<!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
@@ -7,9 +7,9 @@
 
         <title>Dashboard — CurricuLogic</title>
 
-        <link rel="icon" type="image/png" href="../assets/CurriculogicLogo.png">
-        <link rel="stylesheet" href="../CSS/dashboard.css">
-        <link rel="stylesheet" href="../CSS/prospectus.css">
+        <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
+        <link rel="stylesheet" href="../../shared/css/dashboard.css">
+        <link rel="stylesheet" href="../prospectus/prospectus.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     </head>
     <body>
@@ -22,7 +22,7 @@
         <aside class="sidebar">
 
             <div class="side-brand">
-                <img src="../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
+                <img src="../../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
                 <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
             </div>
 
@@ -132,7 +132,7 @@
                 </section>
 
                 <!-- My prospectus -->
-                <section class="view" id="view-prospectus" hidden>
+                <section class="view view-wide" id="view-prospectus" hidden>
 
                     <div class="page-head">
                         <h1 class="page-title">My prospectus</h1>
@@ -290,9 +290,10 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="../JS/config.js"></script>
-    <script src="../engine/engine.js"></script>
-    <script src="../JS/studentdashboard.js"></script>
-    <script src="../JS/prospectusgrid.js"></script>
+    <script src="../../shared/js/config.js"></script>
+    <script src="../../shared/engine/engine.js"></script>
+    <script src="../../shared/js/prospectusgrid.js"></script>
+    <script src="studentpreview.js"></script>
+    <script src="studentdashboard.js"></script>
     </body>
     </html>

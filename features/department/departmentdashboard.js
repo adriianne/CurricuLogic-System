@@ -20,7 +20,7 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 const $ = (id) => document.getElementById(id);
 
-const LOGIN_PAGE = 'staffloginpage.html';
+const LOGIN_PAGE = '../auth/html/staffloginpage.html';
 
 let AUTH_UID   = null;
 let STAFF      = null;
@@ -197,6 +197,60 @@ function renderProfile(staff, authEmail) {
         : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Awaiting approval</span>';
 }
 
+/* Editable copy of the same fields shown in Account details above.
+   Employee ID and email stay read-only — those are identifiers other
+   records point at, and changing them here would not be a profile edit,
+   it would be a different person's account. */
+function fillProfileForm(staff) {
+    const set = (id, v) => { const el = $(id); if (el) el.value = v ?? ''; };
+    set('p-first', staff?.first_name);
+    set('p-last',  staff?.last_name);
+    set('p-dept',  staff?.department);
+}
+
+async function saveProfile() {
+    if (!STAFF_ID) return;
+
+    const first = $('p-first')?.value.trim();
+    const last  = $('p-last')?.value.trim();
+    const dept  = $('p-dept')?.value.trim();
+
+    if (!first || !last) {
+        return showMsg('profile-msg', 'First and last name are required.');
+    }
+
+    const btn = $('p-save');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+
+    const finish = (msg, type) => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
+        showMsg('profile-msg', msg, type);
+    };
+
+    if (PREVIEW) {
+        STAFF = { ...STAFF, first_name: first, last_name: last, department: dept };
+        renderProfile(STAFF, STAFF.email);
+        return finish('Saved (preview only \u2014 not stored).', 'success');
+    }
+
+    console.log('DEBUG: about to update where id =', STAFF_ID);
+    const { error } = await supabase.from('department_staff')
+        .update({ first_name: first, last_name: last, department: dept || null })
+        .eq('id', STAFF_ID);
+    console.log('DEBUG: update finished, error =', error);
+
+    if (error) {
+        console.error('profile update failed:', error.message);
+        return finish('Could not save changes. ' + error.message);
+    }
+
+    STAFF = { ...STAFF, first_name: first, last_name: last, department: dept };
+    renderProfile(STAFF, STAFF.email);
+    finish('Profile updated.', 'success');
+}
+
+$('p-save')?.addEventListener('click', saveProfile);
+
 function renderNotice(staff) {
     const box = $('status-notice');
     if (!box) return;
@@ -224,19 +278,32 @@ async function loadCurriculum() {
 
     if (!supabase) return;
 
-    const { data: active } = await supabase
+    /* Load every version here, not just the active one. loadCurriculum()
+       can run before a user ever visits the Prospectus tab -- it fires
+       directly on page load -- so it cannot assume loadProspectusList()
+       has already populated VERSIONS. Without this, the builder mounted
+       with VERSIONS still at its initial empty array, and every year in
+       the dropdown showed "New" even when real Active/Draft versions
+       existed, because there was nothing to compare against yet. */
+    const { data: allVersions, error: versionsError } = await supabase
         .from('prospectus')
         .select('id, program_id, academic_year, academic_term, is_active, published_at')
-        .eq('is_active', true)
-        .maybeSingle();
+        .order('academic_year', { ascending: false });
 
+    if (versionsError) {
+        console.warn('version list failed:', versionsError.message);
+    } else {
+        VERSIONS = allVersions ?? [];
+    }
+
+    const active = VERSIONS.find(v => v.is_active) ?? null;
     PROSPECTUS = active;
 
     /* A draft can be edited without being active, so the curriculum view
        follows EDITING rather than assuming the active version. Defaulting
        to active keeps the common case one click shorter. */
     if (!EDITING) EDITING = active;
-        mountCurriculumBuilder(); 
+    mountCurriculumBuilder();
 
     const pros = EDITING;
 
@@ -318,7 +385,7 @@ function renderProspectus() {
             <div class="detail"><dt>Effective year</dt><dd>${escapeHtml(PROSPECTUS.academic_year)}</dd></div>
             <div class="detail"><dt>Status</dt><dd>${PROSPECTUS.is_active
                 ? '<span class="pill ok">Active</span>'
-                : '<span class="pill waiting">Inactive</span>'}</dd></div>
+                : '<span class="pill waiting">Draft</span>'}</dd></div>
         </dl>
         <div class="table-wrap" style="margin-top: var(--s3)">
             <table class="data-table">
@@ -605,10 +672,12 @@ function fillEditForm(s) {
     const retire = $('e-retire');
 
     if (state) {
-        state.textContent = s.is_active === false ? 'Retired' : '';
+        state.textContent = s.is_active === false ? 'Inactive' : '';
     }
     if (retire) {
-        retire.textContent = s.is_active === false ? 'Restore subject' : 'Retire subject';
+        retire.textContent = s.is_active === false
+            ? 'Set active'
+            : 'Set inactive';
     }
 }
 
@@ -659,7 +728,7 @@ async function retireSubject() {
     if (!CURRENT_SUBJECT) return;
 
     if (PREVIEW) {
-        return showMsg('rule-msg', 'Retired (preview only \u2014 not stored).', 'success');
+        return showMsg('rule-msg', 'Set inactive (preview only \u2014 not stored).', 'success');
     }
 
     const restoring = CURRENT_SUBJECT.is_active === false;
@@ -670,7 +739,7 @@ async function retireSubject() {
         });
         if (error) return showMsg('rule-msg', error.message);
 
-        showMsg('rule-msg', `${CURRENT_SUBJECT.code} is back in the curriculum.`, 'success');
+        showMsg('rule-msg', `${CURRENT_SUBJECT.code} is active again.`, 'success');
         await loadCurriculum();
         return openSubject(CURRENT_SUBJECT.id);
     }
@@ -685,7 +754,7 @@ async function retireSubject() {
         return showMsg('rule-msg', e1.message);
     }
 
-    const lines = [`Retire ${check.code}?`, ''];
+    const lines = [`Set ${check.code} inactive?`, ''];
 
     if (check.records) {
         lines.push(`${check.records} academic record${check.records === 1 ? '' : 's'} ` +
@@ -703,7 +772,8 @@ async function retireSubject() {
     }
 
     lines.push('', 'It stops appearing in the prospectus and stops being ' +
-                   'recommended. Nothing is deleted.');
+                   'recommended. Nothing is deleted \u2014 grades already ' +
+                   'recorded against it stay readable.');
 
     if (!window.confirm(lines.join('\n'))) return;
 
@@ -716,7 +786,7 @@ async function retireSubject() {
         return showMsg('rule-msg', e2.message);
     }
 
-    showMsg('rule-msg', `${check.code} retired.`, 'success');
+    showMsg('rule-msg', `${check.code} is now inactive.`, 'success');
     await loadCurriculum();
     openSubject(CURRENT_SUBJECT.id);
 }
@@ -1117,7 +1187,7 @@ async function createVersion() {
     showMsg('pros-msg',
         source
             ? `${year} created from the ${VERSIONS.find(v => v.id === Number(source))?.academic_year ?? 'source'} version. ` +
-              'It is inactive until you make it active.'
+              'It is a draft until you make it active.'
             : `${year} created. Encode its subjects under Curriculum.`,
         'success');
 }
@@ -2434,6 +2504,7 @@ $('grade-template')?.addEventListener('click', () => {
     STAFF_ID = staff?.id ?? null;
 
     renderProfile(staff, session.user.email);
+    fillProfileForm(staff);
     renderNotice(staff);
 
     await loadCurriculum();

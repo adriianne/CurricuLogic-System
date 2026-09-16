@@ -17,7 +17,7 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 const $ = (id) => document.getElementById(id);
 
-const LOGIN_PAGE = 'staffloginpage.html';
+const LOGIN_PAGE = '../auth/html/staffloginpage.html';
 
 let AUTH_UID      = null;
 let REGISTRAR     = null;   // registrar_staff row
@@ -85,7 +85,7 @@ function showView(name, param) {
     document.querySelectorAll('.side-nav a').forEach((link) => {
         // Student detail is reached from Students, so keep that item lit.
         const target = name === 'student' ? 'students' : name;
-        link.classList.toggle('active', link.dataset.view === target);
+        link.classList.toggle('active', link.dataset.view === target);  
     });
 
     const title = $('topbar-title');
@@ -127,9 +127,14 @@ async function loadProspectus() {
             return;
         }
 
+        // Only published (active) versions -- a draft is Department Staff's
+        // work in progress and must not be visible to Registrar or Faculty
+        // until it is made active. Filtering at the query means a draft is
+        // never even sent to the browser, not merely hidden after the fact.
         const { data, error } = await supabase
             .from('prospectus')
             .select('id, academic_year, is_active')
+            .eq('is_active', true)
             .order('academic_year', { ascending: false });
 
         if (error) {

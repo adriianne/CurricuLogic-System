@@ -7,11 +7,11 @@
     <title>Log in — CurricuLogic</title>
     <meta name="description" content="Log in to CurricuLogic to check your subject eligibility and plan your term.">
 
-    <link rel="icon" type="image/png" href="../assets/CurriculogicLogo.png">
-    <link rel="stylesheet" href="../CSS/loginpage.css">
+    <link rel="icon" type="image/png" href="../../../assets/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../css/loginpage.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
-<body>
+<body data-allowed-roles="university_student">
 
 <div class="auth-shell">
 
@@ -19,7 +19,7 @@
     <aside class="auth-aside">
         <div class="aside-inner">
 
-            <a href="index.html" class="aside-back">
+            <a href="../../../index.html" class="aside-back">
                 <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                 <span>Back to home</span>
             </a>
@@ -29,7 +29,7 @@
             </h2>
 
             <div class="aside-about">
-                <img src="../assets/CurriculogicLogo.png" alt="" class="aside-logo" width="1024" height="576">
+                <img src="../../../assets/CurriculogicLogo.png" alt="" class="aside-logo" width="1024" height="576">
                 <p>
                     A prerequisite verification and subject recommendation tool for
                     University of Cebu students. It checks your academic record against
@@ -73,8 +73,8 @@
     <main class="auth-main">
         <div class="auth-card">
 
-            <a href="index.html" class="brand auth-brand" aria-label="CurricuLogic home">
-                <img src="../assets/CurriculogicLogo.png" alt="" class="brand-mark" width="1024" height="576">
+            <a href="../../../index.html" class="brand auth-brand" aria-label="CurricuLogic home">
+                <img src="../../../assets/CurriculogicLogo.png" alt="" class="brand-mark" width="1024" height="576">
                 <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
             </a>
 
@@ -117,17 +117,17 @@
             <div class="rule"><span>or</span></div>
 
             <p class="auth-alt">
-                Not a student? <a href="../HTML/staffloginpage.html">Staff login</a>
+                Not a student? <a href="staffloginpage.html">Staff login</a>
             </p>
 
             <p class="auth-alt">
-                Don't have an account? <a href="../HTML/registerpage.html">Request an Account</a>
+                Don't have an account? <a href="registerpage.html">Request an Account</a>
             </p>
 
             <nav class="auth-links" aria-label="Help links">
-                <a href="../HTML/index.html#features">Features</a>
+                <a href="../../../index.html#features">Features</a>
                 <span class="sep">|</span>
-                <a href="../HTML/index.html#how-it-works">How it works</a>
+                <a href="../../../index.html#how-it-works">How it works</a>
                 <span class="sep">|</span>
                 <a href="mailto:support@curriculogic.uc.edu.ph">Support</a>
             </nav>
@@ -140,7 +140,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="../JS/config.js"></script>
-<script src="../JS/auth.js"></script>
+<script src="../../../shared/js/config.js"></script>
+<script src="../../../shared/js/auth.js"></script>
 </body>
 </html>

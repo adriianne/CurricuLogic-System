@@ -7,8 +7,8 @@
 
     <title>Admin Dashboard — CurricuLogic</title>
 
-    <link rel="icon" type="image/png" href="../assets/CurriculogicLogo.png">
-    <link rel="stylesheet" href="../CSS/dashboard.css">
+    <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
+    <link rel="stylesheet" href="../../shared/css/dashboard.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -22,7 +22,7 @@
     <aside class="sidebar">
 
         <div class="side-brand">
-            <img src="../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
+            <img src="../../../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
             <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
         </div>
 
@@ -174,16 +174,32 @@
                                 <label for="a-email">University email</label>
                                 <input type="email" id="a-email" placeholder="juan.delacruz@uc.edu.ph" autocomplete="off">
                             </div>
-                            <div class="field">
-                                <label for="a-employee-id">Employee ID</label>
-                                <input type="text" id="a-employee-id" placeholder="EMP-00871" autocomplete="off">
-                            </div>
                             <div class="field field-sm">
                                 <label for="a-role">Role</label>
                                 <select id="a-role">
+                                    <option value="student">University Student</option>
                                     <option value="faculty">Faculty Staff</option>
                                     <option value="registrar">Registrar Staff</option>
                                     <option value="department">Department Staff</option>
+                                </select>
+                            </div>
+                            <!-- Staff-only: Employee ID -->
+                            <div class="field" id="a-employee-id-wrap">
+                                <label for="a-employee-id">Employee ID</label>
+                                <input type="text" id="a-employee-id" placeholder="EMP-00871" autocomplete="off">
+                            </div>
+                            <!-- Student-only: Student ID and Year level -->
+                            <div class="field" id="a-student-id-wrap" hidden>
+                                <label for="a-student-id">Student ID</label>
+                                <input type="text" id="a-student-id" placeholder="2401187" autocomplete="off">
+                            </div>
+                            <div class="field field-sm" id="a-year-level-wrap" hidden>
+                                <label for="a-year-level">Year level</label>
+                                <select id="a-year-level">
+                                    <option value="1">1st Year</option>
+                                    <option value="2">2nd Year</option>
+                                    <option value="3">3rd Year</option>
+                                    <option value="4">4th Year</option>
                                 </select>
                             </div>
                             <div class="field">
@@ -459,7 +475,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="../JS/config.js"></script>
-<script src="../JS/admindashboard.js"></script>
+<script src="../../shared/js/config.js"></script>
+<script src="admindashboard.js"></script>
 </body>
 </html>
