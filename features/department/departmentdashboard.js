@@ -777,6 +777,7 @@ async function retireSubject() {
 
     if (!window.confirm(lines.join('\n'))) return;
 
+
     const { error: e2 } = await supabase.rpc('retire_subject', {
         target_id: CURRENT_SUBJECT.id, restore: false, confirm: true,
     });
@@ -1087,10 +1088,16 @@ function renderVersions() {
                         <td class="num">
                             ${v.is_active
                                 ? '<span class="dim">Default</span>'
-                                : `<button class="btn-small" data-activate="${v.id}"
-                                     ${v.subject_count === 0 ? 'disabled title="Encode subjects first"' : ''}>
-                                     Make active
-                                   </button>`}
+                                : `<div style="display:flex; gap:6px; justify-content:flex-end;">
+                                    <button class="btn-small" data-activate="${v.id}"
+                                    ${v.subject_count === 0 ? 'disabled title="Encode subjects first"' : ''}>
+                                    Make active
+                                    </button>
+                                    <button class="btn-small" data-delete="${v.id}"
+                                    style="color:#b91c1c; border-color:#fecaca;">
+                                    Delete
+                                    </button>
+                                </div>`}
                         </td>
                     </tr>`).join('')}
                 </tbody>
@@ -1100,13 +1107,16 @@ function renderVersions() {
     body.querySelectorAll('[data-activate]').forEach(b =>
         b.addEventListener('click', () => activateVersion(Number(b.dataset.activate))));
 
+    body.querySelectorAll('[data-delete]').forEach(b =>
+        b.addEventListener('click', () => deleteVersion(Number(b.dataset.delete))));
+
     // Curriculum grid, switchable by version.
     const sel = $('pg-version');
     if (!sel || !window.ProspectusGrid || !VERSIONS.length) return;
 
     sel.innerHTML = VERSIONS
         .map(v => `<option value="${v.id}">${v.academic_year}–${v.academic_year + 1}` +
-                  `${v.is_active ? ' · Active' : ' · Draft'}</option>`)
+        `${v.is_active ? ' · Active' : ' · Draft'}</option>`)
         .join('');
 
     const active = VERSIONS.find(v => v.is_active) ?? VERSIONS[0];
@@ -1156,7 +1166,7 @@ async function createVersion() {
 
     if (source) {
         /* Copying happens server-side: the prerequisite rows have to point
-           at the NEW subject ids, and doing that in pieces over the
+        at the NEW subject ids, and doing that in pieces over the
            network risks a curriculum whose rules and subjects disagree. */
         ({ error } = await supabase.rpc('copy_prospectus', {
             source_id: Number(source),
@@ -1187,7 +1197,7 @@ async function createVersion() {
     showMsg('pros-msg',
         source
             ? `${year} created from the ${VERSIONS.find(v => v.id === Number(source))?.academic_year ?? 'source'} version. ` +
-              'It is a draft until you make it active.'
+            'It is a draft until you make it active.'
             : `${year} created. Encode its subjects under Curriculum.`,
         'success');
 }
@@ -1197,25 +1207,18 @@ $('create-pros')?.addEventListener('click', createVersion);
 async function activateVersion(id) {
     const v = VERSIONS.find(x => x.id === id);
     const current = VERSIONS.find(x => x.is_active);
+    
 
     /* "Active" means the version a newly registered student is placed on,
-       and the one this dashboard opens by default. It does not move
-       anyone: students carry their own prospectus_id and are assessed
-       against that, which is how a returnee stays on the curriculum they
-       enrolled under. Several versions are legitimately in use at once.
+    and the one this dashboard opens by default. It does not move
+    anyone: students carry their own prospectus_id and are assessed
+    against that, which is how a returnee stays on the curriculum they
+    enrolled under. Several versions are legitimately in use at once.
 
-       The old wording claimed every student would be reassessed against
-       the new version. That was never true and it made the action look
+    The old wording claimed every student would be reassessed against
+    the new version. That was never true and it made the action look
        far more dangerous than it is. */
-    const ok = window.confirm(
-        `Make ${v.academic_year}\u2013${v.academic_year + 1} the version for new students?\n\n` +
-        'Students already enrolled keep the curriculum they are on, ' +
-        'including returnees.' +
-        (current
-            ? `\n\n${current.academic_year}\u2013${current.academic_year + 1} stops being the default `
-              + 'but remains in use by the students on it.'
-            : ''));
-
+    const ok = await confirmActivateVersion(v, current);
     if (!ok) return;
 
     if (PREVIEW) return showMsg('pros-msg', 'Activated (preview only).', 'success');
@@ -1238,6 +1241,214 @@ async function activateVersion(id) {
         'success');
 }
 
+/* Confirmation for activating a version. Same shell as the delete
+   modal, but activation is reversible -- no typed-year gate, no red
+   warning panel. The bullet list describes what will change rather
+   than what will be destroyed. */
+function confirmActivateVersion(version, current) {
+    return new Promise((resolve) => {
+        const modal     = $('activate-draft-modal');
+        const yearRange = `${version.academic_year}\u2013${version.academic_year + 1}`;
+
+        $('act-year-range').textContent = yearRange;
+
+        $('act-desc').textContent = current
+            ? `New students will be placed on this version. ` +
+              `${current.academic_year}\u2013${current.academic_year + 1} ` +
+              `stops being the default but remains in use by the students already on it.`
+            : `New students will be placed on this version.`;
+
+        const notes = [];
+        if (current) {
+            notes.push(`${current.academic_year}\u2013${current.academic_year + 1} moves to Published`);
+        }
+        notes.push('Students already enrolled keep their current curriculum');
+        notes.push('Takes effect immediately for new registrations');
+
+        $('act-notes').innerHTML = notes.map(n => `<li>${n}</li>`).join('');
+
+        modal.hidden = false;
+        setTimeout(() => $('act-go').focus(), 60);
+
+        const close = (result) => {
+            modal.hidden = true;
+            document.removeEventListener('keydown', onKey);
+            $('act-cancel').removeEventListener('click', onCancel);
+            $('act-go').removeEventListener('click', onConfirm);
+            modal.removeEventListener('click', onBackdrop);
+            resolve(result);
+        };
+
+        const onConfirm  = () => close(true);
+        const onCancel   = () => close(false);
+        const onKey      = (e) => { if (e.key === 'Escape') close(false); };
+        const onBackdrop = (e) => { if (e.target === modal) close(false); };
+
+        $('act-go').addEventListener('click', onConfirm);
+        $('act-cancel').addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+    });
+}
+
+/* Two-phase delete of a draft prospectus. The first RPC call reports
+   what would be removed without touching anything; only after the
+   operator confirms does the second call actually write. Refused
+   server-side if the version is active, has students, or has requests
+   pointing at it — those are dependencies a staff member cannot
+   silently destroy. */
+async function deleteVersion(id) {
+    const v = VERSIONS.find(x => x.id === id);
+    if (!v) return;
+
+    showMsg('pros-msg', '');
+
+    if (PREVIEW) {
+        return showMsg('pros-msg', 'Deleted (preview only).', 'success');
+    }
+
+    // ── Phase 1: what would be removed? ──────────────────────────
+    const { data: check, error: e1 } = await supabase.rpc(
+        'delete_draft_prospectus',
+        { target_id: id, confirm: false }
+    );
+
+    if (e1) {
+        console.error('delete check failed:', e1.message);
+        return showMsg('pros-msg', 'Could not check: ' + e1.message);
+    }
+
+    if (!check?.ok) {
+        return showMsg('pros-msg', check?.error || 'Cannot delete this version.');
+    }
+
+    // ── Phase 2: typed confirmation ──────────────────────────────
+    const ok = await confirmDeleteDraft(v, check);
+    if (!ok) return;
+
+    const yearRange = `${check.academic_year}\u2013${check.academic_year + 1}`;
+
+    // ── Phase 3: actually delete ─────────────────────────────────
+    const { data: result, error: e2 } = await supabase.rpc(
+        'delete_draft_prospectus',
+        { target_id: id, confirm: true }
+    );
+
+    if (e2) {
+        console.error('delete failed:', e2.message);
+        return showMsg('pros-msg', 'Could not delete: ' + e2.message);
+    }
+
+    if (!result?.ok) {
+        return showMsg('pros-msg', result?.error || 'Delete was refused.');
+    }
+
+    // If the deleted version was what we were editing, clear it so the
+    // builder falls back to a blank state rather than pointing at a
+    // prospectus that no longer exists.
+    if (EDITING && EDITING.id === id) EDITING = null;
+
+    await loadProspectusList();
+    await loadCurriculum();
+
+    showMsg('pros-msg',
+        `Deleted ${yearRange}: ${result.subjects} subjects, ` +
+        `${result.prerequisites} rules removed.`,
+        'success');
+}
+
+/* Populate and open the delete-draft modal defined in the HTML.
+   Returns a Promise<boolean> that resolves true if the operator typed
+   the year and pressed Delete, false on any other exit.
+
+   The typed-year check is the point: window.confirm() accepts Enter
+   the moment it opens, so a stray keystroke can wipe a draft. Here,
+   Enter does nothing until the input matches the year being deleted —
+   and the year sits in front of the operator as they type it. */
+function confirmDeleteDraft(version, check) {
+    return new Promise((resolve) => {
+        const modal     = $('delete-draft-modal');
+        const yearRange = `${check.academic_year}\u2013${check.academic_year + 1}`;
+        const yearStr   = String(check.academic_year);
+
+        // ── Populate ────────────────────────────────────────────
+        $('del-year-range').textContent = yearRange;
+        $('del-year-code').textContent  = yearStr;
+
+        const bullets = [
+            check.subjects           ? `${check.subjects} subject(s)` : '',
+            check.prerequisites      ? `${check.prerequisites} prerequisite rule(s)` : '',
+            check.elective_groups    ? `${check.elective_groups} elective group(s)` : '',
+            check.ai_recommendations ? `${check.ai_recommendations} AI recommendation(s)` : '',
+        ].filter(Boolean);
+
+        const list = $('del-removal-list');
+        if (bullets.length) {
+            list.classList.remove('is-empty');
+            list.innerHTML = bullets.map(b => `<li>${b}</li>`).join('');
+        } else {
+            list.classList.add('is-empty');
+            list.innerHTML = '<li>No data attached — just the version row.</li>';
+        }
+
+        const input = $('del-confirm-input');
+        const goBtn = $('del-go');
+        input.value = '';
+        input.classList.remove('is-match');
+        goBtn.disabled = true;
+        goBtn.classList.remove('is-armed');
+
+        modal.hidden = false;
+        setTimeout(() => input.focus(), 60);
+
+        // ── Wire up ─────────────────────────────────────────────
+        const close = (result) => {
+            modal.hidden = true;
+            document.removeEventListener('keydown', onKey);
+            input.removeEventListener('input', onInput);
+            input.removeEventListener('keydown', onKeyInput);
+            goBtn.removeEventListener('click', onGo);
+            $('del-cancel').removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+            resolve(result);
+        };
+
+        const onInput = () => {
+            const match = input.value.trim() === yearStr;
+            input.classList.toggle('is-match', match);
+            goBtn.disabled = !match;
+            goBtn.classList.toggle('is-armed', match);
+        };
+
+        const onKeyInput = (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            if (!goBtn.disabled) close(true);
+        };
+
+        const onGo = () => {
+            if (goBtn.disabled) return;
+            close(true);
+        };
+
+        const onCancel = () => close(false);
+
+        const onKey = (e) => {
+            if (e.key === 'Escape') close(false);
+        };
+
+        const onBackdrop = (e) => {
+            if (e.target === modal) close(false);
+        };
+
+        input.addEventListener('input', onInput);
+        input.addEventListener('keydown', onKeyInput);
+        goBtn.addEventListener('click', onGo);
+        $('del-cancel').addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+    });
+}   
 
 /* setup readiness */
 
