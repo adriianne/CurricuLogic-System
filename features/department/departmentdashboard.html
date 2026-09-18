@@ -149,7 +149,7 @@
             </section>
 
             <!-- Prospectus -->
-            <section class="view" id="view-prospectus" hidden>
+            <section class="view view-wide" id="view-prospectus" hidden>
 
                 <div class="page-head">
                     <h1 class="page-title">Prospectus</h1>
@@ -700,6 +700,66 @@
     </div>
 </div>
 
+
+<!-- Activate version — confirmation -->
+<div class="cbp-overlay" id="activate-draft-modal" hidden>
+    <div class="act-modal" role="dialog" aria-labelledby="act-title">
+
+        <div class="act-panel-left">
+            <span class="act-year-label">Effective year</span>
+            <span class="act-year-value" id="act-year-range">—</span>
+        </div>
+
+        <div class="act-panel-right">
+            <h2 class="act-title" id="act-title">Make this the active curriculum?</h2>
+            <p class="act-desc" id="act-desc"></p>
+
+            <ul class="act-notes" id="act-notes"></ul>
+
+            <div class="act-actions">
+                <button class="act-cancel" id="act-cancel">Cancel</button>
+                <button class="act-go" id="act-go">Make active</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+
+<!-- Delete draft version — typed confirmation -->
+<div class="cbp-overlay" id="delete-draft-modal" hidden>
+    <div class="del-modal" role="dialog" aria-labelledby="del-title">
+
+        <div class="del-panel-left">
+            <span class="del-year-label">Effective year</span>
+            <span class="del-year-value" id="del-year-range">—</span>
+        </div>
+
+        <div class="del-panel-right">
+            <h2 class="del-title" id="del-title">Delete this draft?</h2>
+            <p class="del-desc">
+                This action cannot be undone. The version and everything
+                under it will be permanently removed.
+            </p>
+
+            <ul class="del-removal-list" id="del-removal-list"></ul>
+
+            <div class="del-confirm-field">
+                <label for="del-confirm-input">
+                    Type <code id="del-year-code"></code> to confirm
+                </label>
+                <input type="text" id="del-confirm-input" autocomplete="off"
+                    inputmode="numeric" spellcheck="false">
+            </div>
+
+            <div class="del-actions">
+                <button class="del-cancel" id="del-cancel">No, Cancel</button>
+                <button class="del-go" id="del-go" disabled>Yes, Delete</button>
+            </div>
+        </div>
+
+    </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../../shared/js/config.js"></script>
