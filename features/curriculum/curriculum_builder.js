@@ -71,6 +71,9 @@ let SEQ    = 1;
 let PICKER = null;      // open prerequisite popover
 let SELECTED_YEAR = null;   // may be a year with no prospectus row yet
 let DRAFT_BATCH   = null;   // survives a re-mount; OPTS does not
+let PENDING_AI_FILE = null;
+let PROGRESS_TIMER  = null;
+let PROGRESS_VALUE  = 0;
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
     c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -186,10 +189,21 @@ function validate() {
 
         if (unitsOf(r) <= 0) r.errors.push('Units must be more than zero.');
 
-        if (code) {
-            if (seen.has(code)) r.errors.push('This code is already used.');
-            else seen.set(code, r);
-        }
+if (code) {
+    /* Un-numbered IT-EL / IT-FRE placeholders are exempt from the
+       duplicate check. Several slots share the same base code by
+       design — that is the whole point of a placeholder — and
+       normalizeElectiveCodes() gives each its own numbered code
+       before the payload reaches the database. Without this exemption
+       the Create button stays disabled by its own validation, and the
+       numbering routine that would resolve the clash never runs. */
+    const isPlaceholder = /^IT-(EL|FRE)$/.test(code);
+
+    if (!isPlaceholder) {
+        if (seen.has(code)) r.errors.push('This code is already used.');
+        else seen.set(code, code);
+    }
+}
     }
 
     return seen;
@@ -723,18 +737,27 @@ function showTab(tab) {
 function actionsHtml() {
     const n   = filled().length;
     const bad = badRows().length;
-    const hasExisting = filled().some(r => r.dbId); // Check if any rows are saved
+    const hasExisting = filled().some(r => r.dbId);
 
+    // Create Curriculum must stay available even when every row was
+    // already saved by Save (unpublished) -- "already saved to the
+    // table" and "already published" are different things. Previously
+    // this button was replaced outright by a checkmark once hasExisting
+    // was true, meaning a fully-drafted curriculum had no way to ever
+    // reach the publish step: selecting an existing draft year and
+    // trying to publish it left nothing clickable at all.
     return `<div class="cb-actions">
-        <button id="cb-draft" ${!n ? 'disabled' : ''}>Save Progress</button>
-        ${hasExisting 
-            ? `<span class="cb-hint" style="color: #059669;">✓ ${n} subjects saved</span>`
-            : `<button class="btn-primary" id="cb-create" ${bad || !n ? 'disabled' : ''}>
-                Create curriculum
-               </button>`
-        }
+        <button id="cb-draft" ${!n ? 'disabled' : ''}>Save (unpublished)</button>
+        <button class="btn-primary" id="cb-create" ${bad || !n ? 'disabled' : ''}>
+            Create curriculum
+        </button>
         <button id="cb-preview" ${!n ? 'disabled' : ''}>Preview</button>
-        <span class="cb-hint">${!n ? 'Add at least one subject' : bad ? `Fix ${bad} issue${bad === 1 ? '' : 's'}` : 'Ready'}</span>
+        <span class="cb-hint">${
+            !n ? 'Add at least one subject'
+            : bad ? `Fix ${bad} issue${bad === 1 ? '' : 's'}`
+            : hasExisting ? `${n} subject${n === 1 ? '' : 's'} saved \u2014 ready to publish`
+            : 'Ready'
+        }</span>
     </div>`;
 }
 
@@ -742,19 +765,65 @@ function actionsHtml() {
    ROWS the same way the manual "+ Add subject" flow does -- nothing
    is treated as trusted until the staff member reviews it below and
    presses Create. */
+/* AI upload card. Rendered from PENDING_AI_FILE so it survives any
+   render() call elsewhere in the builder (adding a row, switching tabs)
+   without losing the operator's file selection. */
 function aiUploadHtml() {
+    const hasFile = !!PENDING_AI_FILE;
+
     return `<div class="cb-ai-upload">
-        <div class="cb-ai-upload-head">
-            <strong>AI-assisted curriculum upload</strong>
-            <span class="cb-dim">Upload a curriculum or prospectus PDF to prefill the table below</span>
+        <div class="cb-ai-head">
+            <div>
+                <strong>AI-assisted curriculum upload</strong>
+                <span class="cb-dim">Extract subjects from a curriculum or prospectus PDF.</span>
+            </div>
+            ${hasFile ? `<button class="cb-ai-icon-btn" id="ai-close" aria-label="Cancel">
+                <i class="fa-solid fa-xmark"></i>
+            </button>` : ''}
         </div>
-        <label class="cb-ai-upload-btn">
-            <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i>
-            Upload PDF
-            <input type="file" id="ai-document-input" accept="application/pdf" hidden>
-        </label>
+
+        ${hasFile ? `
+            <div class="cb-ai-card">
+                <div class="cb-ai-file-icon">
+                    <i class="fa-solid fa-file-pdf"></i>
+                    <span>PDF</span>
+                </div>
+                <div class="cb-ai-file-meta">
+                    <p class="cb-ai-file-name">${esc(PENDING_AI_FILE.name)}</p>
+                    <p class="cb-ai-file-size">${formatBytes(PENDING_AI_FILE.size)}</p>
+                </div>
+                <button class="cb-ai-icon-btn" id="ai-trash" aria-label="Remove file">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+                <div class="cb-ai-progress" id="ai-progress" hidden>
+                    <div class="cb-ai-progress-pct" id="ai-progress-pct">0%</div>
+                    <div class="cb-ai-progress-track">
+                        <div class="cb-ai-progress-fill" id="ai-progress-fill" style="width:0%"></div>
+                    </div>
+                </div>
+            </div>
+        ` : `
+            <label class="cb-ai-drop" for="ai-document-input">
+                <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i>
+                <span>Choose a PDF</span>
+                <input type="file" id="ai-document-input" accept="application/pdf" hidden>
+            </label>
+        `}
+
         <div id="ai-analyze-status" class="msg" role="status"></div>
+
+        ${hasFile ? `
+            <div class="cb-ai-actions">
+                <button class="btn-primary" id="ai-extract">Extract Subjects</button>
+            </div>
+        ` : ''}
     </div>`;
+}
+
+function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 function render() {
@@ -857,12 +926,14 @@ function preflight(taken) {
         return { blockers, warnings };
     }
 
-    if (!rows.some(r => !r.dbId)) {
-        blockers.push('Nothing new to publish \u2014 every subject here is ' +
-                      'already in this curriculum year. Edit an existing ' +
-                      'subject from the Subjects table below.');
-        return { blockers, warnings };
-    }
+    // NOTE: previously this blocked Create Curriculum outright once every
+    // row already had a dbId (i.e. Save (unpublished) had already saved them
+    // as a draft). That conflated "nothing new to INSERT" with "nothing
+    // left to DO" -- a fully saved draft still needs Create Curriculum to
+    // actually finalize it, so blocking here left no way to move a fully-
+    // drafted curriculum forward at all. toSubjectRows() already correctly
+    // skips rows with a dbId on insert, so re-running Create after Save
+    // Progress is safe -- it simply has zero new rows to add and proceeds.
 
     const bad = badRows().length;
     if (bad) {
@@ -1092,30 +1163,25 @@ function fileToBase64(file) {
 }
 
 async function analyzeDocument(file) {
-    const statusEl = document.getElementById('ai-analyze-status');
-    const setStatus = (msg, cls) => {
-        if (!statusEl) return;
-        statusEl.textContent = msg;
-        statusEl.className = 'msg' + (cls ? ' ' + cls : '');
-    };
-
     if (!file) return;
 
     if (file.type !== 'application/pdf') {
-        return setStatus('Please upload a PDF file.', 'error');
+        return showAiStatus('Please upload a PDF file.', 'error');
     }
 
-    setStatus('Reading document\u2026');
+    showAiStatus('Reading document\u2026');
+    startProgress();
 
     let base64;
     try {
         base64 = await fileToBase64(file);
     } catch (err) {
         console.error('file read failed:', err);
-        return setStatus('Could not read that file.', 'error');
+        stopProgress();
+        return showAiStatus('Could not read that file.', 'error');
     }
 
-    setStatus('Analyzing with AI\u2026 this can take a moment.');
+    showAiStatus('Analyzing with AI\u2026 this can take a moment.');
 
     const { data, error } = await SB.functions.invoke('analyze-curriculum-document', {
         body: { fileBase64: base64, mimeType: 'application/pdf' },
@@ -1123,18 +1189,21 @@ async function analyzeDocument(file) {
 
     if (error) {
         console.error('analyze-curriculum-document failed:', error);
-        return setStatus('The analysis service failed. Try again in a moment.', 'error');
+        stopProgress();
+        return showAiStatus('The analysis service failed. Try again in a moment.', 'error');
     }
 
     if (!data || data.is_curriculum_document !== true) {
         const reason = data?.rejection_reason || 'This does not appear to be a curriculum or prospectus document.';
-        return setStatus('Rejected: ' + reason, 'error');
+        stopProgress();
+        return showAiStatus('Rejected: ' + reason, 'error');
     }
 
     const extracted = Array.isArray(data.subjects) ? data.subjects : [];
 
     if (!extracted.length) {
-        return setStatus('The document was recognized as a curriculum, but no subjects could be extracted. You can still enter them manually below.', 'error');
+        stopProgress();
+        return showAiStatus('The document was recognized as a curriculum, but no subjects could be extracted. You can still enter them manually below.', 'error');
     }
 
     // Build every row first, keyed by the code the AI extracted, so
@@ -1146,7 +1215,28 @@ async function analyzeDocument(file) {
     const byCode = new Map();
 
     for (const item of extracted) {
-        const row = blank(item.year_level ?? null, item.term ?? null);
+        const year = item.year_level ?? null;
+        const term = item.term ?? null;
+
+        // Catalogue entries (electives) have no year and no term. They must
+        // carry an elective_type or they show up in neither the IT electives
+        // nor the Free electives tab -- catalog() filters on
+        // r.electiveType === 'IT' or 'FREE', and null falls through both.
+        let electiveType = null;
+        if (year === null && term === null) {
+            if (item.elective_type === 'IT' || item.elective_type === 'FREE') {
+                electiveType = item.elective_type;
+            } else {
+                // Fall back to code prefix if the AI didn't return a type.
+                // This prospectus uses EL* for IT electives and FRE* for
+                // free electives; adjust the patterns if your naming differs.
+                const code = String(item.code ?? '').toUpperCase();
+                if (/^IT-FRE|^FRE/.test(code))      electiveType = 'FREE';
+                else if (/^IT-EL|^EL/.test(code))   electiveType = 'IT';
+            }
+        }
+
+        const row = blank(year, term, electiveType);
         row.code  = String(item.code ?? '').trim().toUpperCase();
         row.title = String(item.title ?? '').trim();
         row.lec   = Number.isFinite(item.lecture_units) ? item.lecture_units : null;
@@ -1169,118 +1259,185 @@ async function analyzeDocument(file) {
     }
 
     TAB = ROWS.find(r => r.year)?.year ?? 1;
-    validate();
-    render();
 
-    setStatus(
-        `Extracted ${extracted.length} subject${extracted.length === 1 ? '' : 's'}. `
-        + 'Review every row below, then press Create to save -- nothing has been saved yet.',
-        'success',
-    );
+    // Bar hits 100% and holds for a beat so the operator actually sees it
+    // complete before the card resets to the empty drop zone. Without the
+    // delay, render() replaces the bar in the same tick and 100% never
+    // appears on screen.
+    finishProgress();
+
+    setTimeout(() => {
+        PENDING_AI_FILE = null;
+        validate();
+        render();
+
+        // showAiStatus re-queries #ai-analyze-status on every call, so it
+        // lands on the element inside the freshly-rendered card. The old
+        // version captured the element once at function entry, and by this
+        // point it was already detached from the DOM -- the message was
+        // written into nothing.
+        showAiStatus(
+            `Extracted ${extracted.length} subject${extracted.length === 1 ? '' : 's'}. `
+            + 'Review every row below, then press Create to save \u2014 nothing has been saved yet.',
+            'success',
+        );
+    }, 500);
+}
+
+function showAiStatus(msg, cls) {
+    const el = document.getElementById('ai-analyze-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'msg' + (cls ? ' ' + cls : '');
+}
+
+function clearAiFile() {
+    PENDING_AI_FILE = null;
+    stopProgress();
+    render();
+}
+
+function startProgress() {
+    const bar  = document.getElementById('ai-progress');
+    const fill = document.getElementById('ai-progress-fill');
+    const pct  = document.getElementById('ai-progress-pct');
+    if (!bar || !fill || !pct) return;
+
+    bar.hidden = false;
+    PROGRESS_VALUE = 0;
+    const t0 = Date.now();
+
+    /* Time-calibrated estimate, not a measurement. Gemini returns one
+       response when it finishes; there is no per-chunk signal to read.
+       The curve below is fitted to the observed pace of the 58-subject
+       prospectus PDFs:
+         0-2s   → fast   (upload + server receipt)
+         2-8s   → steady (Gemini reading the document)
+         8-15s  → slow   (Gemini composing the JSON)
+         15s+   → creep  (bounded at 95 until the real response arrives)
+       It is monotonic, never reads 100 before the data lands, and
+       stays alive if the analysis runs long. */
+    PROGRESS_TIMER = setInterval(() => {
+        const elapsed = (Date.now() - t0) / 1000;
+        let next;
+
+        if (elapsed < 2)       next = elapsed * 10;                 // 0  → 20
+        else if (elapsed < 8)  next = 20 + (elapsed - 2) * 6;       // 20 → 56
+        else if (elapsed < 15) next = 56 + (elapsed - 8) * 3;       // 56 → 77
+        else                   next = 77 + (elapsed - 15) * 1.2;    // slow creep
+
+        PROGRESS_VALUE = Math.min(next, 95);   // never hit 100 until done
+
+        fill.style.width = PROGRESS_VALUE.toFixed(1) + '%';
+        pct.textContent  = Math.round(PROGRESS_VALUE) + '%';
+    }, 100);
+}
+function finishProgress() {
+    if (PROGRESS_TIMER) { clearInterval(PROGRESS_TIMER); PROGRESS_TIMER = null; }
+    const fill = document.getElementById('ai-progress-fill');
+    const pct  = document.getElementById('ai-progress-pct');
+    if (fill) fill.style.width = '100%';
+    if (pct)  pct.textContent = '100%';
+}
+
+function stopProgress() {
+    if (PROGRESS_TIMER) { clearInterval(PROGRESS_TIMER); PROGRESS_TIMER = null; }
+}
+
+function runAiExtraction() {
+    if (!PENDING_AI_FILE) return;
+    analyzeDocument(PENDING_AI_FILE);
 }
 
 function bind() {
     MOUNT.addEventListener('change', (e) => {
 
-        // AI document upload. Handled first and returns immediately --
-        // this input's change event has nothing to do with the version
-        // picker or row fields the rest of this listener handles below.
+        // AI document upload. Only this input fires change -- the trash,
+        // close, and extract buttons all fire click and live in the click
+        // handler below. Putting them here meant nothing happened when
+        // they were pressed, because a button never emits 'change'.
         if (e.target.id === 'ai-document-input') {
             const file = e.target.files?.[0];
             e.target.value = '';   // allow re-selecting the same file later
-            analyzeDocument(file);
+            if (!file) return;
+            if (file.type !== 'application/pdf') {
+                return showAiStatus('Only PDF files are supported.', 'error');
+            }
+            PENDING_AI_FILE = file;
+            render();              // rebuilds the card so it shows the file
             return;
         }
 
-    const pick = e.target.closest('#cb-version-pick');
-    if (!pick) return;
+        const pick = e.target.closest('#cb-version-pick');
+        if (!pick) return;
 
-    // ⭐ Handle "Select Year" (empty value)
-    if (pick.value === '') {
-        // Clear the state without loading anything
-        SELECTED_YEAR = null;
-        OPTS.prospectusId = null;
+        // Handle "Select Year" (empty value)
+        if (pick.value === '') {
+            SELECTED_YEAR = null;
+            OPTS.prospectusId = null;
+            ROWS = [];
+            for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
+            TAB = 1;
+            validate();
+            render();
+            if (OPTS.onVersionChange) {
+                OPTS.onVersionChange(null, null);
+            }
+            return;
+        }
+
+        // Handle custom year selection
+        if (pick.value === '__custom__') {
+            const prevYear = SELECTED_YEAR;
+            pick.value = prevYear ? String(prevYear) : '';
+            showCustomYearInput();
+            return;
+        }
+
+        const year = Number(pick.value);
+        if (year === SELECTED_YEAR) return;
+
+        const isActive = (OPTS.versions ?? []).find(v => v.academic_year === year)?.is_active;
+        if (isActive) {
+            OPTS.onError?.('Cannot edit an active curriculum. Please select a draft or new year.');
+            pick.value = SELECTED_YEAR ? String(SELECTED_YEAR) : '';
+            return;
+        }
+
+        // Unsaved changes prompt before switching
+        if (filled().length && SELECTED_YEAR !== null && !confirm(
+            'Switch curriculum year? Unsaved subjects entered here will be cleared.')) {
+            pick.value = SELECTED_YEAR ? String(SELECTED_YEAR) : '';
+            return;
+        }
+
+        SELECTED_YEAR = year;
+        const known = (OPTS.versions ?? []).find(v => v.academic_year === year);
+        OPTS.prospectusId = known?.id ?? null;
+
         ROWS = [];
         for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
         TAB = 1;
         validate();
-        render();
-        if (OPTS.onVersionChange) {
-            OPTS.onVersionChange(null, null);
+
+        if (OPTS.prospectusId) {
+            loadExisting(OPTS.prospectusId).then(data => {
+                if (data) {
+                    applyExisting(data);
+                } else {
+                    render();
+                }
+            });
+        } else {
+            render();
         }
-        return;
-    }
 
-    // Handle custom year selection
-    if (pick.value === '__custom__') {
-        // Reset dropdown to previous selection while modal is open
-        const prevYear = SELECTED_YEAR;
-        pick.value = prevYear ? String(prevYear) : '';
-        
-        // Show custom year input
-        showCustomYearInput();
-        return;
-    }
-
-    const year = Number(pick.value);
-    if (year === SELECTED_YEAR) return;
-
-    // Check if the selected year is active (shouldn't happen)
-    const isActive = (OPTS.versions ?? []).find(v => v.academic_year === year)?.is_active;
-    if (isActive) {
-        OPTS.onError?.('Cannot edit an active curriculum. Please select a draft or new year.');
-        pick.value = SELECTED_YEAR ? String(SELECTED_YEAR) : '';
-        return;
-    }
-
-    // If there are unsaved changes, confirm before switching
-    if (filled().length && SELECTED_YEAR !== null && !confirm(
-        'Switch curriculum year? Unsaved subjects entered here will be cleared.')) {
-        pick.value = SELECTED_YEAR ? String(SELECTED_YEAR) : '';
-        return;
-    }
-
-    SELECTED_YEAR = year;
-    const known = (OPTS.versions ?? []).find(v => v.academic_year === year);
-    OPTS.prospectusId = known?.id ?? null;
-
-    // Clear rows and start fresh for the new year
-    ROWS = [];
-    for (let i = 0; i < 3; i++) ROWS.push(blank(1, 1));
-    TAB = 1;
-    validate();
-
-    // Load existing subjects if the year already has a prospectus
-    if (OPTS.prospectusId) {
-        loadExisting(OPTS.prospectusId).then(data => {
-            if (data) {
-                applyExisting(data);
-            } else {
-                render();
-            }
-        });
-    } else {
-        render();
-    }
-
-    OPTS.onVersionChange?.(OPTS.prospectusId, year);
+        OPTS.onVersionChange?.(OPTS.prospectusId, year);
     });
 
-    /* The click handler for every button this view renders — year tabs,
-       Add subject, delete row, the prerequisite picker, Preview, Save
-       Progress, Create curriculum. This entire block was missing: the
-       buttons rendered correctly in the HTML, but nothing was listening
-       for a click on any of them, so every one of them silently did
-       nothing. Restored from the last version where they worked. */
-    /* Typing into a row's code/title/lec/lab field never reached ROWS —
-       no input listener was attached to MOUNT at all, only 'change' (for
-       the year dropdown and the prerequisite picker) and 'click'. The
-       fields looked like they held what was typed, because the browser
-       keeps an <input>'s value on screen regardless — but the next full
-       render() replaces MOUNT.innerHTML from ROWS, which never received
-       the keystrokes, so anything that triggers a render (Add Subject,
-       a tab switch, opening the picker) appeared to "reset" every field.
-       It was never saving in the first place. */
+    /* Typing into a row's code/title/lec/lab field must reach ROWS or
+       the next render() wipes what the operator typed. Only the row
+       being edited is repainted, so focus is not lost mid-word. */
     MOUNT.addEventListener('input', (e) => {
         const field = e.target.closest('input[data-f]');
         if (!field) return;
@@ -1299,17 +1456,11 @@ function bind() {
             row[key] = digits === '' ? null : Number(digits);
 
             if (key === 'lab') {
-                // The operator has now typed a lab value directly, so the
-                // lec-driven suggestion below must stop overwriting it --
-                // that is what makes PE (2 lec, 0 lab) enterable at all.
+                // Operator typed a lab value directly — stop the
+                // lec-driven suggestion from overwriting it.
                 row.labTouched = true;
             }
 
-            /* Lec-driven suggestion, described in the file header but never
-               implemented: 2 lecture hours suggests 1 lab hour (the normal
-               shape of a lab subject), 3 lecture hours suggests none. It is
-               a suggestion, not a lock -- it only fires until the operator
-               has touched the lab field themselves. */
             if (key === 'lec' && !row.labTouched) {
                 if (row.lec === 2) row.lab = 1;
                 else if (row.lec === 3) row.lab = null;
@@ -1323,8 +1474,6 @@ function bind() {
 
         validate();
 
-        // Repaint only this row's own state, not the whole tree — a full
-        // render() here would blur the field the user is still typing in.
         tr.classList.toggle('cb-bad', row.errors.length > 0);
 
         const total = tr.querySelector('.cb-total');
@@ -1338,6 +1487,18 @@ function bind() {
     });
 
     MOUNT.addEventListener('click', (e) => {
+
+        /* AI upload actions. These are buttons, so they fire click --
+           putting them in the change handler above meant nothing
+           happened when they were pressed. */
+        if (e.target.closest('#ai-trash') || e.target.closest('#ai-close')) {
+            clearAiFile();
+            return;
+        }
+        if (e.target.closest('#ai-extract')) {
+            return runAiExtraction();
+        }
+
         const tab = e.target.closest('.cb-tab');
         if (tab) {
             closePicker();
@@ -1390,7 +1551,46 @@ function updateStats() {
 
 /* ---- persistence ---- */
 
+/* ⭐ NEW: Elective placeholder slots (IT-EL, IT-FRE) are reused across
+   semesters — a BSIT curriculum has four of each. Every subject row
+   needs a unique code within its prospectus, so unnumbered placeholders
+   get a sequential suffix: IT-EL becomes IT-EL1, IT-EL2, and so on.
+   Codes the operator typed with an explicit number (IT-EL3) are
+   respected, and their number seeds the counter so auto-numbering
+   never collides with an explicit choice.
+
+   Mutates ROWS in place, so the UI reflects the numbered codes after
+   the next render() and the downstream prerequisite lookup (which
+   re-reads r.code) still matches. */
+function normalizeElectiveCodes() {
+    const counters = {};
+
+    // Pass 1: collect explicit numbers already present, so auto-numbers
+    // start above them and never collide.
+    for (const r of ROWS) {
+        if (r.year === null) continue;   // catalogue entries untouched
+        const raw = r.code.trim().toUpperCase();
+        const m = raw.match(/^(IT-EL|IT-FRE)(\d+)$/);
+        if (m) counters[m[1]] = Math.max(counters[m[1]] || 0, Number(m[2]));
+    }
+
+    // Pass 2: assign numbers to unnumbered placeholders.
+    for (const r of ROWS) {
+        if (r.year === null) continue;
+        const raw = r.code.trim().toUpperCase();
+        const m = raw.match(/^(IT-EL|IT-FRE)$/);
+        if (!m) continue;
+        const base = m[1];
+        counters[base] = (counters[base] || 0) + 1;
+        r.code = `${base}${counters[base]}`;
+    }
+}
+
 function toSubjectRows() {
+    // ⭐ NEW: Number placeholders before building the payload — see comment
+    // on normalizeElectiveCodes for the reasoning.
+    normalizeElectiveCodes();
+
     /* Rows loaded from an existing year carry dbId and are already stored.
        Re-inserting them would collide with the unique code constraint. */
     return filled().filter(r => !r.dbId).map(r => ({
@@ -1493,6 +1693,14 @@ if (freshVersion) {
     );
 
     const validRows = newRows.filter(r => r.errors.length === 0);
+
+    // ⭐ NEW: Give unnumbered IT-EL / IT-FRE placeholders their sequential
+    // suffix so the unique (prospectus_id, code) constraint doesn't reject
+    // them. Must run BEFORE newRows' codes are read below for the
+    // existingCodes filter — otherwise the filter compares the un-numbered
+    // "IT-EL" against existing "IT-EL1", and thinks there's no clash while
+    // the DB insert then fails on the constraint.
+    normalizeElectiveCodes();
 
     if (!validRows.length) {
         if (newRows.length) {
@@ -1672,7 +1880,8 @@ if (freshVersion) {
         OPTS.onVersionChange(OPTS.prospectusId);
     }
 
-    const message = `${inserted.length} subject${inserted.length === 1 ? '' : 's'} saved with ${ruleRows.length} prerequisite${ruleRows.length === 1 ? '' : 's'}!`;
+    const message = `${inserted.length} subject${inserted.length === 1 ? '' : 's'} saved with ${ruleRows.length} prerequisite${ruleRows.length === 1 ? '' : 's'}. `
+        + 'Not yet published \u2014 use Create Curriculum when ready.';
     OPTS.onDone?.(message);
 }
 
@@ -1813,6 +2022,13 @@ function applyDraft(draft) {
 async function create() {
     const btn = MOUNT.querySelector('#cb-create');
     if (btn) { btn.disabled = true; btn.textContent = 'Checking\u2026'; }
+
+    // ⭐ NEW: Number placeholders before the pre-flight checks codes against
+    // the DB. Otherwise it would compare un-numbered "IT-EL" against the
+    // existing "IT-EL1" and miss the collision, then fail on the actual
+    // insert with a raw Postgres message.
+    normalizeElectiveCodes();
+    validate();
 
     const taken = await existingCodes();
 
