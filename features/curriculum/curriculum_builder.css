@@ -478,3 +478,185 @@
     .cb .cb-pane, .cb .cb-stage { transition: none; }
     .cb .cb-pane.off.l, .cb .cb-pane.off.r { transform: none; }
 }
+
+/* ── AI upload card ───────────────────────────────────────────── */
+
+.cb-ai-upload {
+    background: #fff;
+    border: 1px solid var(--line, #E2E8F0);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    margin-bottom: var(--s3, 20px);
+}
+
+.cb-ai-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--s2, 12px);
+    margin-bottom: 0.75rem;
+}
+
+.cb-ai-head strong {
+    display: block;
+    font-size: 0.92rem;
+    color: var(--ink, #0F172A);
+    margin-bottom: 0.15rem;
+}
+
+.cb-ai-head .cb-dim {
+    font-size: 0.82rem;
+    color: var(--slate, #64748B);
+}
+
+.cb-ai-icon-btn {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: #94A3B8;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+
+.cb-ai-icon-btn:hover {
+    background: #F1F5F9;
+    color: #475569;
+}
+
+/* Empty state — the drop zone */
+.cb-ai-drop {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 1.5rem 1rem;
+    border: 1.5px dashed #CBD5E1;
+    border-radius: 8px;
+    background: #F8FAFC;
+    color: #475569;
+    font-size: 0.88rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.cb-ai-drop:hover {
+    border-color: #94A3B8;
+    background: #F1F5F9;
+    color: #0F172A;
+}
+
+.cb-ai-drop i {
+    color: #94A3B8;
+    font-size: 1rem;
+}
+
+.cb-ai-drop:hover i {
+    color: #4F46E5;
+}
+
+/* File card */
+.cb-ai-card {
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 0.85rem;
+    align-items: center;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--line, #E2E8F0);
+    border-radius: 8px;
+    background: #F8FAFC;
+    margin-bottom: 0.75rem;
+}
+
+.cb-ai-file-icon {
+    width: 40px;
+    height: 46px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #FEE2E2;
+    border-radius: 6px;
+    color: #B91C1C;
+    font-size: 0.9rem;
+    position: relative;
+}
+
+.cb-ai-file-icon i {
+    font-size: 1.1rem;
+}
+
+.cb-ai-file-icon span {
+    font-size: 0.55rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    margin-top: 1px;
+}
+
+.cb-ai-file-meta {
+    min-width: 0;   /* allows ellipsis on long names */
+}
+
+.cb-ai-file-name {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--ink, #0F172A);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cb-ai-file-size {
+    margin: 0.1rem 0 0;
+    font-size: 0.78rem;
+    color: var(--slate, #64748B);
+}
+
+/* Progress bar — sits inside the card, spanning both columns */
+.cb-ai-progress {
+    grid-column: 1 / -1;
+    margin-top: 0.6rem;
+}
+
+/* Percentage sits above the bar, right-aligned. Reads as a caption to
+   the bar below it, and stays legible at 8px track height where a
+   label inside the fill would be cramped. */
+.cb-ai-progress-pct {
+    display: block;
+    text-align: right;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #059669;
+    margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.cb-ai-progress-track {
+    height: 8px;
+    background: #E2E8F0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.cb-ai-progress-fill {
+    height: 100%;
+    background: #059669;
+    border-radius: 999px;
+    transition: width 0.25s linear;
+    max-width: 100%;
+}
+
+/* Action row */
+.cb-ai-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.75rem;
+}
