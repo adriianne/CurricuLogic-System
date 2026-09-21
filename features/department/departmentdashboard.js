@@ -22,16 +22,24 @@ const $ = (id) => document.getElementById(id);
 
 const LOGIN_PAGE = '../auth/html/staffloginpage.html';
 
-let AUTH_UID   = null;
-let STAFF      = null;
-let STAFF_ID   = null;   // department_staff.id — the created_by target
-let PROSPECTUS = null;   /* the active version */
-let VERSIONS   = [];
-let EDITING    = null;   /* the version being edited — not always the active one */
-let SUBJECTS   = [];
-let RULES      = [];
-let OFFERINGS  = [];
-let PREVIEW    = false;
+let AUTH_UID    = null;
+let STAFF       = null;
+let STAFF_ID    = null;   // department_staff.id — the created_by target
+let PROSPECTUS  = null;   /* the active version */
+let VERSIONS    = [];
+let EDITING     = null;   /* the version being edited — not always the active one */
+let SUBJECTS    = [];
+let RULES       = [];
+let OFFERINGS   = [];
+let PREVIEW     = false;
+let PENDING     = [];
+let DIRTY       = new Set();  /* section names with unsaved changes in the schedule */
+
+/* Section prefix — BSIT today, BSN or BSCrim the day a second program
+   lands in the DB. Read once from the active prospectus's program.code
+   in loadCurriculum(). The default covers the window before that first
+   fetch resolves, and the preview branch. */
+let PROGRAM_CODE = 'BSIT';
 
 /* What exists yet. Schedule and grade upload both write rows that
    reference subject.id, so neither can run against an empty curriculum —
@@ -42,8 +50,8 @@ let READY = {
     subjects:   0,
     students:   0,
     offerings:  0,
+    gradeFiles: 0,
 };
-
 
 /* preview mode (development only) */
 
@@ -72,7 +80,6 @@ const PREVIEW_RULES = [
 const previewRequested = () =>
     PREVIEW_HOSTS.includes(window.location.hostname) &&
     new URLSearchParams(window.location.search).has('preview');
-
 
 /* view routing */
 
@@ -123,7 +130,6 @@ function route() {
 
 window.addEventListener('hashchange', route);
 
-
 /* mobile nav + logout */
 
 $('menu-toggle')?.addEventListener('click', () => shell.classList.toggle('nav-open'));
@@ -138,7 +144,6 @@ $('logout')?.addEventListener('click', async () => {
     sessionStorage.clear();
     window.location.href = LOGIN_PAGE;
 });
-
 
 /* helpers */
 
@@ -165,36 +170,76 @@ function escapeHtml(s) {
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+/* Empty text means "clear the message" — do not apply a status class,
+   or the box renders as a colored bar with no content (display: block
+   beats the base .msg { display: none } rule). */
 function showMsg(boxId, text, type = 'error') {
     const box = $(boxId);
     if (!box) return;
     box.textContent = text;
-    box.className = 'msg ' + type;
+    box.className = text ? 'msg ' + type : 'msg';
 }
 
 const subjectById = (id) => SUBJECTS.find(s => s.id === id);
 const rulesFor    = (id) => RULES.filter(r => r.subject_id === id);
 
-
 /* profile */
+
+/* Renders the profile hero avatar. When a URL is present the image
+   covers the initials; when it isn't, the initials show through the
+   indigo circle. Same pattern as the topbar, just larger. */
+function renderAvatar(url) {
+    const hero = $('p-avatar');
+    const initials_el = $('p-avatar-initials');
+    const topbar = $('avatar');
+
+    if (url) {
+        hero.style.backgroundImage = `url("${url}")`;
+        if (initials_el) initials_el.style.visibility = 'hidden';
+
+        // Topbar avatar becomes the same image, at 34px.
+        topbar.style.backgroundImage = `url("${url}")`;
+        topbar.style.backgroundSize = 'cover';
+        topbar.style.backgroundPosition = 'center';
+        topbar.textContent = '';
+    } else {
+        hero.style.backgroundImage = '';
+        if (initials_el) initials_el.style.visibility = 'visible';
+
+        topbar.style.backgroundImage = '';
+        topbar.textContent = initials(STAFF?.first_name, STAFF?.last_name, STAFF?.email);
+    }
+}
 
 function renderProfile(staff, authEmail) {
     const full  = fullName(staff);
     const email = staff?.email || authEmail || '—';
+    const initialText = initials(staff?.first_name, staff?.last_name, email);
 
-    $('avatar').textContent    = initials(staff?.first_name, staff?.last_name, email);
+    // Topbar avatar
+    $('avatar').textContent    = initialText;
     $('user-name').textContent = full || email;
     $('user-sub').textContent  = staff?.employee_id || '';
     $('greeting').textContent  = staff?.first_name ? `Welcome back, ${staff.first_name}` : 'Welcome back';
 
-    setText('d-name',  full || '—');
-    setText('d-eid',   staff?.employee_id || '—', 'mono');
-    setText('d-email', email, 'mono');
-    setText('d-dept',  staff?.department || '—');
+    // Profile hero
+    setText('p-name', full || '—');
+    setText('p-employee-id', staff?.employee_id || '—');
+    setText('p-avatar-initials', initialText);
+    renderAvatar(staff?.avatar_url);
 
-    $('d-status').innerHTML = staff?.is_approved
+    $('p-status-pill').innerHTML = staff?.is_approved
         ? '<span class="pill ok"><i class="fa-solid fa-check"></i> Approved</span>'
         : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Awaiting approval</span>';
+
+    // Account card
+    setText('p-account-employee-id', staff?.employee_id || '—');
+    setText('p-account-email', email);
+    setText('p-account-created', staff?.created_at
+        ? new Date(staff.created_at).toLocaleDateString('en-US', {
+              year: 'numeric', month: 'short', day: 'numeric'
+          })
+        : '—');
 }
 
 /* Editable copy of the same fields shown in Account details above.
@@ -249,7 +294,141 @@ async function saveProfile() {
     finish('Profile updated.', 'success');
 }
 
+/* Password change. Supabase's updateUser does not require the current
+   password by default, but re-authenticating first is the right
+   behaviour — it catches "left laptop open" and "typo'd email domain"
+   in one step. signInWithPassword also refreshes the session token,
+   which is a harmless side effect. */
+function openPasswordModal() {
+    const modal = $('password-modal');
+    if (!modal) return;
+
+    ['pw-current', 'pw-new', 'pw-confirm'].forEach(id => {
+        const el = $(id); if (el) el.value = '';
+    });
+    showMsg('pw-msg', '');
+
+    modal.hidden = false;
+    setTimeout(() => $('pw-current')?.focus(), 60);
+
+    const close = () => {
+        modal.hidden = true;
+        $('pw-cancel')?.removeEventListener('click', onCancel);
+        $('pw-submit')?.removeEventListener('click', onSubmit);
+        modal.removeEventListener('click', onBackdrop);
+        document.removeEventListener('keydown', onKey);
+    };
+
+    const onCancel   = () => close();
+    const onSubmit   = () => submitPasswordChange(close);
+    const onBackdrop = (e) => { if (e.target === modal) close(); };
+    const onKey      = (e) => { if (e.key === 'Escape') close(); };
+
+    $('pw-cancel')?.addEventListener('click', onCancel);
+    $('pw-submit')?.addEventListener('click', onSubmit);
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+}
+
+async function submitPasswordChange(close) {
+    const current = $('pw-current')?.value ?? '';
+    const next    = $('pw-new')?.value ?? '';
+    const confirm = $('pw-confirm')?.value ?? '';
+
+    if (!current) return showMsg('pw-msg', 'Enter your current password.');
+    if (next.length < 8) return showMsg('pw-msg', 'New password must be at least 8 characters.');
+    if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
+
+    const btn = $('pw-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+
+    const finish = (msg, type) => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Change password'; }
+        showMsg('pw-msg', msg, type);
+    };
+
+    // 1. Verify current password by attempting a sign-in.
+    const email = STAFF?.email;
+    if (!email) return finish('No email on record for this account.', 'error');
+
+    const { error: authErr } = await supabase.auth.signInWithPassword({
+        email,
+        password: current,
+    });
+    if (authErr) return finish('Current password is incorrect.', 'error');
+
+    // 2. Change it.
+    const { error: upErr } = await supabase.auth.updateUser({ password: next });
+    if (upErr) return finish(upErr.message || 'Could not change password.');
+
+    // 3. Clear the must-change flag if it was set.
+    if (STAFF?.must_change_password && STAFF_ID) {
+        await supabase.from('department_staff')
+            .update({ must_change_password: false })
+            .eq('id', STAFF_ID);
+        STAFF = { ...STAFF, must_change_password: false };
+    }
+
+    finish('Password updated.', 'success');
+    setTimeout(close, 900);
+}
+
+$('p-change-password')?.addEventListener('click', openPasswordModal);
+
 $('p-save')?.addEventListener('click', saveProfile);
+
+/* Avatar upload. Downscales to 400px square-ish before sending so a
+   phone photo doesn't land in storage at 4 MB. Path is
+   {user_id}/avatar-{timestamp}.jpg — the folder is the auth user's
+   UUID, which the storage RLS policies enforce. The timestamp suffix
+   busts any CDN cache on replace. */
+$('p-avatar-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    if (!AUTH_UID) return showMsg('profile-msg', 'Not signed in.');
+
+    if (file.size > 5 * 1024 * 1024) {
+        return showMsg('profile-msg', 'Image is too large — 5 MB max.');
+    }
+
+    const btn = $('p-avatar-edit') ?? document.querySelector('.profile-avatar-edit');
+    btn?.classList.add('is-busy');
+
+    try {
+        const dataUrl = await downscaleImage(file, 400, 0.85);
+        const blob = await (await fetch(dataUrl)).blob();
+        const path = `${AUTH_UID}/avatar-${Date.now()}.jpg`;
+
+        const { error: upErr } = await supabase.storage
+            .from('staff-avatars')
+            .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+        if (upErr) throw upErr;
+
+        const { data: pub } = supabase.storage
+            .from('staff-avatars')
+            .getPublicUrl(path);
+        const url = pub?.publicUrl;
+        if (!url) throw new Error('Could not build a public URL.');
+
+        const { error: dbErr } = await supabase
+            .from('department_staff')
+            .update({ avatar_url: url })
+            .eq('id', STAFF_ID);
+        if (dbErr) throw dbErr;
+
+        STAFF = { ...STAFF, avatar_url: url };
+        renderAvatar(url);
+
+        showMsg('profile-msg', 'Profile picture updated.', 'success');
+    } catch (err) {
+        console.error('avatar upload failed:', err);
+        showMsg('profile-msg', 'Could not upload that image. ' + (err.message || ''));
+    } finally {
+        btn?.classList.remove('is-busy');
+    }
+});
 
 function renderNotice(staff) {
     const box = $('status-notice');
@@ -265,7 +444,6 @@ function renderNotice(staff) {
         </div>`;
 }
 
-
 /* data */
 
 async function loadCurriculum() {
@@ -273,6 +451,7 @@ async function loadCurriculum() {
         PROSPECTUS = { id: 3, academic_year: 2023, is_active: true };
         SUBJECTS = [...PREVIEW_SUBJECTS];
         RULES    = [...PREVIEW_RULES];
+        PROGRAM_CODE = 'BSIT';
         return afterLoad();
     }
 
@@ -284,10 +463,14 @@ async function loadCurriculum() {
        has already populated VERSIONS. Without this, the builder mounted
        with VERSIONS still at its initial empty array, and every year in
        the dropdown showed "New" even when real Active/Draft versions
-       existed, because there was nothing to compare against yet. */
+       existed, because there was nothing to compare against yet.
+
+       program.code is pulled in the same query: it is the source for the
+       section prefix (BSIT- today, BSN- or BSCrim- when a second program
+       lands), and there is no reason to fetch it separately. */
     const { data: allVersions, error: versionsError } = await supabase
         .from('prospectus')
-        .select('id, program_id, academic_year, academic_term, is_active, published_at')
+        .select('id, program_id, academic_year, academic_term, is_active, published_at, program:program_id(code)')
         .order('academic_year', { ascending: false });
 
     if (versionsError) {
@@ -298,6 +481,13 @@ async function loadCurriculum() {
 
     const active = VERSIONS.find(v => v.is_active) ?? null;
     PROSPECTUS = active;
+
+    /* If the join didn't come back with a code (RLS, missing program row,
+       PostgREST version quirk), fall back to the first version's code, and
+       finally to BSIT. The dashboard has to render regardless. */
+    PROGRAM_CODE = active?.program?.code
+                || VERSIONS[0]?.program?.code
+                || 'BSIT';
 
     /* A draft can be edited without being active, so the curriculum view
        follows EDITING rather than assuming the active version. Defaulting
@@ -342,27 +532,50 @@ function afterLoad() {
     READY.prospectus = !!PROSPECTUS;
     READY.subjects   = SUBJECTS.length;
 
-    renderSetup();
-    renderStats();
+    renderSetupBadge();
+    renderTiles();
     renderProspectus();
     renderIntegrity();
     renderSubjects();
     renderSubjectOptions();
 }
 
-
 /* dashboard */
 
-function renderStats() {
-   const units = SUBJECTS.filter(s => s.term != null).reduce((t, s) => t + Number(s.units || 0), 0);
-    const gated   = new Set(RULES.map(r => r.subject_id));
-    const ungated = SUBJECTS.filter(s => s.year_level >= 2 && !gated.has(s.id)).length;
+/* The four themed tiles at the top of the dashboard. Each one carries
+   a headline number, a short status line, and links to the page where
+   the operator can act on it. */
+function renderTiles() {
+    // ── Curriculum ────────────────────────────────────────────────
+    const rulesCount = RULES.length;
+    const unitsTotal = SUBJECTS
+        .filter(s => s.term != null)
+        .reduce((t, s) => t + Number(s.units || 0), 0);
+    const ungated = SUBJECTS
+        .filter(s => s.year_level >= 2 && !RULES.some(r => r.subject_id === s.id))
+        .length;
 
-    setText('stat-subjects', String(SUBJECTS.length), 'stat-value');
-    setText('stat-rules',    String(RULES.length),    'stat-value');
-    setText('stat-units',    String(units),           'stat-value');
-    setText('stat-ungated',  String(ungated),
-        ungated > 0 ? 'stat-value' : 'stat-value muted');
+    setText('tile-curriculum-number', String(SUBJECTS.length));
+    setText('tile-curriculum-status',
+        `${rulesCount} rule${rulesCount === 1 ? '' : 's'} · ` +
+        `${unitsTotal} units` +
+        (ungated ? ` · ${ungated} unconstrained` : ''));
+
+    // ── Schedule ──────────────────────────────────────────────────
+    const offeringsCount = READY.offerings;
+    setText('tile-schedule-number', String(offeringsCount));
+    setText('tile-schedule-status',
+        offeringsCount > 0
+            ? `offering${offeringsCount === 1 ? '' : 's'} published`
+            : 'nothing published yet');
+
+    // ── Grade uploads ─────────────────────────────────────────────
+    const gradeFiles = READY.gradeFiles;
+    setText('tile-grades-number', String(gradeFiles));
+    setText('tile-grades-status',
+        gradeFiles > 0
+            ? `upload${gradeFiles === 1 ? '' : 's'} recorded`
+            : 'no uploads yet');
 }
 
 function renderProspectus() {
@@ -409,6 +622,7 @@ function renderProspectus() {
    the moment a rule is added. */
 function renderIntegrity() {
     const body = $('integrity-body');
+    const card = $('integrity-card');
     if (!body) return;
 
     const issues = [];
@@ -450,26 +664,118 @@ function renderIntegrity() {
     };
     for (const s of SUBJECTS) if (!seen.has(s.id)) visit(s.id, [s.id]);
 
-    if (issues.length === 0) {
-        body.innerHTML = `
-            <div class="empty">
-                <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
-                <h3>No issues found</h3>
-                <p>No cycles, self-references, or rules pointing at a later term.</p>
-            </div>`;
-        return;
+    const unique = [...new Set(issues)];
+    const count  = unique.length;
+
+    // Tile — reflects count, tinted amber when issues exist.
+    const tile = document.querySelector('[data-tile="integrity"]');
+    if (tile) tile.classList.toggle('is-clean', count === 0);
+    setText('tile-integrity-number', count === 0 ? '✓' : String(count));
+    setText('tile-integrity-status',
+        count === 0
+            ? 'no cycles, self-refs, or ordering issues'
+            : `${count} issue${count === 1 ? '' : 's'} to review`);
+
+    // Detail card — only visible when there is something to show.
+    // Detail card — only visible when there is something to show.
+    if (card) card.hidden = count === 0;
+    if (count === 0) return;
+
+    // The vast majority of issues are "prerequisite at same or later
+    // term". Emit them as structured rows instead of a prose wall, so
+    // the operator can see the pattern (usually a whole elective
+    // sequence) and jump straight to the offending subject.
+    const rows = [];
+    for (const r of RULES) {
+        if (!r.prerequisite_subject_id) continue;
+
+        const g = subjectById(r.subject_id);
+        const q = subjectById(r.prerequisite_subject_id);
+        if (!g || !q) continue;
+
+        const pos = (s) => s.year_level * 10 + s.term;
+        const sameOrLater = pos(q) >= pos(g);
+        const self = r.subject_id === r.prerequisite_subject_id;
+
+        if (!sameOrLater && !self) continue;
+
+        const gTerm = g.year_level != null
+            ? `${ordinal(g.year_level)} · ${termLabel(g.term)}`
+            : '—';
+        const qTerm = q.year_level != null
+            ? `${ordinal(q.year_level)} · ${termLabel(q.term)}`
+            : '—';
+
+        rows.push({
+            subjectId: g.id,
+            subjectCode: g.code,
+            subjectTerm: gTerm,
+            prereqCode: self ? g.code : q.code,
+            prereqTerm: self ? gTerm : qTerm,
+            self,
+        });
     }
 
-    body.innerHTML = `
-        <div class="notice pending">
-            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
-            <div>
-                <strong>${issues.length} issue${issues.length === 1 ? '' : 's'} to review</strong>
-                ${[...new Set(issues)].map(i => escapeHtml(i)).join('<br>')}
-            </div>
-        </div>`;
-}
+    const preview = rows.slice(0, 10);
+    const rest    = rows.slice(10);
 
+    const rowHtml = (r) => `
+        <tr class="row-link" data-open="${r.subjectId}" tabindex="0" role="button">
+            <td class="mono">${escapeHtml(r.subjectCode)}</td>
+            <td class="dim">${escapeHtml(r.subjectTerm)}</td>
+            <td class="mono">${r.self ? '—' : escapeHtml(r.prereqCode)}</td>
+            <td class="dim">${r.self ? 'requires itself' : escapeHtml(r.prereqTerm)}</td>
+            <td class="num"><i class="fa-solid fa-chevron-right dim" aria-hidden="true"></i></td>
+        </tr>`;
+
+    body.innerHTML = `
+        <p class="review-hint" style="margin-bottom: var(--s2);">
+            These rules point at a prerequisite scheduled at the same
+            time or later than the subject that requires it. Open a
+            subject to fix its term, or remove the rule from its detail
+            page.
+        </p>
+
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Subject</th>
+                        <th>Current term</th>
+                        <th>Requires</th>
+                        <th>Prerequisite term</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${preview.map(rowHtml).join('')}
+                    ${rest.length ? `
+                        <tr class="integrity-more" hidden>
+                            ${rest.map(rowHtml).join('')}
+                        </tr>` : ''}
+                </tbody>
+            </table>
+        </div>
+
+        ${rest.length ? `
+            <button class="btn-small" id="integrity-show-all" style="margin-top: var(--s2);">
+                Show all ${rows.length}
+            </button>` : ''}
+    `;
+
+    body.querySelectorAll('tr[data-open]').forEach(row => {
+        const go = () => { window.location.hash = `#subject/${row.dataset.open}`; };
+        row.addEventListener('click', go);
+        row.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+        });
+    });
+
+    $('integrity-show-all')?.addEventListener('click', () => {
+        body.querySelectorAll('.integrity-more').forEach(el => { el.hidden = false; });
+        $('integrity-show-all')?.remove();
+    }); 
+}
 
 /* curriculum */
 
@@ -629,7 +935,6 @@ function clearSubjectForm() {
 
 $('add-subject')?.addEventListener('click', addSubject);
 
-
 /* subject detail — the prerequisite editor */
 
 let CURRENT_SUBJECT = null;
@@ -654,7 +959,6 @@ function openSubject(id) {
     renderRules();
     renderSubjectOptions();
 }
-
 
 /* edit and retire */
 
@@ -776,7 +1080,6 @@ async function retireSubject() {
                    'recorded against it stay readable.');
 
     if (!window.confirm(lines.join('\n'))) return;
-
 
     const { error: e2 } = await supabase.rpc('retire_subject', {
         target_id: CURRENT_SUBJECT.id, restore: false, confirm: true,
@@ -946,10 +1249,7 @@ async function dropRule(id) {
 
 $('add-rule')?.addEventListener('click', addRule);
 
-
 /* curriculum upload */
-
-
 
 /* Which version the Curriculum tab is editing. Defaults to the active
    one; a draft has to be selectable or a new version could never be
@@ -966,10 +1266,6 @@ function renderEditingSelector() {
             ? 'This is the active version. Changes affect student recommendations immediately.'
             : 'This is a draft. Changes do not affect students until it is made active.';
 }
-
-
-
-
 
 /* prospectus versions */
 
@@ -1130,7 +1426,6 @@ function renderVersions() {
 
     window.ProspectusGrid.render(supabase, active.id, $('prospectus-grid'));
 }
-
 
 $('toggle-new-pros')?.addEventListener('click', () => {
     const pane = $('new-pros-pane');
@@ -1465,6 +1760,7 @@ function confirmDeleteDraft(version, check) {
 async function loadReadiness() {
     if (PREVIEW) {
         READY.students = 4;
+        READY.gradeFiles = 3;
         return;
     }
 
@@ -1476,9 +1772,10 @@ async function loadReadiness() {
 
        An error is reported rather than silently treated as empty — "no
        students" and "cannot read students" need different responses. */
-    const [students, offerings] = await Promise.all([
+    const [students, offerings, gradeFiles] = await Promise.all([
         supabase.from('university_student').select('id'),
         supabase.from('subject_offering').select('id'),
+        supabase.from('grade_file').select('id'),
     ]);
 
     if (students.error) {
@@ -1487,69 +1784,41 @@ async function loadReadiness() {
     if (offerings.error) {
         console.warn('offering count failed:', offerings.error.message);
     }
+    if (gradeFiles.error) {
+        console.warn('grade file count failed:', gradeFiles.error.message);
+    }
 
-    READY.students  = students.data?.length  ?? 0;
-    READY.offerings = offerings.data?.length ?? 0;
+    READY.students   = students.data?.length   ?? 0;
+    READY.offerings  = offerings.data?.length  ?? 0;
+    READY.gradeFiles = gradeFiles.data?.length ?? 0;
 }
 
-function renderSetup() {
-    const box = $('setup-notice');
-    if (!box) return;
+/* Compact setup indicator in the page header. Four dots, one per
+   setup step. Disappears entirely once all four are done. */
+function renderSetupBadge() {
+    const badge = $('setup-badge');
+    if (!badge) return;
 
-    const steps = [
-        {
-            done: READY.prospectus,
-            label: 'A prospectus exists',
-            detail: 'Everything else attaches to it.',
-        },
-        {
-            done: READY.subjects > 0,
-            label: `Curriculum encoded${READY.subjects ? ` — ${READY.subjects} subjects` : ''}`,
-            detail: 'Schedules and grades both reference subjects, so this comes first.',
-            action: '#curriculum',
-            actionLabel: 'Go to Curriculum',
-        },
-        {
-            done: READY.offerings > 0,
-            label: `Schedule published${READY.offerings ? ` — ${READY.offerings} offerings` : ''}`,
-            detail: 'Without it the engine cannot tell which subjects actually run.',
-            action: '#schedule',
-            actionLabel: 'Go to Schedule',
-            blocked: READY.subjects === 0,
-        },
-        {
-            done: READY.students > 0,
-            label: 'Students registered',
-            detail: 'Grade rows are matched to a student record.',
-        },
+    const done = [
+        READY.prospectus,
+        READY.subjects > 0,
+        READY.offerings > 0,
+        READY.students > 0,
     ];
 
-    const outstanding = steps.filter(s => !s.done);
+    const complete = done.filter(Boolean).length;
+    const total    = done.length;
 
-    if (outstanding.length === 0) {
-        box.innerHTML = '';
+    if (complete === total) {
+        badge.hidden = true;
         return;
     }
 
-    const next = outstanding.find(s => !s.blocked);
-
-    box.innerHTML = `
-        <div class="notice pending">
-            <i class="fa-solid fa-list-check" aria-hidden="true"></i>
-            <div>
-                <strong>Setup is incomplete</strong>
-                <ul class="setup-list">
-                    ${steps.map(s => `
-                        <li class="${s.done ? 'is-done' : s.blocked ? 'is-blocked' : ''}">
-                            ${escapeHtml(s.label)}
-                            ${s.done ? '' : `<span class="setup-detail">${escapeHtml(s.detail)}</span>`}
-                        </li>`).join('')}
-                </ul>
-                ${next?.action
-                    ? `<a class="setup-action" href="${next.action}">${escapeHtml(next.actionLabel)}</a>`
-                    : ''}
-            </div>
-        </div>`;
+    badge.hidden = false;
+    badge.innerHTML = `
+        ${done.map(on => `<span class="setup-badge-dot${on ? ' on' : ''}"></span>`).join('')}
+        <span class="setup-badge-text">Setup ${complete}/${total}</span>
+    `;
 }
 
 /* Shown in place of a module that cannot run yet. Says what is missing
@@ -1594,7 +1863,6 @@ function mountCurriculumBuilder() {
     });
 }
 
-
 /* schedule */
 
 let scheduleReady = false;
@@ -1613,10 +1881,45 @@ function currentAcademicYear() {
 }
 
 function schedTerm() {
-    return {
-        year: Number($('sched-year')?.value) || currentAcademicYear(),
-        term: Number($('sched-term')?.value) || 1,
-    };
+    const year = Number($('sched-year')?.value) || null;
+    const term = Number($('sched-term')?.value) || null;
+    return { year, term };
+}
+
+/* The section the operator is working on, composed from the two
+   dropdowns (Year + Section letter) and the program code. Returns null
+   when either dropdown is unset, so callers that gate on "is a section
+   chosen?" behave the same as before the split. */
+function currentSection() {
+    const level  = $('sched-year-level')?.value;
+    const letter = $('sched-section-letter')?.value;
+    if (!level || !letter) return null;
+    return `${PROGRAM_CODE}-${level}${letter}`;
+}
+
+/* Derive the year level from a section name: BSIT-2A → 2, BSCrim-3A → 3.
+   Prefix-agnostic — the letters before the dash are the program code and
+   are not assumed. Returns null when the shape isn't recognised. */
+function sectionYear(section) {
+    const m = String(section || '').match(/^[A-Z]+-(\d)/i);
+    return m ? Number(m[1]) : null;
+}
+
+/* BSIT-2A → { course: 'BSIT', yearSection: '2-A' }.
+   BSCrim-1B → { course: 'BSCrim', yearSection: '1-B' }.
+   Falls back to the raw string when the shape isn't recognised, so a
+   non-standard name still renders something readable in the form header. */
+function splitSection(section) {
+    const m = String(section || '').match(/^([A-Z]+)-(\d+)([A-Z]+)$/i);
+    if (!m) return { course: '', yearSection: String(section || '') };
+    return { course: m[1], yearSection: `${m[2]}-${m[3]}` };
+}
+
+/* 2026 → '2026–27' for the form header. */
+function shortYear(y) {
+    const n = Number(y);
+    if (!Number.isFinite(n)) return String(y ?? '');
+    return `${n}\u2013${String(n + 1).slice(-2)}`;
 }
 
 function initSchedule() {
@@ -1629,11 +1932,15 @@ function initSchedule() {
 
     if (!scheduleReady) {
         renderYearOptions();
-        renderOfferingOptions();
-        renderSectionOptions();
+        renderSectionLetterOptions();
+        bindScheduleTableInputs();
         scheduleReady = true;
     }
-    refreshTemplateCount();
+
+    // No forced load. Whether offerings load depends on whether the
+    // operator has picked a term and section — the dropdown listeners
+    // handle that. loadOfferings() short-circuits to the waiting state
+    // when either is blank.
     loadOfferings();
 }
 
@@ -1666,42 +1973,75 @@ function renderYearOptions() {
     if (!sel) return;
 
     const years = [...new Set(VERSIONS.map(v => v.academic_year))].sort((a, b) => b - a);
-    if (!years.length) years.push(currentAcademicYear());
 
-    sel.innerHTML = years
-        .map(y => `<option value="${y}">${y}\u2013${y + 1}</option>`)
+    sel.innerHTML = ['<option value="">Select year</option>']
+        .concat(years.map(y => `<option value="${y}">${y}\u2013${y + 1}</option>`))
         .join('');
 
-    const active = VERSIONS.find(v => v.is_active);
-    sel.value = String(active?.academic_year ?? years[0]);
 }
 
-/* Sections follow the year level of the chosen subject, so BSIT-2A is
-   offered for a second-year subject and BSIT-1A is not. */
-function renderSectionOptions() {
-    const sel = $('o-section');
-    if (!sel) return;
+/* Populates the year-level dropdown from what exists in OFFERINGS. The
+   section-letter dropdown is rebuilt right after. Called after
+   loadOfferings() resolves, since both depend on what the query
+   returned. */
+function renderTopSectionOptions() {
+    const existing = new Set(OFFERINGS.map(o => o.section));
 
-    const subject = SUBJECTS.find(s => s.id === Number($('o-subject')?.value));
-    const level   = subject?.year_level;
+    const yearSel = $('sched-year-level');
+    if (yearSel) {
+        const prev = yearSel.value;
+        yearSel.innerHTML = [
+            '<option value="">Select year</option>',
+            ...[1, 2, 3, 4].map(n => {
+                const hasAny = SECTION_LETTERS.some(l =>
+                    existing.has(`${PROGRAM_CODE}-${n}${l}`));
+                return `<option value="${n}">${n}${hasAny ? '' : ' (new)'}</option>`;
+            }),
+        ].join('');
 
-    if (!level) {
-        sel.innerHTML = '<option value="">Choose a subject first</option>';
-        return;
+        if (prev && ['1', '2', '3', '4'].includes(prev)) yearSel.value = prev;
     }
 
-    sel.innerHTML = SECTION_LETTERS
-        .map(l => `<option value="BSIT-${level}${l}">BSIT-${level}${l}</option>`)
-        .join('');
+    renderSectionLetterOptions(existing);
 }
 
-function renderOfferingOptions() {
-    const sel = $('o-subject');
+/* The two section dropdowns, populated together because they answer one
+   question between them. */
+
+function renderSectionLetterOptions(existing) {
+    const sel = $('sched-section-letter');
     if (!sel) return;
-    sel.innerHTML = SUBJECTS
-        .map(s => `<option value="${s.id}">${escapeHtml(s.code)} — ${escapeHtml(s.title)}</option>`)
+
+    existing = existing ?? new Set(OFFERINGS.map(o => o.section));
+    const level = Number($('sched-year-level')?.value) || 1;
+    const options = [];
+
+    for (const letter of SECTION_LETTERS) {
+        const name = `${PROGRAM_CODE}-${level}${letter}`;
+        if (existing.has(name)) options.push({ letter, isNew: false });
+    }
+    // Offer only the FIRST missing letter for this year.
+    for (const letter of SECTION_LETTERS) {
+        const name = `${PROGRAM_CODE}-${level}${letter}`;
+        if (!existing.has(name)) {
+            options.push({ letter, isNew: true });
+            break;
+        }
+    }
+
+    const prev = sel.value;
+    sel.innerHTML = options
+        .map(o => `<option value="${o.letter}">${o.letter}${o.isNew ? ' (new)' : ''}</option>`)
         .join('');
+
+    if (options.some(o => o.letter === prev)) {
+        sel.value = prev;
+    } else {
+        const preferred = options.find(o => !o.isNew) ?? options[0];
+        if (preferred) sel.value = preferred.letter;
+    }
 }
+
 
 async function loadOfferings() {
     const body = $('offerings-body');
@@ -1723,25 +2063,108 @@ async function loadOfferings() {
 
     const { data, error } = await supabase
         .from('subject_offering')
-        .select('id, subject_id, section, schedule_days, start_time, end_time, room, instructor, capacity, is_open')
+    .select('id, edp_code, subject_id, meeting_type, section, schedule_days, start_time, end_time, room, instructor, capacity, is_open')
         .eq('academic_year', year)
         .eq('term', term)
         .order('section');
 
-    if (error) {
-        console.warn('offering load failed:', error.message);
+    if (!year || !term) {
+        OFFERINGS = [];
+        PENDING = [];
+        DIRTY.clear();
         body.innerHTML = `
             <div class="empty">
-                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
-                <h3>Could not load offerings</h3>
-                <p>${escapeHtml(error.message)}</p>
-                <p class="dim">If this mentions subject_offering, run db/024.</p>
+                <i class="fa-solid fa-filter" aria-hidden="true"></i>
+                <h3>Choose a term and section</h3>
+                <p>Pick the dropdowns above, or upload a photo and the
+                section will fill in automatically.</p>
             </div>`;
         return;
     }
 
     OFFERINGS = data ?? [];
+    // Working copy. Edits land here; the table reads from PENDING so
+    // changes are visible immediately without another fetch. Save diffs
+    // PENDING against OFFERINGS to know what to insert, update, delete.
+    PENDING = OFFERINGS.map(o => ({ ...o }));
+    DIRTY.clear();
+    tagPendingKeys();
+
     renderOfferings();
+}
+
+/* Two events: 'input' for typing, 'change' for selects and time
+   pickers. Both write back into PENDING and mark the form dirty. No
+   re-render — that would drop focus mid-keystroke. */
+function bindScheduleTableInputs() {
+    const mount = $('offerings-body');
+    if (!mount || mount.dataset.bound) return;
+    mount.dataset.bound = '1';
+
+    const write = (row, field, value) => {
+        if (field === 'subject_id') {
+            row.subject_id = Number(value);
+            // Changing the subject resets the meeting type if the new
+            // subject has no lab, otherwise the row would carry a LAB
+            // type that the subject cannot support.
+            const s = subjectById(row.subject_id);
+            if (Number(s?.lab_units) <= 0) row.meeting_type = 'LEC';
+        } else if (field === 'meeting_type') {
+            row.meeting_type = value;
+        } else {
+            row[field] = value;
+        }
+        DIRTY.add(row.section);
+    };
+
+    mount.addEventListener('input', (e) => {
+        const field = e.target.closest('[data-field]');
+        const tr    = e.target.closest('tr[data-row]');
+        if (!field || !tr) return;
+        const row = PENDING.find(r => r.__key === tr.dataset.row);
+        if (!row) return;
+        write(row, field.dataset.field, field.value);
+        updateSaveButton();
+    });
+
+    mount.addEventListener('change', (e) => {
+        const field = e.target.closest('[data-field]');
+        const tr    = e.target.closest('tr[data-row]');
+        if (!field || !tr) return;
+        const row = PENDING.find(r => r.__key === tr.dataset.row);
+        if (!row) return;
+        write(row, field.dataset.field, field.value);
+        updateSaveButton();
+
+        // Subject or type changed — the row needs a repaint because the
+        // units column and the meeting-type options both depend on them.
+        if (field.dataset.field === 'subject_id' || field.dataset.field === 'meeting_type') {
+            renderOfferings();
+        }
+    });
+}
+
+/* Dirty is per-section, not global. A Set keyed by section name lets
+   the Save / Discard buttons and the "Unsaved" stat card answer for the
+   section actually on screen, without leaking into other sections that
+   may be sitting in PENDING with their own edits. */
+function updateSaveButton() {
+    const section = currentSection();
+    const isDirty = section ? DIRTY.has(section) : false;
+
+    const btn = $('sched-save');
+    if (btn) btn.disabled = !isDirty;
+
+    const discard = $('sched-discard');
+    if (discard) discard.disabled = !isDirty;
+
+    const stat = document.querySelector('#schedule-stats .upload-stat:last-child');
+    if (stat) {
+        stat.classList.toggle('is-issues', isDirty);
+        stat.querySelector('.k').textContent = isDirty ? 'Unsaved' : 'Saved';
+        stat.querySelector('.v').textContent = isDirty ? '●' : '✓';
+        stat.querySelector('.u').textContent = isDirty ? 'changes pending' : 'no changes';
+    }
 }
 
 function timeRange(a, b) {
@@ -1752,77 +2175,410 @@ function timeRange(a, b) {
 
 function renderOfferings() {
     const body  = $('offerings-body');
+    const stats = $('schedule-stats');
     const count = $('offerings-count');
     if (!body) return;
 
     const { year, term } = schedTerm();
+    const section = currentSection();
 
+    const visible = section
+        ? PENDING.filter(o => o.section === section)
+        : [];
     if (count) {
-        count.textContent = OFFERINGS.length
-            ? `${OFFERINGS.length} offering${OFFERINGS.length === 1 ? '' : 's'}`
+        count.textContent = section
+            ? `${visible.length} offering${visible.length === 1 ? '' : 's'} · ${section}`
             : '';
     }
 
-    if (OFFERINGS.length === 0) {
+    // Stats. Lab rows carry no units of their own — the subject's full
+    // unit value belongs to the LEC row, so only LEC rows count.
+    const subjects   = new Set(visible.map(o => o.subject_id));
+    const totalUnits = visible.reduce((sum, o) => {
+        if (o.meeting_type === 'LAB') return sum;
+        const s = subjectById(o.subject_id);
+        return sum + Number(s?.units || 0);
+    }, 0);
+
+    const isDirty = section ? DIRTY.has(section) : false;
+
+    if (stats) {
+        stats.innerHTML = `
+            <div class="upload-stat">
+                <p class="k">Subjects</p>
+                <p class="v">${subjects.size}</p>
+                <p class="u">scheduled</p>
+            </div>
+            <div class="upload-stat">
+                <p class="k">Offerings</p>
+                <p class="v">${visible.length}</p>
+                <p class="u">lecture + lab</p>
+            </div>
+            <div class="upload-stat">
+                <p class="k">Units</p>
+                <p class="v">${totalUnits}</p>
+                <p class="u">lecture only</p>
+            </div>
+            <div class="upload-stat${isDirty ? ' is-issues' : ''}">
+                <p class="k">${isDirty ? 'Unsaved' : 'Saved'}</p>
+                <p class="v">${isDirty ? '●' : '✓'}</p>
+                <p class="u">${isDirty ? 'changes pending' : 'no changes'}</p>
+            </div>
+        `;
+    }
+
+    if (!section) {
         body.innerHTML = `
             <div class="empty">
-                <i class="fa-solid fa-calendar-xmark" aria-hidden="true"></i>
-                <h3>Nothing scheduled</h3>
-                <p>
-                    No subject is offered in ${termLabel(term)} ${year}. Until
-                    something is scheduled, the engine has nothing available to
-                    recommend for this term.
-                </p>
+                <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+                <h3>Choose a section</h3>
+                <p>Select a year and section above to see the schedule.</p>
             </div>`;
         return;
     }
 
-    body.innerHTML = `
-        <div class="table-wrap">
-            <table class="data-table">
-                <thead>
-                    <tr><th>Code</th><th>Descriptive title</th><th>Section</th>
-                        <th>Days</th><th>Time</th><th>Room</th><th>Instructor</th><th></th></tr>
-                </thead>
-                <tbody>${OFFERINGS.map(o => {
-                    const s = subjectById(o.subject_id);
-                    return `<tr>
-                        <td class="mono">${escapeHtml(s?.code ?? '—')}</td>
-                        <td>${escapeHtml(s?.title ?? '—')}</td>
-                        <td class="mono">${escapeHtml(o.section)}</td>
-                        <td>${escapeHtml(o.schedule_days || '—')}</td>
-                        <td class="dim">${timeRange(o.start_time, o.end_time)}</td>
-                        <td class="dim">${escapeHtml(o.room || '—')}</td>
-                        <td class="dim">${escapeHtml(o.instructor || '—')}</td>
-                        <td class="num">
-                            <button class="btn-icon" data-drop-offering="${o.id}"
-                                    aria-label="Remove offering">
-                                <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
-                            </button>
-                        </td>
-                    </tr>`;
-                }).join('')}</tbody>
-            </table>
-        </div>`;
+    // Form header — COURSE / YEAR & SECTION / AY · term.
+    const { course, yearSection } = splitSection(section);
+    const ayLabel = `${shortYear(year)} · ${termLabel(term)}`;
 
-    body.querySelectorAll('[data-drop-offering]').forEach(b =>
-        b.addEventListener('click', () => dropOffering(Number(b.dataset.dropOffering))));
+    body.innerHTML = `
+        <div class="sched-form">
+            <div class="sched-form-head">
+                <div class="sched-form-head-group">
+                    <span class="sched-form-label">COURSE:</span>
+                    <span class="sched-form-value">${escapeHtml(course || '—')}</span>
+                </div>
+                <div class="sched-form-head-group">
+                    <span class="sched-form-label">YEAR &amp; SECTION:</span>
+                    <span class="sched-form-value">${escapeHtml(yearSection)}</span>
+                </div>
+                <div class="sched-form-head-ay">${escapeHtml(ayLabel)}</div>
+            </div>
+
+            <div class="table-wrap">
+                <table class="data-table sched-edit-table">
+                    <thead>
+                        <tr>
+                            <th class="col-edp">EDP CODE</th>
+                            <th>SUBJECT</th>
+                            <th class="col-type">TYPE</th>
+                            <th class="col-units num">UNITS</th>
+                            <th class="col-time">START TIME</th>
+                            <th class="col-time">END TIME</th>
+                            <th class="col-days">DAYS</th>
+                            <th class="col-room">ROOM</th>
+                            <th class="col-drop"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${visible.map(o => rowHtmlFor(o, section, year, term)).join('')}
+                        <tr class="sched-add-row">
+                            <td colspan="9">
+                                <button class="btn-small" data-add-row>
+                                    <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                                    Add a row
+                                </button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="sched-form-actions">
+                <button class="btn-secondary" id="sched-discard"
+                        ${isDirty ? '' : 'disabled'}>
+                    Discard
+                </button>
+                <button class="btn-primary" id="sched-save"
+                        ${isDirty ? '' : 'disabled'}>
+                    Save ${escapeHtml(section)}
+                </button>
+            </div>
+        </div>
+    `;
+
+    $('sched-save')?.addEventListener('click', commitPending);
+    $('sched-discard')?.addEventListener('click', discardPending);
+    body.querySelectorAll('[data-drop]').forEach(b =>
+        b.addEventListener('click', () => dropPendingRow(b.dataset.drop)));
+    body.querySelector('[data-add-row]')?.addEventListener('click', () => addPendingRow(section));
 }
 
-$('sched-year')?.addEventListener('change', loadOfferings);
-$('o-subject')?.addEventListener('change', renderSectionOptions);
-$('sched-term')?.addEventListener('change', loadOfferings);
+let NEXT_KEY = 1;
+const nextKey = () => `r${NEXT_KEY++}`;
 
-$('toggle-upload')?.addEventListener('click', () => {
-    const p = $('upload-pane');
-    p.hidden = !p.hidden;
-    $('toggle-upload').textContent = p.hidden ? 'Show' : 'Hide';
+function addPendingRow(section) {
+    const year = sectionYear(section);
+    const term = schedTerm().term;
+
+    // No pre-selected subject. The dropdown shows a "Select subject"
+    // placeholder and the operator must pick one. Auto-picking the
+    // first eligible subject hid the fact that a choice needed to be
+    // made — rows could be saved with a wrong subject if the operator
+    // tabbed through without noticing the pre-filled value.
+    PENDING.push({
+        __key:        nextKey(),
+        id:           null,             // null = not yet in the DB
+        edp_code:     '',
+        subject_id:   null,
+        meeting_type: 'LEC',
+        section,
+        academic_year: year,
+        term,
+        schedule_days: '',
+        start_time:   '',
+        end_time:     '',
+        room:         '',
+        instructor:   '',
+    });
+
+    DIRTY.add(section);
+    renderOfferings();
+}
+
+function dropPendingRow(key) {
+    const row = PENDING.find(r => r.__key === key);
+    if (row) DIRTY.add(row.section);
+    PENDING = PENDING.filter(r => r.__key !== key);
+    renderOfferings();
+}
+
+/* Discard reverts the visible section to whatever is in OFFERINGS —
+   the last state we know the database agrees with. Rows for other
+   sections in PENDING are left untouched: those may hold edits the
+   operator made earlier and has not yet saved. */
+function discardPending() {
+    const section = currentSection();
+    if (!section) return;
+    if (!DIRTY.has(section)) return;
+
+    const ok = window.confirm(
+        `Discard unsaved changes for ${section}?\n\n` +
+        'Rows revert to the last saved state. Other sections are not affected.'
+    );
+    if (!ok) return;
+
+    // Drop this section's rows entirely, then re-add fresh copies
+    // straight from OFFERINGS. Rows for other sections stay in PENDING.
+    PENDING = PENDING.filter(r => r.section !== section);
+    for (const o of OFFERINGS) {
+        if (o.section !== section) continue;
+        PENDING.push({ ...o, __key: nextKey() });
+    }
+
+    DIRTY.delete(section);
+    renderOfferings();
+    showMsg('sched-msg', `Discarded unsaved changes for ${section}.`, 'success');
+}
+
+async function commitPending() {
+    const section = currentSection();
+    if (!section) return;
+
+    const { year, term } = schedTerm();
+    const btn = $('sched-save');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    // ── Only rows for the currently selected section ─────────────
+    // PENDING holds every section for the term, so tab-switching
+    // keeps edits for other sections in memory. But the Save button
+    // commits one section at a time — the whole workflow is "one
+    // file per section," and mixing sections in a single insert
+    // would file rows under the wrong section name.
+    const sectionRows = PENDING.filter(r => r.section === section);
+
+    // ── Validate ────────────────────────────────────────────────
+    const problems = [];
+    const seenEdps = new Set();
+
+    for (const r of sectionRows) {
+        if (!r.edp_code?.trim()) problems.push('Every row needs an EDP code.');
+        if (seenEdps.has(r.edp_code)) problems.push(`EDP ${r.edp_code} is used more than once.`);
+        seenEdps.add(r.edp_code);
+        if (!r.subject_id)            problems.push('Every row needs a subject.');
+        if (!r.schedule_days?.trim()) problems.push('Every row needs days.');
+        if (!r.start_time || !r.end_time) problems.push('Every row needs start and end times.');
+        if (r.start_time && r.end_time && r.start_time >= r.end_time) {
+            problems.push(`Start must be before end on ${r.edp_code}.`);
+        }
+        if (!r.room?.trim())          problems.push('Every row needs a room.');
+    }
+
+    if (problems.length) {
+        if (btn) { btn.disabled = false; btn.textContent = `Save ${section}`; }
+        return showMsg('sched-msg', problems[0]);
+    }
+
+    // ── Diff against what was loaded, for this section only ─────
+    const sectionOfferings = OFFERINGS.filter(o => o.section === section);
+    const originalIds = new Set(sectionOfferings.map(o => o.id));
+    const pendingIds  = new Set(sectionRows.filter(r => r.id).map(r => r.id));
+    const toDelete    = [...originalIds].filter(id => !pendingIds.has(id));
+
+    // ── Delete removed rows ─────────────────────────────────────
+    if (toDelete.length) {
+        const { error } = await supabase
+            .from('subject_offering')
+            .delete()
+            .in('id', toDelete);
+        if (error) {
+            if (btn) { btn.disabled = false; btn.textContent = `Save ${section}`; }
+            return showMsg('sched-msg', 'Could not remove rows: ' + error.message);
+        }
+    }
+
+    // ── Upsert the current section's rows ───────────────────────
+    if (sectionRows.length) {
+        const payload = sectionRows.map(r => {
+            const row = {
+                edp_code:      r.edp_code.trim(),
+                subject_id:    r.subject_id,
+                meeting_type:  r.meeting_type,
+                academic_year: year,
+                term,
+                section,
+                schedule_days: r.schedule_days?.trim() || null,
+                start_time:    r.start_time || null,
+                end_time:      r.end_time || null,
+                room:          r.room?.trim() || null,
+                instructor:    r.instructor?.trim() || null,
+            };
+            if (r.id) row.id = r.id;
+            else row.created_by = STAFF_ID;
+            return row;
+        });
+
+        const { error } = await supabase
+            .from('subject_offering')
+            .upsert(payload, {
+                onConflict: 'subject_id,academic_year,term,section,meeting_type',
+            });
+
+        if (error) {
+            if (btn) { btn.disabled = false; btn.textContent = `Save ${section}`; }
+            if (error.code === '23505' && String(error.details || '').includes('uq_offering_edp')) {
+                return showMsg('sched-msg', 'One of the EDP codes is already used by another offering in this term.');
+            }
+            return showMsg('sched-msg', 'Could not save: ' + error.message);
+        }
+    }
+
+    showMsg('sched-msg',
+        `${sectionRows.length} offering${sectionRows.length === 1 ? '' : 's'} saved for ${section}.`,
+        'success');
+    await reloadScheduleView();
+}
+
+/* Assign keys to any row that arrived without one (fresh from the DB,
+   or freshly added by the upload path). Called from loadOfferings. */
+function tagPendingKeys() {
+    for (const o of PENDING) {
+        if (!o.__key) o.__key = nextKey();
+    }
+}
+
+/* One editable row. Inputs carry data-field so the input handler can
+   write straight back into PENDING without re-rendering the table —
+   a full render on every keystroke would steal focus mid-word.
+
+   The subject cell wraps its content in a <div class="sched-subject-cell">
+   rather than styling the <td> directly: `display: flex` on a table cell
+   would pull it out of the table layout and break column widths. The
+   wrapper gets the flex treatment from CSS. */
+function rowHtmlFor(o, section, year, term) {
+    const s       = subjectById(o.subject_id);
+    const hasLab  = Number(s?.lab_units) > 0;
+    const isLab   = o.meeting_type === 'LAB';
+    const units   = isLab ? '—' : (s?.units ?? '—');
+
+    const subjectOptions = subjectOptionsFor(section, term, o.subject_id);
+
+    return `<tr data-row="${o.__key}"${isLab ? ' class="sched-row-lab"' : ''}>
+        <td><input data-field="edp_code" value="${escapeHtml(o.edp_code || '')}"
+                   placeholder="61251" autocomplete="off"></td>
+        <td>
+            <div class="sched-subject-cell">
+                ${isLab ? '<span class="sched-lab-arrow" aria-hidden="true">↳</span>' : ''}
+                <select data-field="subject_id" class="sched-subject-pick">
+                    ${subjectOptions}
+                </select>
+            </div>
+        </td>
+        <td>
+            <select data-field="meeting_type">
+                <option value="LEC"${o.meeting_type === 'LEC' ? ' selected' : ''}>LEC</option>
+                ${hasLab ? `<option value="LAB"${isLab ? ' selected' : ''}>LAB</option>` : ''}
+            </select>
+        </td>
+        <td class="num">${units}</td>
+        <td><input type="time" data-field="start_time" value="${(o.start_time || '').slice(0, 5)}"></td>
+        <td><input type="time" data-field="end_time"   value="${(o.end_time   || '').slice(0, 5)}"></td>
+        <td><input data-field="schedule_days" value="${escapeHtml(o.schedule_days || '')}" placeholder="MW"></td>
+        <td><input data-field="room" value="${escapeHtml(o.room || '')}" placeholder="215"></td>
+        <td class="num">
+            <button class="btn-icon" data-drop="${o.__key}" aria-label="Remove row">
+                <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+            </button>
+        </td>
+    </tr>`;
+}
+
+function subjectOptionsFor(section, term, currentId) {
+    const year = sectionYear(section);
+    const eligible = SUBJECTS.filter(s => {
+        if (s.id === currentId) return true;
+        if (s.is_active === false) return false;
+        if (s.year_level === null) return true;   // elective
+        return s.year_level === year && s.term === term;
+    });
+
+    // Placeholder first. Selected when no subject has been chosen yet,
+    // so a fresh row reads "Select subject" instead of silently landing
+    // on the first eligible code. Not disabled — the operator can
+    // return here to clear a row if they change their mind.
+    const placeholder = `<option value=""${currentId ? '' : ' selected'}>Select subject</option>`;
+
+    const options = eligible.map(s => {
+        const hasLab = Number(s.lab_units) > 0;
+        const dot    = hasLab ? '🟢' : '🔵';
+        const sel    = s.id === currentId ? ' selected' : '';
+        return `<option value="${s.id}"${sel}>` +
+               `${dot} ${escapeHtml(s.code)} — ${escapeHtml(s.title)}` +
+               `</option>`;
+    }).join('');
+
+    return placeholder + options;
+}
+
+/* Every one of the four dropdowns participates in the "is the section
+   ready?" question. When both year and term are set, offerings load;
+   otherwise loadOfferings() shows the waiting state. Year level only
+   affects which section letters are offered. */
+$('sched-year')?.addEventListener('change', () => {
+    loadOfferings().then(() => {
+        renderTopSectionOptions();
+        refreshTemplateCount();
+        renderOfferings();
+    });
 });
 
-$('toggle-offering')?.addEventListener('click', () => {
-    const p = $('offering-pane');
-    p.hidden = !p.hidden;
-    $('toggle-offering').textContent = p.hidden ? 'Show' : 'Hide';
+$('sched-term')?.addEventListener('change', () => {
+    loadOfferings().then(() => {
+        renderTopSectionOptions();
+        refreshTemplateCount();
+        renderOfferings();
+    });
+});
+
+$('sched-year-level')?.addEventListener('change', () => {
+    renderSectionLetterOptions();
+    refreshTemplateCount();
+    renderOfferings();
+});
+
+$('sched-section-letter')?.addEventListener('change', () => {
+    refreshTemplateCount();
+    renderOfferings();
 });
 
 
@@ -1834,78 +2590,106 @@ $('toggle-offering')?.addEventListener('click', () => {
    by hand. capacity was dropped — it is not enforced anywhere, and an
    unused column in a sheet invites someone to fill it in expecting it to
    mean something. */
-const CSV_HEADERS = ['edp_code','code','title','year_level','term','section',
-                     'days','start_time','end_time','room','instructor'];
+const CSV_HEADERS = ['edp_code','subject','type','section',
+                    'start_time','end_time','days','room','instructor'];
 
 const SECTION_LETTERS = ['A','B','C','D'];
 
-/* The template is generated from the prospectus rather than shipped as a
-   fixed file. Typing 58 subject codes by hand is where transcription
-   errors come from, and a code that does not match is a row the upload
-   silently drops. Pre-filling them removes the whole class of mistake —
-   the operator fills in days, times, and rooms only.
+/* The template contains subjects for ONE section — the one currently
+   selected on the page. Uploading is done one section at a time,
+   matching how the registrar's office schedules. Sections are added to
+   the term over time, not all at once.
 
-   title and year_level are included for readability while filling the
-   sheet in. Both are ignored on import; the subject is resolved by code. */
+   Lab subjects produce TWO rows: a LEC row and a LAB row. The LEC row
+   carries the subject's full unit value; the LAB row shows an em dash
+   in the printed form, and blank in the CSV. This matches the physical
+   form exactly. */
 function buildTemplateRows() {
-    const year     = $('tpl-year')?.value ?? 'all';
-    const termPick = $('tpl-term')?.value ?? 'current';
-    const sections = Number($('tpl-sections')?.value) || 1;
-    const electives = $('tpl-electives')?.value === 'true';
+    const section = currentSection();
+    const term    = schedTerm().term;
+    const year    = sectionYear(section);
 
-    const term = termPick === 'current' ? schedTerm().term : termPick;
+    if (!section || !year) return [];
+
+    const isElective = (s) => s.year_level === null;
 
     return SUBJECTS
-        .filter(s => year === 'all' || String(s.year_level) === year)
-        .filter(s => term === 'all' || String(s.term) === String(term))
-        .filter(s => electives || !s.is_elective)
-        .flatMap(s => SECTION_LETTERS.slice(0, sections).map(letter => ({
-            edp_code:   '',
-            code:       s.code,
-            title:      s.title,
-            year_level: s.year_level,
-            term:       s.term,
-            section:    `BSIT-${s.year_level}${letter}`,
-            days: '', start_time: '', end_time: '', room: '', instructor: '',
-        })));
+        .filter(s => s.is_active !== false)
+        .filter(s => isElective(s) || (s.year_level === year && s.term === term))
+        .filter(s => !isElective(s))
+        .sort((a, b) => String(a.code).localeCompare(String(b.code)))
+        .flatMap(s => {
+            const base = {
+                edp_code:   '',
+                subject:    s.code,
+                section,
+                start_time: '',
+                end_time:   '',
+                days:       '',
+                room:       '',
+                instructor: '',
+            };
+            const rows = [{ ...base, type: 'LEC' }];
+            if (Number(s.lab_units) > 0) {
+                rows.push({ ...base, type: 'LAB' });
+            }
+            return rows;
+        });
 }
 
 function refreshTemplateCount() {
-    const label = $('tpl-count');
+    const label   = $('tpl-count');
+    const summary = $('tpl-summary');
     if (!label) return;
-    const n = buildTemplateRows().length;
+
+    const section = currentSection();
+    const rows    = buildTemplateRows();
+    const n       = rows.length;
+
     label.textContent = n === 0
         ? 'Nothing to download'
         : `Download template (${n} row${n === 1 ? '' : 's'})`;
+
+    if (summary) {
+        const year  = sectionYear(section);
+        const term  = termLabel(schedTerm().term);
+        const label2 = year ? `Year ${year} · ${term}` : term;
+        summary.textContent = section
+            ? `Template for ${section} · ${label2}. Pre-filled with ${n} row${n === 1 ? '' : 's'}.`
+            : 'Choose a section above to generate a template.';
+    }
 }
 
-['tpl-year','tpl-term','tpl-sections','tpl-electives','sched-term']
-    .forEach(id => $(id)?.addEventListener('change', refreshTemplateCount));
-
 $('download-template')?.addEventListener('click', () => {
-    const rows = buildTemplateRows();
-
-    if (rows.length === 0) {
-        return showMsg('sched-msg', 'No subject matches those template settings.');
+    const section = currentSection();
+    if (!section) {
+        return showMsg('sched-msg', 'Choose a section before downloading a template.');
     }
 
-    // Quote every cell — titles contain commas ("Life, Works & Writings…")
-    // and an unquoted one shifts every column after it.
+    const rows = buildTemplateRows();
+    if (rows.length === 0) {
+        return showMsg('sched-msg', `No subjects for ${section} in this term.`);
+    }
+
+    // Quote every cell — a title with a comma would shift every column
+    // after it on re-import.
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const csv = [
         CSV_HEADERS.join(','),
         ...rows.map(r => CSV_HEADERS.map(h => esc(r[h])).join(',')),
     ].join('\n');
 
-    const year = $('tpl-year').value;
-    const name = `schedule-${year === 'all' ? 'all-years' : 'year-' + year}-${schedTerm().year}.csv`;
+    const { year, term } = schedTerm();
+    const name = `schedule-${section}-${year}-term${term}.csv`;
 
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
     const a = document.createElement('a');
     a.href = url; a.download = name; a.click();
     URL.revokeObjectURL(url);
 
-    showMsg('sched-msg', `Template with ${rows.length} rows downloaded.`, 'success');
+    showMsg('sched-msg',
+        `Template for ${section} with ${rows.length} row${rows.length === 1 ? '' : 's'} downloaded.`,
+        'success');
 });
 
 $('sched-file')?.addEventListener('change', async (e) => {
@@ -1916,12 +2700,168 @@ $('sched-file')?.addEventListener('change', async (e) => {
 
     try {
         const rows = await readScheduleFile(file);
-        previewUpload(rows);
+        await previewUpload(rows);
     } catch (err) {
         console.error('schedule parse failed:', err);
         showMsg('sched-msg', 'Could not read that file. ' + err.message);
     }
 });
+
+/* Photo upload follows the same three-step pattern as the AI-assisted
+   curriculum upload: idle drop zone → staged file card → reading with
+   progress → preview below. The file is not sent until the operator
+   presses "Read form", so a mis-tap is one click to undo. */
+
+let PHOTO_FILE    = null;    /* staged, not yet sent */
+let PHOTO_READING = false;   /* guards against double-submit */
+
+function renderPhotoStage(state = 'idle', meta = {}) {
+    const stage = $('photo-stage');
+    if (!stage) return;
+
+    const formatSize = (bytes) => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
+
+    if (state === 'idle') {
+        stage.innerHTML = `
+            <button type="button" class="photo-drop" id="photo-drop">
+                <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+                <span>Choose photo</span>
+                <span class="photo-drop-hint">jpg, png, webp · one section per photo</span>
+            </button>`;
+        $('photo-drop')?.addEventListener('click', () => $('sched-photo')?.click());
+        return;
+    }
+
+    if (state === 'staged' || state === 'reading') {
+        const file    = meta.file ?? PHOTO_FILE;
+        const pct     = meta.pct ?? 0;
+        const reading = state === 'reading';
+
+        stage.innerHTML = `
+            <div class="photo-card">
+                <div class="photo-thumb">
+                    ${meta.preview
+                        ? `<img src="${meta.preview}" alt="">`
+                        : '<i class="fa-solid fa-image" aria-hidden="true"></i>'}
+                </div>
+                <div class="photo-meta">
+                    <p class="photo-name">${escapeHtml(file?.name ?? 'Photo')}</p>
+                    <p class="photo-size">${formatSize(file?.size ?? 0)}</p>
+                </div>
+                ${reading ? '' : `
+                    <button type="button" class="btn-icon" id="photo-clear"
+                            aria-label="Remove photo">
+                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                    </button>`}
+                ${reading ? `
+                    <div class="photo-progress">
+                        <span class="photo-pct">${pct}%</span>
+                        <div class="photo-track">
+                            <div class="photo-fill" style="width:${pct}%"></div>
+                        </div>
+                    </div>` : ''}
+            </div>
+            ${reading ? '' : `
+                <div class="photo-actions">
+                    <button type="button" class="btn-accent" id="photo-read">
+                        <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                        <span>Read form</span>
+                    </button>
+                </div>`}`;
+
+        if (!reading) {
+            $('photo-clear')?.addEventListener('click', () => {
+                PHOTO_FILE = null;
+                const inp = $('sched-photo');
+                if (inp) inp.value = '';
+                renderPhotoStage('idle');
+            });
+            $('photo-read')?.addEventListener('click', () => runPhotoRead());
+        }
+    }
+}
+
+$('sched-photo')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    PHOTO_FILE = file;
+
+    // Small thumbnail for the file card. The real payload is downscaled
+    // again at 2000px inside readSchedulePhoto(); this is only what the
+    // operator sees.
+    let preview = null;
+    try {
+        preview = await downscaleImage(file, 200, 0.7);
+    } catch {
+        /* unreadable file still gets a card, just no thumbnail */
+    }
+    renderPhotoStage('staged', { file, preview });
+});
+
+async function runPhotoRead() {
+    if (!PHOTO_FILE || PHOTO_READING) return;
+
+    // A photo can set the section itself — don't require one upfront.
+    const section = currentSection();
+
+    PHOTO_READING = true;
+    showMsg('sched-msg', '');
+
+    let pct = 3;
+    const tick = setInterval(() => {
+        pct += Math.max(1, Math.round((90 - pct) * 0.08));
+        if (pct > 90) pct = 90;
+        const el  = document.querySelector('.photo-pct');
+        const bar = document.querySelector('.photo-fill');
+        if (el)  el.textContent = `${pct}%`;
+        if (bar) bar.style.width = `${pct}%`;
+    }, 350);
+
+    renderPhotoStage('reading', { file: PHOTO_FILE, pct });
+
+    try {
+        const { rows, warnings, detected } = await readSchedulePhoto(PHOTO_FILE, section);
+
+        clearInterval(tick);
+        const el  = document.querySelector('.photo-pct');
+        const bar = document.querySelector('.photo-fill');
+        if (el)  el.textContent = '100%';
+        if (bar) bar.style.width = '100%';
+
+        await previewUpload(rows, warnings, detected);
+
+        PHOTO_FILE = null;
+        const inp = $('sched-photo');
+        if (inp) inp.value = '';
+        renderPhotoStage('idle');
+    } catch (err) {
+        clearInterval(tick);
+        console.error('schedule photo failed:', err);
+        const box = $('upload-preview');
+        if (box) {
+            box.innerHTML = `
+                <div class="notice pending">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <div>
+                        <strong>Could not read that photo</strong>
+                        ${escapeHtml(err.message || 'Unknown error.')}
+                        You can still use the template upload.
+                    </div>
+                </div>`;
+        }
+        renderPhotoStage('staged', { file: PHOTO_FILE });
+    } finally {
+        PHOTO_READING = false;
+    }
+}
+
+// First paint.
+renderPhotoStage('idle');
 
 /* Excel and CSV go through the same path so the operator can fill the
    template in whichever they have. Cells are read as text: a start time
@@ -1949,211 +2889,645 @@ async function readScheduleFile(file) {
         return out;
     });
 
-    if (!('code' in mapped[0]) || !('section' in mapped[0])) {
-        throw new Error('The header row must include at least code and section.');
+    // The template's guide row starts with "#" in the EDP column.
+    // Drop it before anything else runs.
+    const data = mapped.filter(r => !String(r.edp_code || '').startsWith('#'));
+
+    if (data.length === 0) {
+        throw new Error('The file has a header but no data rows.');
     }
 
-    return mapped;
+    const required = ['edp_code', 'subject', 'type', 'section'];
+    const missing  = required.filter(r => !(r in data[0]));
+    if (missing.length) {
+        throw new Error(
+            `Missing column${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}. ` +
+            'Expected headers: edp_code, subject, type, section, ' +
+            'start_time, end_time, days, room, instructor.'
+        );
+    }
+
+    return data;
+}
+
+/* Downscale the photo to a max long edge of 2000px before upload. A
+   modern phone photo is 4–12 MB; a 2000px JPEG at q=0.85 is roughly
+   400 KB — enough for the model to read, small enough to move on a
+   slow link. */
+function downscaleImage(file, maxEdge, quality) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            const { width, height } = img;
+            const scale = Math.min(1, maxEdge / Math.max(width, height));
+            const w = Math.round(width * scale);
+            const h = Math.round(height * scale);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+
+            resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error('That file is not a readable image.'));
+        };
+        img.src = url;
+    });
+}
+
+/* Sends the photo to the Edge Function and returns rows in the same
+   shape the CSV path produces — plus any warnings Gemini emitted, and
+   the section it read from the form's header, for cross-checking
+   against what the operator has selected. */
+async function readSchedulePhoto(file, section) {
+    const dataUrl = await downscaleImage(file, 2000, 0.85);
+
+    const { year, term } = schedTerm();
+    const subjects = SUBJECTS
+        .filter(s => s.is_active !== false)
+        .map(s => s.code);
+
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze-schedule-document`, {
+        method: 'POST',
+        headers: {
+            'Content-Type':  'application/json',
+            'apikey':        SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${session?.access_token ?? SUPABASE_ANON_KEY}`,
+        },
+            body: JSON.stringify({
+            image: dataUrl,
+            section: section ?? null,
+            subjects,
+            term: term ?? null,
+            year: year ?? null,
+        }),
+    });
+
+    if (!res.ok) throw new Error(`The scanner returned ${res.status}.`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'The scanner could not read that photo.');
+
+    // The photo has no section column — the form's header names the
+    // section, and the operator has already chosen it on the page. Tag
+    // every row with it so previewUpload() sees the same shape the CSV
+    // path produces.
+    const rows = (data.rows ?? []).map((r, i) => ({
+        ...r,
+        section,
+        __line: i + 1,
+    }));
+
+    return {
+        rows,
+        warnings: data.warnings ?? [],
+        detected: {
+            section: data.detected_section ?? null,
+            course:  data.detected_course  ?? null,
+            year:    data.detected_year    ?? null,
+            term:    data.detected_term    ?? null,
+        },
+    };
 }
 
 const norm = (c) => (c || '').replace(/\s/g, '').toUpperCase();
 
 let PENDING_ROWS = [];
 
-/* Nothing is written until the operator has seen what will be written.
-   The GradeFile design in the ERD implies the same pattern — validate,
-   report, then commit — so schedule upload follows it. */
-function previewUpload(rows) {
+async function previewUpload(rows, warnings = [], detected = null) {
     const box = $('upload-preview');
+    if (!box) return;
+
+    const expectedSection = currentSection();
     const byCode = new Map(SUBJECTS.map(s => [norm(s.code), s]));
+
+    const reject = (msg) => {
+        PENDING_ROWS = [];
+        box.innerHTML = `
+            <div class="notice pending">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div><strong>Upload rejected</strong>${escapeHtml(msg)}</div>
+            </div>`;
+    };
+
+    // ── Whole-file checks ────────────────────────────────────────
+    // A file carries one section's rows, and that section must match
+    // what the operator has selected at the top of the page. Two files
+    // for two sections means two uploads, not one mixed file.
+
+    const sectionsInFile = new Set(
+        rows.map(r => String(r.section || '').trim().toUpperCase()).filter(Boolean)
+    );
+
+    if (sectionsInFile.size === 0) {
+        return reject('Every row is missing a section. The section column must name the section each row belongs to.');
+    }
+    if (sectionsInFile.size > 1) {
+        const list = [...sectionsInFile].join(', ');
+        return reject(`This file contains rows for ${sectionsInFile.size} sections (${list}). Upload one section at a time.`);
+    }
+
+    let fileSection = [...sectionsInFile][0];
+
+    // When nothing is selected, the row's section is unknown — the photo
+    // path tags rows with null. Take the detected section if the caller
+    // passed one, otherwise refuse (the CSV path always names one).
+    if (!fileSection && detected?.section) {
+        fileSection = detected.section;
+    }
+    if (!fileSection) {
+        return reject('No section could be determined from the upload. Choose one above, or check the file.');
+    }
+    if (expectedSection && fileSection !== expectedSection) {
+        return reject(`This file is for ${fileSection}, but ${expectedSection} is selected at the top of the page. Switch the section, or upload the correct file.`);
+    }
+
+    // ── Existing EDP codes in this term ─────────────────────────
+    // A duplicate inside the file would fail the whole insert with a
+    // raw Postgres error. Catching it here names the offending row.
+    const existingEdps = await fetchExistingEdps();
+
+    // ── Per-row validation ──────────────────────────────────────
     const ok = [], bad = [], skipped = [];
+    const seenEdps = new Set();
+    const year     = sectionYear(fileSection);
+    const term     = schedTerm().term;
 
     for (const r of rows) {
-        if (!r.code || !r.section) {
-            bad.push({ line: r.__line, why: 'Missing code or section.' });
+        const edp  = String(r.edp_code || '').trim();
+        const code = norm(r.subject || '');
+        const type = String(r.type || '').trim().toUpperCase();
+
+        if (!edp) {
+            bad.push({ line: r.__line, why: 'EDP code is required.' });
             continue;
         }
-        const subject = byCode.get(norm(r.code));
+        if (seenEdps.has(edp)) {
+            bad.push({ line: r.__line, why: `EDP ${edp} appears more than once in this file.` });
+            continue;
+        }
+        if (existingEdps.has(edp)) {
+            bad.push({ line: r.__line, why: `EDP ${edp} is already assigned to another offering in this term.` });
+            continue;
+        }
+
+        const subject = byCode.get(code);
         if (!subject) {
-            bad.push({ line: r.__line, why: `${r.code} is not in the prospectus.` });
+            bad.push({ line: r.__line, why: `${r.subject} is not in the prospectus.` });
             continue;
         }
 
-        // A template row left entirely blank means that section is not
-        // being offered. Saving it would create an offering with no
-        // meeting time, which the engine would treat as available.
+        if (type !== 'LEC' && type !== 'LAB') {
+            bad.push({ line: r.__line, why: `Type must be LEC or LAB (got "${r.type}").` });
+            continue;
+        }
+
+        const hasLab = Number(subject.lab_units) > 0;
+        if (type === 'LAB' && !hasLab) {
+            bad.push({ line: r.__line, why: `${subject.code} has no laboratory units — it cannot have a LAB meeting.` });
+            continue;
+        }
+
+        // A wholly empty row (no days, no time, no room) means the
+        // section is not running that subject — treated as skipped,
+        // matching how the physical form handles unoffered subjects.
         if (!r.days && !r.start_time && !r.room) {
-            skipped.push({ line: r.__line, code: r.code, section: r.section });
+            skipped.push({ line: r.__line, subject: subject.code, type });
             continue;
         }
 
-        ok.push({ subject, row: r });
+        const missing = [];
+        if (!r.days)       missing.push('days');
+        if (!r.start_time) missing.push('start time');
+        if (!r.end_time)   missing.push('end time');
+        if (!r.room)       missing.push('room');
+        if (missing.length) {
+            bad.push({ line: r.__line, why: `Missing ${missing.join(', ')}.` });
+            continue;
+        }
+
+        seenEdps.add(edp);
+        ok.push({ subject, row: { ...r, section: fileSection, type } });
     }
 
     PENDING_ROWS = ok;
 
+    // ── Render ──────────────────────────────────────────────────
+    const totalUnits = ok.reduce((sum, { subject, row }) => {
+        return row.type === 'LAB' ? sum : sum + Number(subject.units || 0);
+    }, 0);
+
     box.innerHTML = `
-        <div class="notice ${bad.length ? 'pending' : 'info'}">
-            <i class="fa-solid ${bad.length ? 'fa-triangle-exclamation' : 'fa-circle-info'}" aria-hidden="true"></i>
-            <div>
-                <strong>${ok.length} row${ok.length === 1 ? '' : 's'} ready${bad.length ? `, ${bad.length} rejected` : ''}</strong>
-                ${bad.length
-                    ? bad.map(b => `Line ${b.line}: ${escapeHtml(b.why)}`).join('<br>')
-                    : 'Every code matched a subject in the prospectus.'}
+        <div class="upload-stats">
+            <div class="upload-stat">
+                <p class="k">Rows</p>
+                <p class="v">${rows.length}</p>
+                <p class="u">parsed from the source</p>
+            </div>
+            <div class="upload-stat${ok.length ? ' is-ready' : ''}">
+                <p class="k">Ready</p>
+                <p class="v">${ok.length}</p>
+                <p class="u">ready to add</p>
+            </div>
+            <div class="upload-stat${bad.length ? ' is-issues' : ''}">
+                <p class="k">Issues</p>
+                <p class="v">${bad.length}</p>
+                <p class="u">${bad.length ? 'need to be fixed' : 'none found'}</p>
+            </div>
+            <div class="upload-stat">
+                <p class="k">Units</p>
+                <p class="v">${totalUnits}</p>
+                <p class="u">lecture only</p>
             </div>
         </div>
+
+                ${warnings.length ? `
+            <div class="notice pending">
+                <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                <div>
+                    <strong>${warnings.length} note${warnings.length === 1 ? '' : 's'} from the scan</strong>
+                    ${warnings.map(w => escapeHtml(w)).join('<br>')}
+                </div>
+            </div>` : ''}
+
+    ${(detected && detected.section) && (
+    !expectedSection ||
+    (expectedSection && detected.section !== expectedSection)
+    ) ? (() => {
+    const { year: curYear, term: curTerm } = schedTerm();
+    const haveCurrent = expectedSection && curYear && curTerm;
+    const detLabel = detected.year && detected.term
+        ? `${detected.section} · ${termLabel(detected.term)} · ${detected.year}\u2013${String(detected.year + 1).slice(-2)}`
+        : detected.section;
+
+    const canSwitch = Number.isFinite(detected.year)
+        && Number.isFinite(detected.term)
+        && String(detected.section).split('-')[0].toUpperCase() === PROGRAM_CODE
+        && [...($('sched-year')?.options ?? [])].some(o => o.value === String(detected.year));
+
+    // Blank-state path: nothing was selected before the scan. Offer
+    // to fill the four dropdowns from the photo, then apply.
+    if (!haveCurrent && canSwitch) {
+        return `
+        <div class="notice info">
+            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+            <div>
+                <strong>The photo shows ${escapeHtml(detLabel)}</strong>
+                Nothing is selected above. Use the photo's section, or pick
+                one manually.
+                <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                    <button class="btn-small" data-use-detected>
+                        <i class="fa-solid fa-check" aria-hidden="true"></i>
+                        Use ${escapeHtml(detected.section)}
+                    </button>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // Photo's term isn't available in the dropdowns — can't switch.
+    if (!canSwitch) {
+        return `
+        <div class="notice pending">
+            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+            <div>
+                <strong>The photo shows ${escapeHtml(detLabel)}</strong>
+                That term is not in your prospectus versions — add the
+                rows under a term you have, or add the version on the
+                Prospectus tab first.
+            </div>
+        </div>`;
+    }
+
+    // Mismatch: something was selected and the photo disagrees.
+    const curLabel = `${expectedSection} · ${termLabel(curTerm)} · ${curYear}\u2013${String(curYear + 1).slice(-2)}`;
+    return `
+    <div class="notice pending">
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+        <div>
+            <strong>The photo shows ${escapeHtml(detLabel)}</strong>
+            You have <strong>${escapeHtml(curLabel)}</strong> selected.
+            Switch to match the photo, or add the rows here.
+            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                <button class="btn-small" data-switch-apply>
+                    <i class="fa-solid fa-right-left" aria-hidden="true"></i>
+                    Switch to ${escapeHtml(detected.section)} and add rows
+                </button>
+                <button class="btn-small" data-stay-apply>
+                    Add under ${escapeHtml(expectedSection)}
+                </button>
+            </div>
+        </div>
+    </div>`;
+    })() : ''}
+
+        ${bad.length ? `
+            <div class="notice pending">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div>
+                    <strong>${bad.length} row${bad.length === 1 ? '' : 's'} rejected</strong>
+                    ${bad.map(b => `Line ${b.line}: ${escapeHtml(b.why)}`).join('<br>')}
+                </div>
+            </div>` : ''}
 
         ${skipped.length ? `
             <div class="notice info">
                 <i class="fa-solid fa-circle-minus" aria-hidden="true"></i>
                 <div>
                     <strong>${skipped.length} row${skipped.length === 1 ? '' : 's'} left blank, not offered</strong>
-                    Template rows with no days, time, or room are treated as
-                    sections that are not running this term.
+                    Rows with no days, time, or room are treated as subjects not running this term.
                 </div>
             </div>` : ''}
+
         ${ok.length ? `
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Code</th><th>Section</th><th>Days</th><th>Time</th><th>Room</th></tr></thead>
-                    <tbody>${ok.slice(0, 10).map(({ subject, row }) => `
+                    <thead><tr>
+                        <th>EDP</th><th>Subject</th><th>Type</th>
+                        <th>Days</th><th>Time</th><th>Room</th>
+                    </tr></thead>
+                    <tbody>${ok.slice(0, 12).map(({ subject, row }) => `
                         <tr>
+                            <td class="mono">${escapeHtml(row.edp_code)}</td>
                             <td class="mono">${escapeHtml(subject.code)}</td>
-                            <td class="mono">${escapeHtml(row.section)}</td>
-                            <td>${escapeHtml(row.days || '—')}</td>
+                            <td>${row.type === 'LAB'
+                                ? '<span class="pill lab">LAB</span>'
+                                : '<span class="pill lec">LEC</span>'}</td>
+                            <td>${escapeHtml(row.days)}</td>
                             <td class="dim">${timeRange(row.start_time, row.end_time)}</td>
-                            <td class="dim">${escapeHtml(row.room || '—')}</td>
+                            <td class="dim">${escapeHtml(row.room)}</td>
                         </tr>`).join('')}
                     </tbody>
                 </table>
-                ${ok.length > 10 ? `<p class="dim">and ${ok.length - 10} more</p>` : ''}
-            </div>
-            <button class="btn-accent" id="commit-upload" style="margin-top: var(--s2)">
-                <i class="fa-solid fa-check" aria-hidden="true"></i>
-                <span>Save ${ok.length} offering${ok.length === 1 ? '' : 's'}</span>
-            </button>` : ''}`;
+                ${ok.length > 12 ? `<p class="dim">and ${ok.length - 12} more</p>` : ''}
+            <div class="preview-actions">
+                <button class="btn-accent" id="apply-upload">
+                    <i class="fa-solid fa-arrow-down" aria-hidden="true"></i>
+                    <span>Add ${ok.length} row${ok.length === 1 ? '' : 's'} to the schedule</span>
+                </button>
+                <button class="btn-secondary" id="discard-upload">
+                    Discard upload
+                </button>
+            </div>` : ''}`;
 
-    $('commit-upload')?.addEventListener('click', commitUpload);
+    $('apply-upload')?.addEventListener('click', applyUploadToPending);
+    $('discard-upload')?.addEventListener('click', discardPreview);
+
+    // The mismatch banner (when present) offers a second path: flip the
+    // dropdowns to match the photo, then apply.
+    $('[data-use-detected]')?.addEventListener('click', () => fillFromDetected(detected));
+    $('[data-switch-apply]')?.addEventListener('click', () => switchAndApply(detected));
+    $('[data-stay-apply]')?.addEventListener('click', applyUploadToPending);
 }
 
-async function commitUpload() {
+/* EDP codes already used by another offering in this term. Fetched
+   fresh at preview time so a re-upload after edits catches the case
+   where a code was taken between the first preview and the second. */
+async function fetchExistingEdps() {
+    if (PREVIEW) return new Set();
+    const { year, term } = schedTerm();
+    if (!year || !term) return new Set();
+    const { data, error } = await supabase
+        .from('subject_offering')
+        .select('edp_code')
+        .eq('academic_year', year)
+        .eq('term', term);
+    if (error) {
+        console.warn('could not read existing EDP codes:', error.message);
+        return new Set();
+    }
+    return new Set((data ?? []).map(r => String(r.edp_code || '').trim()).filter(Boolean));
+}
+
+/* Merge the previewed rows into PENDING for the current section. This is
+   where the scanned or uploaded rows become editable: they land in the
+   same table the operator builds by hand, so a misread from the scan is
+   one keystroke to fix rather than a re-upload.
+
+   Slot matching uses (subject_id, meeting_type) — the same natural key
+   the DB enforces — so re-applying a corrected source updates existing
+   rows rather than duplicating them.
+
+   EDP uniqueness is checked twice: once against every other row already
+   in PENDING for this section (excluding slots we are about to replace),
+   and once inside the batch itself. The DB has the same constraint, but
+   catching it here lets the operator see the offending row in the table
+   rather than as a Save-time error. */
+function applyUploadToPending() {
+    const section = currentSection();
+    if (!section) return showMsg('sched-msg', 'Choose a section first.');
     if (PENDING_ROWS.length === 0) return;
 
     const { year, term } = schedTerm();
 
-    const payload = PENDING_ROWS.map(({ subject, row }) => ({
-        subject_id:     subject.id,
-        academic_year:  year,
-        term,
-        section:        row.section.toUpperCase(),
-        schedule_days:  row.days || null,
-        start_time:     row.start_time || null,
-        end_time:       row.end_time || null,
-        room:           row.room || null,
-        instructor:     row.instructor || null,
-        edp_code:       row.edp_code || null,
-        created_by:     STAFF_ID,
-    }));
+    const slotsToReplace = new Set(
+        PENDING_ROWS.map(({ subject, row }) => `${subject.id}|${row.type}`)
+    );
 
-    if (PREVIEW) {
-        OFFERINGS.push(...payload.map((p, i) => ({ ...p, id: Date.now() + i })));
-        renderOfferings();
-        $('upload-preview').innerHTML = '';
-        $('sched-file').value = '';
-        return showMsg('sched-msg', `${payload.length} offerings added (preview only — not saved).`, 'success');
+    const claimedEdps = new Set();
+    for (const p of PENDING) {
+        if (p.section !== section) continue;
+        if (slotsToReplace.has(`${p.subject_id}|${p.meeting_type}`)) continue;
+        if (p.edp_code) claimedEdps.add(String(p.edp_code).trim());
     }
 
-    // upsert so re-uploading a corrected file updates rather than failing
-    const { error } = await supabase
-        .from('subject_offering')
-        .upsert(payload, { onConflict: 'subject_id,academic_year,term,section' });
+    let added = 0, replaced = 0;
+    const rejected = [];
 
-    if (error) {
-        console.error('offering upload failed:', error.message);
-        return showMsg('sched-msg', 'Could not save the schedule. ' + error.message);
+    for (const { subject, row } of PENDING_ROWS) {
+        const edp = String(row.edp_code || '').trim();
+
+        if (claimedEdps.has(edp)) {
+            rejected.push(`${subject.code} ${row.type}: EDP ${edp} already used by another row.`);
+            continue;
+        }
+
+        const existing = PENDING.find(p =>
+            p.section === section &&
+            p.subject_id === subject.id &&
+            p.meeting_type === row.type
+        );
+
+        const next = {
+            __key:         existing?.__key ?? nextKey(),
+            id:            existing?.id ?? null,
+            edp_code:      edp,
+            subject_id:    subject.id,
+            meeting_type:  row.type,
+            section,
+            academic_year: year,
+            term,
+            schedule_days: row.days || '',
+            start_time:    row.start_time || '',
+            end_time:      row.end_time || '',
+            room:          row.room || '',
+            instructor:    row.instructor || '',
+        };
+
+        if (existing) {
+            Object.assign(existing, next);
+            replaced++;
+        } else {
+            PENDING.push(next);
+            added++;
+        }
+        claimedEdps.add(edp);
     }
 
-    $('upload-preview').innerHTML = '';
-    $('sched-file').value = '';
+    if (added + replaced > 0) DIRTY.add(section);
+
+    // Clear the preview — the rows now live in the table below.
     PENDING_ROWS = [];
-    await loadOfferings();
-    showMsg('sched-msg', `${payload.length} offering${payload.length === 1 ? '' : 's'} saved.`, 'success');
+    const box = $('upload-preview');
+    if (box) box.innerHTML = '';
+    const file = $('sched-file');  if (file)  file.value = '';
+    const photo = $('sched-photo'); if (photo) photo.value = '';
+
+    renderOfferings();
+
+    const parts = [];
+    if (added)    parts.push(`${added} added`);
+    if (replaced) parts.push(`${replaced} updated`);
+    const summary = parts.join(', ') || 'No rows applied';
+    const tail = rejected.length
+        ? ` ${rejected.length} row${rejected.length === 1 ? '' : 's'} skipped: ${rejected[0]}`
+        : '';
+    showMsg('sched-msg',
+        `${summary} to ${section}. Review the table, then Save ${section}.${tail}`,
+        rejected.length ? 'error' : 'success');
 }
 
+/* Throws away a preview without applying it. Used when the scan came
+   back wrong, or the operator changed their mind — the rows never
+   touched PENDING, so nothing in the schedule table needs touching.
+   Clears both upload inputs so a re-pick starts clean. */
+function discardPreview() {
+    PENDING_ROWS = [];
 
-/* single offering */
+    const box = $('upload-preview');
+    if (box) box.innerHTML = '';
 
-async function addOffering() {
+    const file  = $('sched-file');  if (file)  file.value = '';
+    const photo = $('sched-photo'); if (photo) photo.value = '';
+
+    PHOTO_FILE = null;
+    renderPhotoStage('idle');
+
     showMsg('sched-msg', '');
+}
 
-    const subjectId = Number($('o-subject').value);
-    const section   = $('o-section').value.trim().toUpperCase();
+/* Flips the four dropdowns to whatever the photo's header says, waits
+   for the reload, then applies the previewed rows into that section's
+   PENDING. Only reachable from the mismatch banner, where the operator
+   has already seen both labels and chosen to switch.
 
-    if (!subjectId) return showMsg('sched-msg', 'Choose a subject.');
-    if (!section)   return showMsg('sched-msg', 'Enter a section.');
+   Order matters. reloadScheduleView() re-fetches offerings and rebuilds
+   the section dropdowns; PENDING_ROWS is untouched across that, so the
+   scan result survives the switch. Only after everything has settled do
+   we call applyUploadToPending(). */
+async function switchAndApply(detected) {
+    if (!detected?.section || !detected.year || !detected.term) return;
 
-    const { year, term } = schedTerm();
+    const m = String(detected.section).match(/^([A-Z]+)-(\d+)([A-Z]+)$/i);
+    if (!m) return showMsg('sched-msg', 'The photo section is not in the expected shape.');
 
-    const row = {
-        subject_id:    subjectId,
-        academic_year: year,
-        term,
-        section,
-        schedule_days: $('o-days').value.trim() || null,
-        start_time:    $('o-start').value || null,
-        end_time:      $('o-end').value || null,
-        room:          $('o-room').value.trim() || null,
-        instructor:    $('o-instructor').value.trim() || null,
-        capacity:      $('o-capacity').value ? Number($('o-capacity').value) : null,
-        created_by:    STAFF_ID,
+    const [, , levelStr, letter] = m;
+
+    // Program prefix is set from the active prospectus — if the photo
+    // disagrees, warn rather than fight it. Not a blocker.
+    const detectedPrefix = m[1].toUpperCase();
+    if (detectedPrefix !== PROGRAM_CODE) {
+        showMsg('sched-msg',
+            `The photo is for ${detectedPrefix}, but this dashboard is scoped to ${PROGRAM_CODE}.`);
+        return;
+    }
+
+    // reloadScheduleView() below rebuilds PENDING from OFFERINGS and
+    // clears DIRTY. Any unsaved edits — on the current section or on
+    // any other section the operator has touched — would vanish. Warn
+    // before that happens.
+    if (DIRTY.size > 0) {
+        const n = DIRTY.size;
+        const ok = window.confirm(
+            `Switching reloads the schedule from the database.\n\n` +
+            `Unsaved changes on ${n === 1 ? 'one section' : `${n} sections`} ` +
+            `will be discarded. Continue?`
+        );
+        if (!ok) return;
+    }
+
+    // All four dropdowns get set before any reload happens.
+    const setSel = (id, value) => {
+        const el = $(id);
+        if (!el) return false;
+        const ok = [...el.options].some(o => o.value === String(value));
+        if (ok) el.value = String(value);
+        return ok;
     };
 
-    if (PREVIEW) {
-        OFFERINGS.push({ ...row, id: Date.now() });
-        renderOfferings();
-        clearOfferingForm();
-        return showMsg('sched-msg', 'Offering added (preview only — not saved).', 'success');
+    setSel('sched-year', detected.year);
+    setSel('sched-term', detected.term);
+    setSel('sched-year-level', Number(levelStr));
+
+    // reloadScheduleView() re-fetches offerings for the new year/term
+    // and rebuilds the section dropdowns. Must be awaited — PENDING is
+    // reset by loadOfferings(), and applying before it resolves would
+    // write the rows into the wrong (stale) section.
+    await reloadScheduleView();
+
+    // renderTopSectionOptions() preserves the year-level if it survived
+    // the reload; the letter dropdown is rebuilt from the new OFFERINGS.
+    setSel('sched-section-letter', letter);
+
+    applyUploadToPending();
+}
+
+/* Populates all four dropdowns from the scan's header, then applies the
+   previewed rows. Used when nothing was selected before the scan — the
+   photo becomes the source of truth.
+
+   Order: set four dropdowns → reload offerings → set letter → apply.
+   Same shape as switchAndApply, but there are no unsaved edits to lose
+   when nothing was selected, so no confirm. */
+async function fillFromDetected(detected) {
+    if (!detected?.section || !detected.year || !detected.term) {
+        return showMsg('sched-msg', 'The scan did not report a full section.');
     }
 
-    const { error } = await supabase.from('subject_offering').insert([row]);
+    const m = String(detected.section).match(/^([A-Z]+)-(\d+)([A-Z]+)$/i);
+    if (!m) return showMsg('sched-msg', 'The photo section is not in the expected shape.');
+    const [, prefix, levelStr, letter] = m;
 
-    if (error) {
-        console.error('offering insert failed:', error.message);
+    if (prefix.toUpperCase() !== PROGRAM_CODE) {
         return showMsg('sched-msg',
-            error.code === '23505'
-                ? 'That section already exists for this subject and term.'
-                : 'Could not add that offering. ' + error.message);
+            `The photo is for ${prefix}, but this dashboard is scoped to ${PROGRAM_CODE}.`);
     }
 
-    await loadOfferings();
-    clearOfferingForm();
-    showMsg('sched-msg', 'Offering added.', 'success');
+    const setSel = (id, value) => {
+        const el = $(id);
+        if (!el) return false;
+        const ok = [...el.options].some(o => o.value === String(value));
+        if (ok) el.value = String(value);
+        return ok;
+    };
+
+    setSel('sched-year', detected.year);
+    setSel('sched-term', detected.term);
+    setSel('sched-year-level', Number(levelStr));
+
+    await reloadScheduleView();
+
+    setSel('sched-section-letter', letter);
+
+    applyUploadToPending();
 }
-
-function clearOfferingForm() {
-    ['o-section','o-days','o-start','o-end','o-room','o-instructor','o-capacity']
-        .forEach(id => { $(id).value = ''; });
-}
-
-async function dropOffering(id) {
-    if (PREVIEW) {
-        OFFERINGS = OFFERINGS.filter(o => o.id !== id);
-        return renderOfferings();
-    }
-
-    const { error } = await supabase.from('subject_offering').delete().eq('id', id);
-
-    if (error) {
-        console.error('offering delete failed:', error.message);
-        return showMsg('sched-msg', 'Could not remove that offering.');
-    }
-
-    await loadOfferings();
-    showMsg('sched-msg', 'Offering removed.', 'success');
-}
-
-$('add-offering')?.addEventListener('click', addOffering);
-
 
 /* ============================================================
    GRADE UPLOAD – Part A: File Reading + Validation
@@ -2166,10 +3540,44 @@ let gradeState = {
     subjectMap: null
 };
 
+/* Term options — only years that have a prospectus version in the
+   database. A term with no curriculum behind it can't validate a
+   grade file: no subject in the file would ever match. Offering such
+   terms would let the operator pick something that fails on every
+   row and produce a wall of "not in prospectus" rejections.
+
+   When a new prospectus version is created, the term appears here on
+   the next page load — no code change needed. */
+function renderPeriodOptions() {
+    const sel = $('g-period');
+    if (!sel) return;
+
+    const years = [...new Set(VERSIONS.map(v => v.academic_year))]
+        .filter(y => Number.isInteger(y))
+        .sort((a, b) => b - a);
+
+    if (!years.length) {
+        sel.innerHTML = '<option value="">No prospectus versions</option>';
+        return;
+    }
+
+    const termNames = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
+    const options = ['<option value="">Select term</option>'];
+    for (const y of years) {
+        const range = `${y}\u2013${String(y + 1).slice(-2)}`;
+        for (const t of [1, 2, 3]) {
+            options.push(`<option value="${y}-${t}">${termNames[t]} ${range}</option>`);
+        }
+    }
+    sel.innerHTML = options.join('');
+}
+
 function initGrades() {
     if (!gradeState.ready) {
-        const y = $('g-year');
-        if (y && !y.value) y.value = currentAcademicYear();
+        // Populate once per page load. No pre-selection — the operator
+        // must choose a term deliberately, same reason a blank year
+        // field is better than a wrong default.
+        renderPeriodOptions();
         gradeState.ready = true;
     }
     loadGradeHistory();
@@ -2265,9 +3673,24 @@ $('grade-file')?.addEventListener('change', async (e) => {
 async function validateGrades(rows, fileName) {
     const students = await loadStudentMap();
     const subjects = await loadSubjectMap();
-    const passing = Number($('g-passing').value) || 3.0;
-    const year = Number($('g-year').value);
-    const term = Number($('g-term').value);
+
+    // 3.0 is UC's passing mark. It is not configurable — a program
+    // setting a tighter threshold would fail students who passed under
+    // the university's own scale. Files that need a different
+    // classification per row use the status column.
+    const passing = 3.0;
+
+    // The dropdown value carries both halves: "2026-1" → year 2026,
+    // term 1 (1st Sem). One field, one choice, one source.
+    const period = String($('g-period')?.value || '');
+    const [yearStr, termStr] = period.split('-');
+    const year = Number(yearStr);
+    const term = Number(termStr);
+
+    if (!Number.isInteger(year) || year < 2000 || year > 2100
+        || ![1, 2, 3].includes(term)) {
+        return showMsg('grade-msg', 'Choose a term before uploading.');
+    }
 
     const ok = [], bad = [], skipped = [];
 
@@ -2356,21 +3779,63 @@ async function validateGrades(rows, fileName) {
 }
 
 function renderGradePreview(ok, bad, fileName, passing) {
-    const box = $('grade-preview');
-    if (!box) return;
+    const card = $('grade-preview-card');
+    const box  = $('grade-preview');
+    const note = $('grade-preview-note');
+    if (!card || !box) return;
 
-    box.style.display = 'block';
+    card.hidden = false;
+    if (note) note.textContent = fileName;
 
     const warned = ok.filter(r => r.name_warning);
+
+    // Outcome breakdown — the strip's four values.
+    const statusCount = (s) => ok.filter(r => r.status === s).length;
+    const passed   = statusCount('PASSED');
+    const failed   = statusCount('FAILED');
+    const enrolled = statusCount('ENROLLED');
+    const dropped  = statusCount('DROPPED');
+
     let html = '';
 
+    // Four stat cards — same shape as Schedule's upload stats.
     html += `
-        <div class="notice ${bad.length ? 'pending' : 'info'}">
-            <i class="fa-solid ${bad.length ? 'fa-triangle-exclamation' : 'fa-circle-check'}"></i>
-            <div>
-                <strong>${ok.length} valid${bad.length ? `, ${bad.length} rejected` : ''}</strong>
-                <span class="dim"> · ${fileName} · Passing: ${passing.toFixed(1)}</span>
+        <div class="upload-stats">
+            <div class="upload-stat">
+                <p class="k">Rows</p>
+                <p class="v">${ok.length + bad.length}</p>
+                <p class="u">parsed from the file</p>
             </div>
+            <div class="upload-stat${ok.length ? ' is-ready' : ''}">
+                <p class="k">Valid</p>
+                <p class="v">${ok.length}</p>
+                <p class="u">ready to submit</p>
+            </div>
+            <div class="upload-stat${bad.length ? ' is-issues' : ''}">
+                <p class="k">Rejected</p>
+                <p class="v">${bad.length}</p>
+                <p class="u">${bad.length ? 'need to be fixed' : 'none found'}</p>
+            </div>
+            <div class="upload-stat${warned.length ? ' is-issues' : ''}">
+                <p class="k">Warnings</p>
+                <p class="v">${warned.length}</p>
+                <p class="u">${warned.length ? 'soft — still accepted' : 'none found'}</p>
+            </div>
+        </div>
+
+        <div class="grade-status-strip">
+            <span class="grade-status-item is-passed">
+                <span class="k">Passed</span><span class="v">${passed}</span>
+            </span>
+            <span class="grade-status-item is-failed">
+                <span class="k">Failed</span><span class="v">${failed}</span>
+            </span>
+            <span class="grade-status-item is-enrolled">
+                <span class="k">Enrolled</span><span class="v">${enrolled}</span>
+            </span>
+            <span class="grade-status-item is-dropped">
+                <span class="k">Dropped</span><span class="v">${dropped}</span>
+            </span>
         </div>
     `;
 
@@ -2380,10 +3845,11 @@ function renderGradePreview(ok, bad, fileName, passing) {
                 <i class="fa-solid fa-user-check"></i>
                 <div>
                     <strong>${warned.length} name warning${warned.length > 1 ? 's' : ''}</strong>
-                    ${warned.slice(0, 5).map(r => 
+                    ${warned.slice(0, 5).map(r =>
                         `<span class="dim">Line ${r.line}: ${r.name_warning}</span>`
                     ).join('<br>')}
                     ${warned.length > 5 ? `<span class="dim">and ${warned.length - 5} more</span>` : ''}
+                    <span class="dim">These are soft — the rows were still accepted.</span>
                 </div>
             </div>
         `;
@@ -2391,7 +3857,7 @@ function renderGradePreview(ok, bad, fileName, passing) {
 
     if (bad.length) {
         html += `
-            <h3 class="group-head" style="margin-top:var(--s3);">Rejected rows</h3>
+            <h3 class="group-head">Rejected rows (${bad.length})</h3>
             <div class="table-wrap">
                 <table class="data-table">
                     <thead><tr><th>Line</th><th>Student</th><th>Subject</th><th>Reason</th></tr></thead>
@@ -2410,7 +3876,7 @@ function renderGradePreview(ok, bad, fileName, passing) {
 
     if (ok.length) {
         html += `
-            <h3 class="group-head" style="margin-top:var(--s3);">Ready to save (${ok.length})</h3>
+            <h3 class="group-head">Ready to submit (${ok.length})</h3>
             <div class="table-wrap">
                 <table class="data-table">
                     <thead><tr><th>ID</th><th>Name</th><th>Subject</th><th class="num">Grade</th><th>Status</th></tr></thead>
@@ -2420,15 +3886,22 @@ function renderGradePreview(ok, bad, fileName, passing) {
                             <td>${escapeHtml(r.student.first_name)} ${escapeHtml(r.student.last_name)}</td>
                             <td class="mono">${escapeHtml(r.subject.code)}</td>
                             <td class="num">${r.grade_points == null ? '—' : r.grade_points.toFixed(2)}</td>
-                            <td><span class="pill ${r.status === 'PASSED' ? 'ok' : r.status === 'FAILED' ? 'bad' : 'info'}">${r.status}</span></td>
+                            <td><span class="pill ${r.status === 'PASSED' ? 'ok' : r.status === 'FAILED' ? 'bad' : r.status === 'DROPPED' ? 'waiting' : 'info'}">${r.status}</span></td>
                         </tr>
                     `).join('')}</tbody>
                 </table>
                 ${ok.length > 15 ? `<p class="dim">and ${ok.length - 15} more</p>` : ''}
             </div>
-            <button class="btn-accent" id="commit-grades" style="margin-top:var(--s3);">
-                <i class="fa-solid fa-check"></i> Save ${ok.length} record${ok.length > 1 ? 's' : ''}
-            </button>
+
+            <div class="preview-actions">
+                <button class="btn-accent" id="commit-grades">
+                    <i class="fa-solid fa-check" aria-hidden="true"></i>
+                    <span>Submit ${ok.length} Grades</span>
+                </button>
+                <button class="btn-secondary" id="discard-grades">
+                    Discard upload
+                </button>
+            </div>
         `;
     }
 
@@ -2437,6 +3910,29 @@ function renderGradePreview(ok, bad, fileName, passing) {
     $('commit-grades')?.addEventListener('click', () => {
         commitGrades(fileName, bad, passing);
     });
+    $('discard-grades')?.addEventListener('click', discardGradePreview);
+}
+
+/* Throws away a grade preview without saving. Mirrors discardPreview()
+   in the schedule section — clears the local state, resets the file
+   picker, hides the preview card. Nothing was written to the DB, so
+   there is nothing to roll back. */
+function discardGradePreview() {
+    gradeState.rows = [];
+
+    const box = $('grade-preview');
+    if (box) box.innerHTML = '';
+
+    const card = $('grade-preview-card');
+    if (card) card.hidden = true;
+
+    const note = $('grade-preview-note');
+    if (note) note.textContent = '';
+
+    const file = $('grade-file');
+    if (file) file.value = '';
+
+    showMsg('grade-msg', '');
 }
 
 async function commitGrades(fileName, bad, passing) {
@@ -2450,21 +3946,18 @@ async function commitGrades(fileName, bad, passing) {
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
     }
 
-    const year = Number($('g-year').value);
-    const term = Number($('g-term').value);
+    const period = String($('g-period')?.value || '');
+    const [yearStr, termStr] = period.split('-');
+    const year = Number(yearStr);
+    const term = Number(termStr);
 
     if (PREVIEW) {
-        $('grade-preview').innerHTML = `
-            <div class="notice info">
-                <i class="fa-solid fa-check"></i>
-                <div>
-                    <strong>${gradeState.rows.length} records saved (preview)</strong>
-                    <p class="dim">No changes were written to the database.</p>
-                </div>
-            </div>
-        `;
+        $('grade-preview').innerHTML = '';
+        const previewCard = $('grade-preview-card');
+        if (previewCard) previewCard.hidden = true;
         $('grade-file').value = '';
-        showMsg('grade-msg', `${gradeState.rows.length} records saved (preview).`, 'success');
+        showMsg('grade-msg', `${gradeState.rows.length} grades submitted (preview).`, 'success');
+
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-check"></i> Save records';
@@ -2556,11 +4049,13 @@ async function commitGrades(fileName, bad, passing) {
 
         gradeState.rows = [];
         $('grade-preview').innerHTML = '';
+        const previewCard = $('grade-preview-card');
+        if (previewCard) previewCard.hidden = true;
         $('grade-file').value = '';
 
         await loadGradeHistory();
 
-        let msg = `${records.length} record${records.length === 1 ? '' : 's'} saved.`;
+        let msg = `${records.length} grade${records.length === 1 ? '' : 's'} submitted.`;
         if (bad.length > 0) {
             msg += ` ${bad.length} row${bad.length === 1 ? '' : 's'} rejected.`;
         }
@@ -2654,20 +4149,34 @@ async function loadGradeHistory() {
 }
 
 $('grade-template')?.addEventListener('click', () => {
-    const csv = [
-        'student_id,student_name,subject_code,grade,status,term,academic_year',
-        '2401187,Althea Villanueva,CC-COMPROG12,2.25,,1,2026',
-        '2401187,Althea Villanueva,SOCIO101,1.75,,1,2026',
-        '2401187,Althea Villanueva,RIZAL101,2.00,,1,2026',
-    ].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'grade-template.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-});
+    if (typeof XLSX === 'undefined') {
+        return showMsg('grade-msg', 'The spreadsheet library did not load. Check your connection.');
+    }
 
+    const rows = [
+        ['student_id', 'student_name', 'subject_code', 'grade', 'status'],
+        ['2401187',    'Althea Villanueva', 'CC-COMPROG12', 2.25, ''],
+        ['2401187',    'Althea Villanueva', 'SOCIO101',     1.75, ''],
+        ['2401187',    'Althea Villanueva', 'RIZAL101',     2.00, ''],
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+
+    // Column widths — character units, not pixels. Roughly px/7.
+    // Tuned to match the sample: wide enough for a subject code and a
+    // full name without the operator having to drag anything.
+    ws['!cols'] = [
+        { wch: 12 },  // student_id
+        { wch: 24 },  // student_name
+        { wch: 18 },  // subject_code
+        { wch:  8 },  // grade
+        { wch: 10 },  // status
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Grades');
+    XLSX.writeFile(wb, 'grade-template.xlsx');
+});
 
 /* boot */
 
@@ -2699,7 +4208,7 @@ $('grade-template')?.addEventListener('click', () => {
 
     const { data: staff, error } = await supabase
         .from('department_staff')
-        .select('id, user_id, first_name, last_name, employee_id, email, department, is_approved')
+        .select('id, user_id, first_name, last_name, employee_id, email, department, is_approved, avatar_url, created_at')
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 

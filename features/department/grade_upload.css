@@ -1,0 +1,151 @@
+/* grade_upload.css
+   Styles specific to the Grade upload page of the Department Staff
+   dashboard. Shared upload components — .upload-grid, .upload-source,
+   .upload-pick-block, .upload-stats, .preview-actions — live in
+   prospectus.css because the Schedule page uses them too.
+
+   Load after prospectus.css. */
+
+
+/* ── Step badges ─────────────────────────────────────────────────────
+   A numbered circle before a card or column title, marking its place
+   in the page's flow. On this page: ① Template, ② File inside the
+   upload card. */
+
+.card-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--indigo, #4f46e5);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 0;
+    letter-spacing: 0;
+}
+
+/* Badge inside a column head — same shape, one shade softer so it sits
+   beside the column title rather than competing with it. */
+.upload-source-head .card-step {
+    width: 20px;
+    height: 20px;
+    font-size: 0.68rem;
+    margin-right: 0.15rem;
+}
+
+
+/* ── Status strip ────────────────────────────────────────────────────
+   A single line below the four stat cards, breaking the "Valid" count
+   down by outcome. Kept as a strip rather than a fifth card so the
+   four-column grid above it stays intact. */
+
+.grade-status-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    padding: 0.6rem 0.2rem;
+    margin-bottom: var(--s3);
+    border-bottom: 1px solid var(--line);
+}
+
+.grade-status-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    font-size: 0.82rem;
+}
+
+.grade-status-item .k {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--slate);
+}
+
+.grade-status-item .v {
+    font-size: 0.95rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+}
+
+.grade-status-item.is-passed .v   { color: #059669; }
+.grade-status-item.is-failed .v   { color: #dc2626; }
+.grade-status-item.is-enrolled .v { color: #4f46e5; }
+.grade-status-item.is-dropped .v  { color: #94a3b8; }
+
+/* Download template spans the full width of its column. The button
+   sits at the bottom of the Template panel, so making it full-width
+   anchors it to the column shape rather than floating at content
+   width. */
+/* Download template mirrors the "Choose file" drop zone on the right —
+   same dashed outline, same height, same centered content, same green
+   hover. Two columns, two equal-weight actions: pick a file you've
+   already filled, or download a fresh one. */
+.upload-source #grade-template {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    width: 100%;
+    min-height: 118px;
+    padding: 1.5rem 1rem;
+    margin-top: auto;
+    border: 1.5px dashed #CBD5E1;
+    border-radius: 8px;
+    background: #F8FAFC;
+    color: #475569;
+    font: 500 0.88rem inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        border-color 0.2s ease,
+        background 0.2s ease,
+        color 0.2s ease,
+        box-shadow 0.2s ease,
+        transform 0.2s ease;
+}
+
+.upload-source #grade-template:hover:not(:disabled) {
+    border-color: var(--green, #0f8a5f);
+    background: #ECF6F1;
+    color: var(--ink);
+    box-shadow: 0 6px 16px rgba(15, 138, 95, 0.12);
+    transform: translateY(-1px);
+}
+
+.upload-source #grade-template:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(15, 138, 95, 0.10);
+}
+
+.upload-source #grade-template i {
+    font-size: 1.1rem;
+    color: #94A3B8;
+    transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.upload-source #grade-template:hover:not(:disabled) i {
+    color: var(--green, #0f8a5f);
+    transform: scale(1.08);
+}
+
+.upload-source .btn-small {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    margin-top: auto;
+    padding: 0.7rem 1rem;
+}
+
+.upload-source .upload-pick-block {
+    min-height: 118px;
+}

@@ -210,3 +210,1185 @@
     .pros-grid .pg-yr, .pros-grid .pg-stage { transition: none; }
     .pros-grid .pg-yr.off.l, .pros-grid .pg-yr.off.r { transform: none; }
 }
+
+
+/* ── Activate version dialog ──────────────────────────────────── */
+
+.act-modal {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    max-width: 680px;
+    width: 100%;
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+    font-family: inherit;
+}
+
+.act-panel-left {
+    background: #F8FAFC;
+    border-right: 1px solid #E2E8F0;
+    padding: 2rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.act-year-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94A3B8;
+    margin-bottom: 0.4rem;
+}
+
+.act-year-value {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: #0F172A;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+}
+
+.act-panel-right {
+    padding: 2rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.act-title {
+    font-family: inherit;
+    font-weight: 600;
+    font-optical-sizing: auto;
+    font-size: 1.25rem;
+    letter-spacing: -0.01em;
+    color: #0F172A;
+    margin: 0 0 0.5rem;
+}
+
+.act-desc {
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: #64748B;
+    margin: 0 0 1.25rem;
+}
+
+/* Informational panel — soft indigo tint, signalling "this is what
+   will happen", not "this is dangerous". Checkmarks, not bullets. */
+.act-notes {
+    margin: 0 0 1.5rem;
+    padding: 0.85rem 1.1rem;
+    list-style: none;
+    background: #F5F3FF;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    line-height: 1.75;
+    color: #3730A3;
+}
+
+.act-notes li {
+    padding-left: 1.35rem;
+    position: relative;
+}
+
+.act-notes li::before {
+    content: "\2713";   /* checkmark */
+    position: absolute;
+    left: 0;
+    color: #4F46E5;
+    font-weight: 700;
+}
+
+.act-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: auto;
+}
+
+.act-cancel,
+.act-go {
+    height: 44px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.act-cancel {
+    background: #fff;
+    border: 1.5px solid #E2E8F0;
+    color: #334155;
+}
+
+.act-cancel:hover {
+    background: #F8FAFC;
+    border-color: #CBD5E1;
+}
+
+.act-go {
+    border: none;
+    background: #4F46E5;
+    color: #fff;
+}
+
+.act-go:hover {
+    background: #4338CA;
+}
+
+@media (max-width: 640px) {
+    .act-modal {
+        grid-template-columns: 1fr;
+    }
+    .act-panel-left {
+        border-right: none;
+        border-bottom: 1px solid #E2E8F0;
+        padding: 1.25rem 1.5rem;
+        flex-direction: row;
+        align-items: baseline;
+        gap: 0.75rem;
+    }
+}
+
+
+/* ── Delete draft version dialog ──────────────────────────────── */
+
+.cbp-overlay[hidden] { display: none; }
+
+.cbp-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(15, 23, 42, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.del-modal {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    max-width: 680px;
+    width: 100%;
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+    font-family: inherit;
+}
+
+/* left rail — the year, presented as a card */
+.del-panel-left {
+    background: #F8FAFC;
+    border-right: 1px solid #E2E8F0;
+    padding: 2rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.del-year-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94A3B8;
+    margin-bottom: 0.4rem;
+}
+
+.del-year-value {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: #0F172A;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+}
+
+/* right side — content */
+.del-panel-right {
+    padding: 2rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.del-title {
+    font-family: inherit;
+    font-weight: 600;
+    font-optical-sizing: auto;
+    font-size: 1.25rem;
+    letter-spacing: -0.01em;
+    color: #0F172A;
+    margin: 0 0 0.5rem;
+}
+
+.del-desc {
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: #64748B;
+    margin: 0 0 1.25rem;
+}
+
+.del-removal-list {
+    margin: 0 0 1.5rem;
+    padding: 0.85rem 1.1rem;
+    list-style: none;
+    background: #FEF2F2;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    color: #7F1D1D;
+}
+
+.del-removal-list li::before {
+    content: "•  ";
+    color: #DC2626;
+    font-weight: 700;
+}
+
+.del-removal-list.is-empty {
+    background: #F1F5F9;
+    color: #64748B;
+    font-style: italic;
+}
+
+.del-removal-list.is-empty li::before { content: none; }
+
+.del-confirm-field {
+    margin-bottom: 1.5rem;
+}
+
+.del-confirm-field label {
+    display: block;
+    font-size: 0.82rem;
+    color: #64748B;
+    margin-bottom: 0.5rem;
+}
+
+.del-confirm-field code {
+    background: #F1F5F9;
+    color: #0F172A;
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-size: 0.85em;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.del-confirm-field input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.7rem 0.9rem;
+    border: 1.5px solid #E2E8F0;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    background: #fff;
+    color: #0F172A;
+    letter-spacing: 0.05em;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.del-confirm-field input:focus {
+    outline: none;
+    border-color: #94A3B8;
+}
+
+.del-confirm-field input.is-match {
+    border-color: #4F46E5;
+    background: #F5F3FF;
+}
+
+.del-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: auto;
+}
+
+.del-cancel,
+.del-go {
+    height: 44px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.del-cancel {
+    background: #fff;
+    border: 1.5px solid #E2E8F0;
+    color: #334155;
+}
+
+.del-cancel:hover {
+    background: #F8FAFC;
+    border-color: #CBD5E1;
+}
+
+.del-go {
+    border: none;
+    background: #E2E8F0;
+    color: #94A3B8;
+    cursor: not-allowed;
+}
+
+.del-go.is-armed {
+    background: #4F46E5;
+    color: #fff;
+    cursor: pointer;
+}
+
+.del-go.is-armed:hover {
+    background: #4338CA;
+}
+
+@media (max-width: 640px) {
+    .del-modal {
+        grid-template-columns: 1fr;
+    }
+    .del-panel-left {
+        border-right: none;
+        border-bottom: 1px solid #E2E8F0;
+        padding: 1.25rem 1.5rem;
+        flex-direction: row;
+        align-items: baseline;
+        gap: 0.75rem;
+    }
+}
+
+/* Four cards in a row: Rows, Ready, Issues, Units. Matches the
+   Subjects/Offerings/Units/Saved row on the Build Schedule card —
+   same classes, same container shape, same treatment. */
+.upload-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: var(--s3, 20px);
+}
+
+.upload-stat {
+    background: var(--surface-2, #F1F5F9);
+    border-radius: 10px;
+    padding: 14px 16px;
+    min-width: 0;
+}
+
+.upload-stat .k {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-2, #475569);
+}
+
+.upload-stat .v {
+    margin: 4px 0 0;
+    font: 600 26px/1.15 var(--font-display, 'Space Grotesk', sans-serif);
+    font-variant-numeric: tabular-nums;
+}
+
+.upload-stat .u {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--ink-3, #94A3B8);
+}
+
+.upload-stat.is-ready {
+    background: #ECFDF5;
+}
+.upload-stat.is-ready .k,
+.upload-stat.is-ready .v {
+    color: #059669;
+}
+
+.upload-stat.is-issues {
+    background: #FEF2F2;
+}
+.upload-stat.is-issues .k,
+.upload-stat.is-issues .v {
+    color: #DC2626;
+}   
+
+
+@media (max-width: 720px) {
+    .upload-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+/* LEC / LAB pills in the schedule table */
+.pill.lec {
+    background: #EEF2FF;
+    color: #4F46E5;
+}
+.pill.lab {
+    background: #FFFBEB;
+    color: #B45309;
+}
+
+
+/* ── Schedule — paper "Schedule Data Entry Form" treatment ──────────
+   Columns match the registrar's printed form. Every cell that holds a
+   value is an editable input; the shell borrows the printed sheet's
+   header band and ruled lines so the operator's eye reads it as a
+   form, not a data grid. */
+
+.sched-form {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.sched-form-head {
+    display: flex;
+    align-items: baseline;
+    gap: 28px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    background: var(--canvas);
+    border-bottom: 1px solid var(--line);
+}
+
+.sched-form-head-group {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.sched-form-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--slate);
+    text-transform: uppercase;
+}
+
+.sched-form-value {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: 0.02em;
+}
+
+.sched-form-head-ay {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--slate);
+}
+
+/* The .table-wrap in dashboard.css pulls itself out of the card with
+   negative margins. Inside the form shell that would make the table
+   overhang the header band. Reset both. */
+.sched-form .table-wrap {
+    margin: 0;
+    padding: 0;
+}
+
+.sched-edit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.sched-edit-table th,
+.sched-edit-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+}
+
+.sched-edit-table thead th {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--slate);
+    background: var(--canvas);
+    line-height: 1.25;
+    white-space: normal;
+}
+
+.sched-edit-table .col-edp   { width: 100px; }
+.sched-edit-table .col-type  { width: 84px; }
+.sched-edit-table .col-units { width: 64px; }
+.sched-edit-table .col-time  { width: 88px; }
+.sched-edit-table .col-days  { width: 72px; }
+.sched-edit-table .col-room  { width: 88px; }
+.sched-edit-table .col-drop  { width: 40px; }
+
+/* Inputs are invisible until focused — the table reads as a printed
+   form until the operator clicks into a cell. */
+.sched-edit-table input,
+.sched-edit-table select {
+    width: 100%;
+    padding: 6px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: 0.88rem;
+    color: var(--ink);
+    box-sizing: border-box;
+}
+
+.sched-edit-table input[type="time"] {
+    font-variant-numeric: tabular-nums;
+}
+
+.sched-edit-table input:focus,
+.sched-edit-table select:focus {
+    outline: none;
+    border-color: var(--indigo);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+/* Subject cell — flex so the LAB arrow sits outside the select */
+.sched-subject-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sched-subject-cell .sched-subject-pick {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.sched-lab-arrow {
+    flex: 0 0 auto;
+    color: var(--slate);
+    font-size: 0.9rem;
+    opacity: 0.7;
+    user-select: none;
+}
+
+.sched-row-lab .sched-subject-cell {
+    padding-left: 18px;
+}
+
+.sched-add-row td {
+    border-bottom: 0;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.sched-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    background: var(--canvas);
+}
+
+/* Discard sits beside the primary Save. The base button rule in
+   dashboard.css already gives it the outline treatment; this nudges
+   it a shade quieter so the pair reads as primary/secondary. */
+.btn-secondary {
+    color: var(--slate);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    color: var(--ink);
+}
+
+/* ── Upload source panels ──────────────────────────────────────────
+   Two ways in — template file, or photo of the paper form. Same
+   downstream: both produce the same rows and land in the same preview. */
+
+.upload-source {
+    padding: var(--s3);
+    margin-bottom: var(--s2);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+
+.upload-source-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 0.25rem;
+}
+
+.upload-source-head i { color: var(--indigo); }
+
+.upload-source-hint {
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--slate);
+    margin-bottom: var(--s2);
+    max-width: 52ch;
+}
+
+/* File-pick label styled as a button. The <input> is hidden inside the
+   label so the browser's default file-picker chrome does not fight the
+   card's visual language. */
+.upload-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 1rem;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    font-size: 0.86rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.upload-pick:hover {
+    border-color: var(--indigo);
+    background: #f7f8ff;
+}
+.upload-pick i { color: var(--indigo); }
+.upload-pick input[type="file"] {
+    display: none;
+}
+.upload-pick.is-busy {
+    pointer-events: none;
+    opacity: 0.55;
+}
+
+/* ── Photo upload stage ───────────────────────────────────────────
+   Three visual states: idle dashed drop zone, staged file card with a
+   thumbnail, reading with a progress bar. Matches the AI-assisted
+   curriculum upload card. */
+
+.photo-drop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 260px;
+    padding: 2rem 1rem;
+    border: 1.5px dashed #CBD5E1;
+    border-radius: 10px;
+    background: #F8FAFC;
+    color: #475569;
+    font: 500 0.92rem inherit;
+    cursor: pointer;
+    transition:
+        border-color 0.2s ease,
+        background 0.2s ease,
+        color 0.2s ease,
+        box-shadow 0.2s ease,
+        transform 0.2s ease;
+}
+
+.photo-drop:hover,
+.photo-drop:focus-visible {
+    border-color: var(--green, #0f8a5f);
+    background: #ECF6F1;
+    color: var(--ink);
+    box-shadow: 0 6px 16px rgba(15, 138, 95, 0.12);
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.photo-drop:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(15, 138, 95, 0.10);
+}
+
+.photo-drop-hint {
+    font-size: 0.78rem;
+    font-weight: 400;
+    color: #94A3B8;
+    transition: color 0.2s ease;
+}
+
+.photo-drop:hover i,
+.photo-drop:focus-visible i {
+    color: var(--green, #0f8a5f);
+    transform: scale(1.08);
+}
+
+.photo-drop-hint {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: #94A3B8;
+    transition: color 0.2s ease;
+}
+
+.photo-drop:hover .photo-drop-hint,
+.photo-drop:focus-visible .photo-drop-hint {
+    color: #6b7280;
+}
+
+.photo-card {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr) 36px;
+    gap: 1rem;
+    align-items: start;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    min-height: 118px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.photo-card .btn-icon {
+    grid-column: 3;
+    align-self: start;
+    width: 32px;
+    height: 32px;
+    color: #94A3B8;
+}
+
+.photo-card .btn-icon:hover {
+    color: #b91c1c;
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
+.photo-thumb {
+    grid-column: 1;
+    width: 84px;
+    height: 96px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #E2E8F0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94A3B8;
+    font-size: 1.6rem;
+    border: 1px solid var(--line);
+}
+
+.photo-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.photo-meta {
+    grid-column: 2;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding-top: 0.15rem;
+}
+
+.photo-name {
+    margin: 0;
+    font-size: 0.94rem;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.35;
+    word-break: break-word;
+    /* Two-line clamp — a long filename stays readable without pushing
+       the card taller than the thumbnail. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.photo-size {
+    margin: 0.2rem 0 0;
+    font-size: 0.8rem;
+    color: var(--slate);
+    font-variant-numeric: tabular-nums;
+}
+
+.photo-progress {
+    grid-column: 1 / -1;
+    margin-top: 0.85rem;
+}
+
+.photo-thumb {
+    width: 40px;
+    height: 46px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #E2E8F0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94A3B8;
+    font-size: 1rem;
+}
+
+.photo-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.photo-meta { min-width: 0; }
+
+.photo-name {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.photo-size {
+    margin: 0.1rem 0 0;
+    font-size: 0.78rem;
+    color: var(--slate);
+}
+
+.photo-progress {
+    grid-column: 1 / -1;
+    margin-top: 0.4rem;
+}
+
+.photo-pct {
+    display: block;
+    text-align: right;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #059669;
+    margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.photo-track {
+    height: 8px;
+    background: #E2E8F0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.photo-fill {
+    height: 100%;
+    background: #059669;
+    border-radius: 999px;
+    transition: width 0.3s ease;
+    max-width: 100%;
+}
+
+.photo-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.6rem;
+}
+
+/* ── Upload grid ──────────────────────────────────────────────────
+   Two columns on wide viewports — Photo (45%) left, Template (55%)
+   right. The template column is wider because it carries two actions
+   (download + upload) against the photo column's one.
+
+   Below 720px both stack; DOM order puts Photo first, which matches
+   the visual order on desktop and gives the shorter path the top slot
+   on mobile. */
+
+.upload-grid {
+    display: grid;
+    grid-template-columns: 45fr 55fr;
+    gap: var(--s3);
+    margin-bottom: var(--s3);
+}
+
+.upload-grid .upload-source {
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.upload-grid .upload-source > *:last-child {
+    margin-top: auto;
+}
+
+.upload-intro {
+    margin-bottom: var(--s3);
+}
+
+.upload-source .template-builder {
+    margin-bottom: var(--s2);
+    padding: var(--s2) var(--s2) var(--s2) var(--s3);
+}
+
+.tpl-row {
+    display: flex;
+    gap: var(--s2);
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-top: var(--s2);
+}
+
+.tpl-row .field { margin-bottom: 0; }
+
+.upload-pick-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    width: 100%;
+    padding: 1.5rem 1rem;
+    border: 1.5px dashed #CBD5E1;
+    border-radius: 8px;
+    background: #F8FAFC;
+    color: #475569;
+    font: 500 0.88rem inherit;
+    cursor: pointer;
+    transition:
+        border-color 0.2s ease,
+        background 0.2s ease,
+        color 0.2s ease,
+        box-shadow 0.2s ease,
+        transform 0.2s ease;
+}
+
+.upload-pick-block:hover,
+.upload-pick-block:focus-within {
+    border-color: var(--green, #0f8a5f);
+    background: #ECF6F1;
+    color: var(--ink);
+    box-shadow: 0 6px 16px rgba(15, 138, 95, 0.12);
+    transform: translateY(-1px);
+}
+
+.upload-pick-block:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(15, 138, 95, 0.10);
+}
+
+.upload-pick-block i {
+    font-size: 1.1rem;
+    color: #94A3B8;
+    transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.upload-pick-block:hover i,
+.upload-pick-block:focus-within i {
+    color: var(--green, #0f8a5f);
+    transform: scale(1.08);
+}
+
+.upload-pick-hint {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: #94A3B8;
+    transition: color 0.2s ease;
+}
+
+.upload-pick-block:hover .upload-pick-hint,
+.upload-pick-block:focus-within .upload-pick-hint {
+    color: #6b7280;
+}
+
+#download-template {
+    background: #fff;
+    border: 1.5px solid var(--green, #0f8a5f);
+    color: var(--green, #0f8a5f);
+    font-weight: 600;
+    padding: 0.55rem 1rem;
+    transition: background 0.2s ease, color 0.2s ease,
+                border-color 0.2s ease;
+}
+
+#download-template:hover:not(:disabled) {
+    background: #ECF6F1;
+    border-color: #0a6e4c;
+    color: #0a6e4c;
+}
+
+#download-template i { color: inherit; }
+
+#download-template:disabled {
+    border-color: #cbd5e1;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+/* Upload preview's stat row. The base .upload-stats rule is being
+   shadowed by something in the cascade when the container is inside
+   #upload-preview — this scopes the grid explicitly so the four cards
+   sit in one row regardless. */
+#upload-preview .upload-stats {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    margin-bottom: var(--s3, 20px) !important;
+}
+
+@media (max-width: 720px) {
+    #upload-preview .upload-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* ── Schedule table — identity column group ────────────────────────
+   EDP CODE and SUBJECT together form the "which offering is this"
+   block. Header and body share a soft tint, a continuous green left
+   edge, and a single vertical rule separating them from the meeting
+   detail on the right.
+
+   Tint is deliberately quieter than the LEC/LAB pills — those carry
+   semantic weight (lecture vs lab), this is only structural. */
+
+.sched-edit-table thead th:nth-child(1),
+.sched-edit-table thead th:nth-child(2) {
+    background: #EAF5EF;
+    color: #2F6B54;
+    border-bottom: 1px solid #D0E6DB;
+}
+
+.sched-edit-table tbody tr:not(.sched-add-row) td:nth-child(1),
+.sched-edit-table tbody tr:not(.sched-add-row) td:nth-child(2) {
+    background: #F6FBF8;
+}
+
+/* One continuous vertical rule on the right edge of the group,
+   running through header and every body row. Border-collapse joins
+   them into a single line. */
+.sched-edit-table thead th:nth-child(2),
+.sched-edit-table tbody tr:not(.sched-add-row) td:nth-child(2) {
+    border-right: 1px solid #D0E6DB;
+}
+
+/* Left green edge. Applied on the header's first cell and every body
+   row's first cell, so with border-collapse it reads as one tall
+   marker down the whole table. */
+.sched-edit-table thead th:nth-child(1),
+.sched-edit-table tbody tr:not(.sched-add-row) td:nth-child(1) {
+    border-left: 3px solid var(--green);
+}
+
+/* Inputs sit inside a soft tinted cell. Without a visible border the
+   transparent-until-focus treatment reads as flat coloured text, so
+   give them a very light outline that matches the cell treatment. */
+.sched-edit-table tbody tr:not(.sched-add-row) td:nth-child(1) input,
+.sched-edit-table tbody tr:not(.sched-add-row) td:nth-child(2) select {
+    border: 1px solid #D7E9DF;
+    background: #fff;
+}
+
+.sched-edit-table tbody tr:not(.sched-add-row) td:nth-child(1) input:focus,
+.sched-edit-table tbody tr:not(.sched-add-row) td:nth-child(2) select:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px rgba(15, 138, 95, 0.14);
+    outline: none;
+}
+
+/* Add-a-row cell: neutral. Spans all 9 columns, so it would otherwise
+   inherit the tint as "column 1". */
+.sched-edit-table .sched-add-row td {
+    background: #fff;
+    border-left: none;
+    border-right: none;
+}
+
+.preview-actions {
+    display: flex;
+    justify-content: flex-start;
+    gap: 8px;
+    margin-top: var(--s3);
+    align-items: center;
+}
+
+/* Discard in the upload preview. Red-outlined, matching the trash-icon
+   convention used elsewhere for "this throws work away". Hover fills
+   the tint — the destructive cue appears only when the cursor is on it. */
+.preview-actions .btn-secondary {
+    color: #b91c1c;
+    border: 1.5px solid #fecaca;
+    background: #fff;
+    font-weight: 600;
+    transition: background 0.2s ease, border-color 0.2s ease,
+                color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.preview-actions .btn-secondary:hover:not(:disabled) {
+    background: #fef2f2;
+    border-color: #fca5a5;
+    color: #991b1b;
+    box-shadow: 0 4px 12px rgba(185, 28, 28, 0.10);
+}
+
+.preview-actions .btn-secondary:active:not(:disabled) {
+    background: #fee2e2;
+    box-shadow: none;
+}
+
+/* ── Grade upload — status strip ────────────────────────────────────
+   A single line below the four stat cards breaking the "valid" count
+   down by outcome. Kept as a strip rather than a fifth card so the
+   four-column grid stays intact. */
+.grade-status-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    padding: 0.6rem 0.2rem;
+    margin-bottom: var(--s3);
+    border-bottom: 1px solid var(--line);
+}
+
+.grade-status-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    font-size: 0.82rem;
+}
+
+.grade-status-item .k {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--slate);
+}
+
+.grade-status-item .v {
+    font-size: 0.95rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+}
+
+.grade-status-item.is-passed .v   { color: #059669; }
+.grade-status-item.is-failed .v   { color: #dc2626; }
+.grade-status-item.is-enrolled .v { color: #4f46e5; }
+.grade-status-item.is-dropped .v  { color: #94a3b8; }
+
+/* ── Step badges ─────────────────────────────────────────────────────
+   A numbered circle that sits before a card title, marking its place
+   in the page's flow. Two steps on this page: Term, then Upload. */
+
+.card-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--indigo, #4f46e5);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 0;
+    letter-spacing: 0;
+}
