@@ -454,21 +454,21 @@
     .cb .cb-version { flex-direction: column; align-items: stretch; }
 }
 
-/* Year panes, matching the prospectus grid: every year rendered and
-   stacked, the switch a directional slide rather than a repaint.
-
-   Repainting would drop focus and lose a half-typed row in the pane being
-   left, which matters here in a way it does not on a read-only grid. */
+/* Stage sizes itself to the tallest pane. Grid stacking replaces the
+   previous absolute-positioned panes + JS height calculation, which
+   could leave the stage at height:0 mid-transition and let the panes
+   overlap the content below. */
 .cb .cb-stage {
-    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
     transition: height .3s cubic-bezier(.4, 0, .2, 1);
 }
 .cb .cb-pane {
-    position: absolute;
-    top: 0; left: 0;
+    grid-area: 1 / 1;
     width: 100%;
     transition: opacity .26s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
 }
+
 .cb .cb-pane.on    { opacity: 1; transform: translateX(0); pointer-events: auto; z-index: 2; }
 .cb .cb-pane.off   { opacity: 0; pointer-events: none; z-index: 1; }
 .cb .cb-pane.off.l { transform: translateX(-24px); }
@@ -479,6 +479,15 @@
     .cb .cb-pane.off.l, .cb .cb-pane.off.r { transform: none; }
 }
 
+.cb .cb-stage {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    height: auto !important;
+}
+.cb .cb-pane {
+    grid-area: 1 / 1 !important;
+    position: static !important;
+}
 /* ── AI upload card ───────────────────────────────────────────── */
 
 .cb-ai-upload {
