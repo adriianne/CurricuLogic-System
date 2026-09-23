@@ -10,6 +10,7 @@
         <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
         <link rel="stylesheet" href="../../shared/css/dashboard.css">
         <link rel="stylesheet" href="../prospectus/prospectus.css">
+        <link rel="stylesheet" href="../../ai-assist/css/ai-chat.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     </head>
     <body>
@@ -38,9 +39,12 @@
                 <a href="#record"     data-view="record">
                     <i class="fa-solid fa-file-lines" aria-hidden="true"></i> Academic record
                 </a>
-                <a href="#requests"   data-view="requests" class="is-planned">
+                <a href="#requests"   data-view="requests">
                     <i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Advising requests
                     <span class="nav-tag">Planned</span>
+                </a>
+                <a href="#ask-ai"     data-view="ask-ai">
+                    <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Ask AI
                 </a>
                 <a href="#profile"    data-view="profile">
                     <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
@@ -202,21 +206,76 @@
                     <div class="page-head">
                         <h1 class="page-title">Advising requests</h1>
                         <p class="page-sub">
-                            Raise a question about your recommended load with Faculty Staff.
+                            Pick the subjects you plan to take next term and submit them
+                            for Faculty Staff to review. Each one is checked against your
+                            record automatically before it reaches your adviser.
                         </p>
                     </div>
 
+                    <div id="req-msg" class="msg" role="status"></div>
+
                     <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Build your plan</span>
+                        </div>
                         <div class="card-body">
-                            <div class="empty">
-                                <i class="fa-solid fa-hammer" aria-hidden="true"></i>
-                                <h3>Planned for a later sprint</h3>
-                                <p>
-                                    This module is not part of the current build. Once
-                                    available, you will be able to send a query about any
-                                    recommendation to Faculty Staff and track the reply here.
-                                </p>
+                            <div id="req-picker" class="req-picker">
+                                <p class="dim">Loading your recommended subjects\u2026</p>
                             </div>
+                            <div class="review-actions">
+                                <button class="btn-primary" id="req-submit" disabled>
+                                    Submit for review
+                                </button>
+                                <span class="cb-hint" id="req-count"></span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="card" id="req-history-card" hidden>
+                        <div class="card-head">
+                            <span class="card-title">Your past requests</span>
+                        </div>
+                        <div class="card-body">
+                            <div id="req-history"></div>
+                        </div>
+                    </section>
+
+                </section>
+
+                <!-- Ask AI -->
+                <section class="view" id="view-ask-ai" hidden>
+
+                    <div class="page-head">
+                        <h1 class="page-title">Cura</h1>
+                        <p class="page-sub">
+                            Your CurricuLogic assistant. Ask about your recommended
+                            subjects or why something is locked. Answers are based
+                            only on your actual academic record -- Cura does not
+                            have your class schedule and cannot override any
+                            requirement.
+                        </p>
+                    </div>
+
+                    <section class="card ai-chat-card">
+                        <div class="card-body">
+                            <div id="chat-log" class="chat-log" aria-live="polite">
+                                <div class="chat-msg chat-msg-model">
+                                    <p>
+                                        Hi, I'm Cura! I can answer questions about what
+                                        you're eligible to take, what's recommended
+                                        next, and why a subject might be locked. What
+                                        would you like to know?
+                                    </p>
+                                </div>
+                            </div>
+                            <form id="chat-form" class="chat-form">
+                                <input type="text" id="chat-input"
+                                       placeholder="Ask about your subjects..."
+                                       autocomplete="off">
+                                <button type="submit" id="chat-send">
+                                    <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+                                </button>
+                            </form>
                         </div>
                     </section>
 
@@ -291,6 +350,8 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="../../shared/js/config.js"></script>
+    <script src="../../ai-assist/eligibility-explanation.js"></script>
+    <script src="../../ai-assist/eligibility-chat.js"></script>
     <script src="../../shared/engine/engine.js"></script>
     <script src="../../shared/js/prospectusgrid.js"></script>
     <script src="studentpreview.js"></script>

@@ -32,6 +32,9 @@ let PREVIEW  = false;
 let KB     = null;
 let RESULT = null;
 
+/* Set students curriculum to default prospectus if not set */
+let ACTIVE_PROSPECTUS_ID = null;
+
 /* The term the recommendation is for. Hardcoded until a system_config
    table or a term selector exists — the topbar shows the same value, and
    the two must not drift. */
@@ -214,6 +217,14 @@ function renderProfile(student, authEmail) {
         : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Pending with Registrar</span>';
 }
 
+/* The prospectus to assess this student against. Their own if it was
+   set at registration (a returnee stays on their original curriculum),
+   otherwise whatever is currently active. Returns null only when
+   neither exists — a fresh system with no versions at all. */
+function effectiveProspectusId(student) {
+    return student?.prospectus_id ?? ACTIVE_PROSPECTUS_ID;
+}
+
 function renderNotice(student) {
     const box = $('status-notice');
     if (!box) return;
@@ -316,7 +327,7 @@ async function loadKnowledgeBase(student) {
     const [subs, rules, offerings] = await Promise.all([
         supabase.from('subject')
             .select('id, code, title, units, year_level, term, is_elective')
-            .eq('prospectus_id', student.prospectus_id),
+            .eq('prospectus_id', effectiveProspectusId(student)),
         supabase.from('prerequisite')
             .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
         supabase.from('subject_offering')
@@ -348,13 +359,14 @@ async function loadKnowledgeBase(student) {
 
 async function runAssessment(student) {
     if (!student || !student.record_verified) return null;
-    if (!student.prospectus_id) {
-        console.warn('student has no prospectus_id — cannot assess');
+
+    const pid = effectiveProspectusId(student);
+    if (!pid) {
+        console.warn('no prospectus available — cannot assess');
         return null;
     }
 
     const kb = await loadKnowledgeBase(student);
-    if (kb.subjects.length === 0) return null;
 
     return CurricuLogicEngine.assess(
         { id: STUDENT_ROW_ID, year_level: student.year_level },
@@ -682,7 +694,8 @@ async function loadProspectus() {
 
     prospectusLoaded = true;
 
-    if (!supabase || PREVIEW || !STUDENT?.prospectus_id) {
+    const pid = effectiveProspectusId(STUDENT);
+    if (!supabase || PREVIEW || !pid) {
         return renderProspectusEmpty();
     }
 
@@ -701,7 +714,7 @@ async function loadProspectus() {
             `${result.completed.length} passed · ${result.eligible.length} available`;
     }
 
-    await window.ProspectusGrid.render(supabase, STUDENT.prospectus_id, body, sm);
+        await window.ProspectusGrid.render(supabase, pid, body, sm);
 }
 
 
@@ -1006,6 +1019,18 @@ function render(student, email) {
     STUDENT = student;
     STUDENT_ROW_ID = student?.id ?? null;
     render(student, session.user.email);
+
+        // Resolve the active prospectus once. Used as a fallback for any
+    // student whose own prospectus_id is null — which happens when
+    // they were registered before the first curriculum was activated.
+    if (!PREVIEW && supabase) {
+        const { data: active } = await supabase
+            .from('prospectus')
+            .select('id')
+            .eq('is_active', true)
+            .maybeSingle();
+        ACTIVE_PROSPECTUS_ID = active?.id ?? null;
+    }
 
     // The record loads at boot regardless of the active view — the stat
     // tiles and the assessment both derive from it.
