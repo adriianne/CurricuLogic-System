@@ -84,6 +84,7 @@ const VIEWS = {
     prospectus: 'My prospectus',
     record:     'Academic record',
     requests:   'Advising requests',
+    'ask-ai':   'Ask AI',
     profile:    'Profile',
 };
 
@@ -114,6 +115,8 @@ function showView(name) {
     // Views that fetch on first visit rather than at boot.
     if (name === 'prospectus') loadProspectus();
     if (name === 'record')     loadRecords();
+    if (name === 'ask-ai')     initChatIfNeeded();
+    if (name === 'requests')   loadRequestPicker();
 }
 
 function route() {
@@ -170,6 +173,16 @@ function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
     ));
+}
+
+/* Message box helper, same shape as the one on the staff dashboards.
+   An empty text means "clear the message" — do not apply a status
+   class, or the box renders as a colored bar with no content. */
+function showMsg(id, text, type = 'error') {
+    const box = $(id);
+    if (!box) return;
+    box.textContent = text;
+    box.className = text ? 'msg ' + type : 'msg';
 }
 
 /* profile + dashboard render */
@@ -692,6 +705,254 @@ async function loadProspectus() {
 }
 
 
+/* Ask AI chat */
+
+let chatInitialized = false;
+
+function initChatIfNeeded() {
+    if (chatInitialized) return;
+    if (!RESULT || typeof window.EligibilityChat === 'undefined') return;
+
+    // Uses the exact same RESULT the rest of the dashboard already
+    // computed -- never a second, separate call to the engine. The
+    // chat can only ever discuss what the real assessment already
+    // decided.
+    const summary = summarizeForExplanation(RESULT, STUDENT?.first_name);
+    window.EligibilityChat.initEligibilityChat(summary);
+    chatInitialized = true;
+}
+
+function appendChatMessage(role, text, table) {
+    const log = $('chat-log');
+    if (!log) return null;
+
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-msg chat-msg-' + role;
+    bubble.innerHTML = `<p>${escapeHtml(text)}</p>` + renderChatTable(table);
+    log.appendChild(bubble);
+    log.scrollTop = log.scrollHeight;
+    return bubble;
+}
+
+function renderChatTable(entries) {
+    if (!entries || !entries.length) return '';
+
+    const totalUnits = entries.reduce((sum, e) => sum + (Number(e.units) || 0), 0);
+
+    const rows = entries.map(e => `
+        <tr>
+            <td class="mono">${escapeHtml(e.code)}</td>
+            <td>${escapeHtml(e.title)}</td>
+            <td class="n">${e.units ?? ''}</td>
+            <td>${e.retake ? 'Retake' : ''}</td>
+        </tr>`).join('');
+
+    return `
+        <table class="chat-table">
+            <thead>
+                <tr><th>Code</th><th>Title</th><th class="n">Units</th><th></th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            <tfoot>
+                <tr><td colspan="2">Total</td><td class="n">${totalUnits}</td><td></td></tr>
+            </tfoot>
+        </table>`;
+}
+
+$('chat-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const input = $('chat-input');
+    const text = input?.value.trim();
+    if (!text || !supabase) return;
+
+    appendChatMessage('user', text);
+    input.value = '';
+
+    const sendBtn = $('chat-send');
+    if (sendBtn) sendBtn.disabled = true;
+
+    const pending = appendChatMessage('pending', 'Thinking\u2026');
+
+    try {
+        const result = await window.EligibilityChat.sendChatMessage(supabase, text);
+        pending?.remove();
+        appendChatMessage('model', result.text, result.table);
+    } catch (err) {
+        console.warn('chat send failed:', err);
+        pending?.remove();
+        appendChatMessage('model', 'Sorry, I could not reach the assistant just now. Please try again.');
+    } finally {
+        if (sendBtn) sendBtn.disabled = false;
+    }
+});
+
+/* Advising requests */
+
+let SELECTED_SUBJECT_IDS = new Set();
+let requestsInitialized = false;
+
+/* Built from the same RESULT the rest of the dashboard already
+   computed -- students choose from their real eligible/recommended
+   list, never a separate, hand-typed set. The actual valid/flagged
+   verdict on submission still comes from the server-side engine run
+   in submit-advising-request -- this picker only decides what gets
+   sent, not whether it will be accepted. */
+function loadRequestPicker() {
+    const picker = $('req-picker');
+    if (!picker) return;
+
+    if (!RESULT) {
+        picker.innerHTML = '<p class="dim">Your eligibility has not loaded yet.</p>';
+        return;
+    }
+
+    // recommended and eligible overlap in the engine's real output --
+    // concatenating them raw duplicated any subject present in both.
+    // Filtering eligible down to what recommended does not already
+    // cover matches the exact de-duplication renderEligibility() already
+    // does for the dashboard's own panel.
+    const recommended = RESULT.recommended ?? [];
+    const alsoEligible = (RESULT.eligible ?? [])
+        .filter(e => !recommended.some(r => r.subject.id === e.subject.id));
+    const candidates = [...recommended, ...alsoEligible];
+
+    if (!candidates.length) {
+        picker.innerHTML = '<p class="dim">Nothing is currently eligible to request.</p>';
+        return;
+    }
+
+    picker.innerHTML = candidates.map(entry => {
+        const s = entry.subject;
+        return `
+            <label class="req-row">
+                <input type="checkbox" data-subject-id="${s.id}">
+                <span class="req-code">${escapeHtml(s.code)}</span>
+                <span class="req-title">${escapeHtml(s.title)}</span>
+                <span class="req-units">${s.units ?? ''} units</span>
+                ${entry.retake ? '<span class="pg-chip danger">Retake</span>' : ''}
+            </label>`;
+    }).join('');
+
+    if (!requestsInitialized) {
+        picker.addEventListener('change', (e) => {
+            const box = e.target.closest('input[type="checkbox"]');
+            if (!box) return;
+
+            const id = Number(box.dataset.subjectId);
+            if (box.checked) SELECTED_SUBJECT_IDS.add(id);
+            else SELECTED_SUBJECT_IDS.delete(id);
+
+            updateRequestCount();
+        });
+
+        $('req-submit')?.addEventListener('click', submitAdvisingRequest);
+        requestsInitialized = true;
+    }
+
+    loadRequestHistory();
+}
+
+function updateRequestCount() {
+    const count = SELECTED_SUBJECT_IDS.size;
+    const label = $('req-count');
+    const btn = $('req-submit');
+
+    // Units summed from the same RESULT candidates the picker was
+    // built from -- never a separate lookup, so this can never disagree
+    // with what the checkboxes are actually pointing at.
+    const recommended2 = RESULT?.recommended ?? [];
+    const alsoEligible2 = (RESULT?.eligible ?? [])
+        .filter(e => !recommended2.some(r => r.subject.id === e.subject.id));
+    const candidates = [...recommended2, ...alsoEligible2];
+    const units = candidates
+        .filter(entry => SELECTED_SUBJECT_IDS.has(entry.subject.id))
+        .reduce((sum, entry) => sum + (Number(entry.subject.units) || 0), 0);
+
+    if (label) {
+        label.textContent = count
+            ? `${count} subject${count === 1 ? '' : 's'} selected \u00b7 ${units} units`
+            : '';
+    }
+    if (btn) btn.disabled = count === 0;
+}
+
+async function submitAdvisingRequest() {
+    if (!SELECTED_SUBJECT_IDS.size || !supabase) return;
+
+    const btn = $('req-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting\u2026'; }
+
+    try {
+        const { data, error } = await supabase.functions.invoke('submit-advising-request', {
+            body: { subjectIds: [...SELECTED_SUBJECT_IDS] },
+        });
+
+        if (error) {
+            let serverMessage = null;
+            try {
+                const body = await error.context?.json?.();
+                serverMessage = body?.error ?? null;
+            } catch (_) {}
+            showMsg('req-msg', serverMessage || 'Could not submit your request. Please try again.');
+            return;
+        }
+
+        const flagged = data.flaggedCount ?? 0;
+        const total = data.items?.length ?? 0;
+
+        showMsg(
+            'req-msg',
+            flagged
+                ? `Submitted. ${flagged} of ${total} subject${total === 1 ? '' : 's'} were flagged for your adviser to review.`
+                : `Submitted. All ${total} subject${total === 1 ? '' : 's'} checked out cleanly.`,
+            'success',
+        );
+
+        SELECTED_SUBJECT_IDS.clear();
+        loadRequestPicker();
+
+    } catch (err) {
+        console.warn('submitAdvisingRequest threw:', err);
+        showMsg('req-msg', 'Could not reach the server. Please try again.');
+    } finally {
+        if (btn) { btn.disabled = SELECTED_SUBJECT_IDS.size === 0; btn.textContent = 'Submit for review'; }
+    }
+}
+
+async function loadRequestHistory() {
+    const card = $('req-history-card');
+    const body = $('req-history');
+    if (!card || !body || !supabase || !STUDENT) return;
+
+    const { data: requests, error } = await supabase
+        .from('request')
+        .select('id, status, requested_term, requested_year, created_at, request_item(id, status, remarks, subject:subject_id(code, title))')
+        .eq('student_id', STUDENT_ROW_ID)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+    if (error || !requests?.length) {
+        card.hidden = true;
+        return;
+    }
+
+    card.hidden = false;
+    body.innerHTML = requests.map(r => `
+        <div class="req-history-entry">
+            <div class="req-history-head">
+                <span>${new Date(r.created_at).toLocaleDateString()}</span>
+                <span class="pg-chip ${r.status === 'submitted' ? 'info' : 'ok'}">${escapeHtml(r.status)}</span>
+            </div>
+            ${(r.request_item ?? []).map(item => `
+                <div class="req-history-item">
+                    <span class="req-code">${escapeHtml(item.subject?.code ?? '')}</span>
+                    <span class="pg-chip ${item.status === 'valid' ? 'ok' : 'danger'}">${escapeHtml(item.status)}</span>
+                    ${item.remarks ? `<span class="dim">${escapeHtml(item.remarks)}</span>` : ''}
+                </div>`).join('')}
+        </div>`).join('');
+}
+
 /* boot */
 
 function render(student, email) {
@@ -714,7 +975,7 @@ function render(student, email) {
     }
 
     if (!supabase) {
-        setText('greeting', 'Cannot reach the service');
+        setText('greeting', 'Cannot reach the service', 'is-error');
         console.error('studentdashboard.js: Supabase client not created. Is config.js loaded?');
         return;
     }

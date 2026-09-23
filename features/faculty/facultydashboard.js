@@ -100,6 +100,7 @@ function showView(name, param) {
 
     if (name === 'students') loadStudents();
     if (name === 'student' && param) openStudent(param);
+    if (name === 'requests') loadRequestQueue();
 }
 
 function route() {
@@ -165,6 +166,16 @@ function statusClass(s) {
 
 function statusLabel(s) {
     return { PASSED: 'Passed', FAILED: 'Failed', ENROLLED: 'Enrolled', DROPPED: 'Dropped' }[s] || s;
+}
+
+function showMsg(id, text, type = 'error') {
+    const box = $(id);
+    if (!box) return;
+    box.textContent = text;
+    // An empty message must never carry error styling -- see the same
+    // fix applied to Department Staff's showMsg earlier: clearing a
+    // message is not itself an error.
+    box.className = text ? 'msg ' + type : 'msg';
 }
 
 function fullName(p) {
@@ -698,6 +709,207 @@ function renderStudentRecord(records) {
 
 /* boot */
 
+/* Advising requests */
+
+/* Scoped strictly to this faculty's own advisees via advisee_assignment
+   -- the RLS policy on request_item already enforces this at the
+   database level, so a faculty member could never read another
+   faculty's advisee requests even if this query were written wrong.
+   This select just needs to actually reach the real, already-flagged
+   data the engine computed at submission time -- nothing here
+   re-evaluates eligibility; request_item.status is already final. */
+async function loadRequestQueue() {
+    const queue = $('req-queue');
+    const countEl = $('req-queue-count');
+    if (!queue || !supabase || !FACULTY) return;
+
+    const { data: requests, error } = await supabase
+        .from('request')
+        .select(`
+            id, status, requested_term, requested_year, created_at,
+            student:student_id (id, first_name, last_name, student_id),
+            request_item (id, status, remarks, subject:subject_id (code, title, units))
+        `)
+        .eq('status', 'submitted')
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        console.warn('loadRequestQueue failed:', error.message);
+        queue.innerHTML = '<div class="empty"><p>Could not load requests.</p></div>';
+        return;
+    }
+
+    const list = requests ?? [];
+
+    if (countEl) countEl.textContent = list.length ? `${list.length} pending` : '';
+
+    if (!list.length) {
+        queue.innerHTML = '<div class="empty"><h3>Nothing pending</h3><p>No submitted requests from your advisees right now.</p></div>';
+        return;
+    }
+
+    queue.innerHTML = list.map(req => `
+        <div class="req-card" data-request-id="${req.id}">
+            <div class="req-card-head">
+                <strong>${escapeHtml(fullName(req.student))}</strong>
+                <span class="dim mono">${escapeHtml(req.student?.student_id ?? '')}</span>
+                <span class="dim">${new Date(req.created_at).toLocaleDateString()}</span>
+            </div>
+            ${(req.request_item ?? []).map(item => `
+                <div class="req-review-row" data-item-id="${item.id}">
+                    <span class="req-code">${escapeHtml(item.subject?.code ?? '')}</span>
+                    <span class="req-title">${escapeHtml(item.subject?.title ?? '')}</span>
+                    <span class="pg-chip ${item.status === 'valid' ? 'ok' : item.status === 'flagged' ? 'danger' : item.status === 'approved' ? 'info' : 'locked'}">${escapeHtml(item.status)}</span>
+                    ${item.remarks ? `<span class="dim">${escapeHtml(item.remarks)}</span>` : '<span></span>'}
+                    <div class="req-review-actions">
+                        <button class="btn-small" data-approve-item="${item.id}">Approve</button>
+                        <button class="btn-small" data-reject-item="${item.id}">Reject</button>
+                    </div>
+                </div>`).join('')}
+        </div>`).join('');
+}
+
+async function reviewRequestItem(itemId, decision) {
+    if (!supabase || !FACULTY) return;
+
+    // request_item itself holds the engine's verdict and is not
+    // touched here -- Faculty's decision is a separate fact, recorded
+    // as its own request_review row, so the engine's original finding
+    // and the human's judgment both stay on the record rather than one
+    // overwriting the other.
+    const { data: item, error: itemError } = await supabase
+        .from('request_item')
+        .select('id, request_id')
+        .eq('id', itemId)
+        .maybeSingle();
+
+    if (itemError || !item) {
+        return showMsg('req-msg', 'Could not find that request item.');
+    }
+
+    const { error: reviewError } = await supabase.from('request_review').insert({
+        request_id: item.request_id,
+        faculty_id: FACULTY.id,
+        status: decision,
+    });
+
+    if (reviewError) {
+        console.warn('request_review insert failed:', reviewError.message);
+        return showMsg('req-msg', 'Could not save your review. Please try again.');
+    }
+
+    const { error: updateError } = await supabase
+        .from('request_item')
+        .update({ status: decision === 'approved' ? 'approved' : 'rejected' })
+        .eq('id', itemId);
+
+    if (updateError) {
+        console.warn('request_item status update failed:', updateError.message);
+    }
+
+    // Transition the parent request once every item has a decision.
+    // Without this, a fully-reviewed request stays 'submitted' and
+    // clutters the queue forever.
+    await transitionRequestIfComplete(item.request_id);
+
+    // Tell the student their request changed state. Fire and forget —
+    // a failed notification must not roll back the review that already
+    // succeeded.
+    notifyStudentOfReview(item.request_id).catch(err =>
+        console.warn('notification insert failed:', err.message));
+
+    showMsg('req-msg', `Subject ${decision}.`, 'success');
+    loadRequestQueue();
+    loadRequestCount();
+}
+
+/* Counts undecided items on a request. When there are none, flips the
+   request's own status based on the aggregate outcome. Called after
+   every item decision — cheap, and the request is small. */
+async function transitionRequestIfComplete(requestId) {
+    const { data: items, error } = await supabase
+        .from('request_item')
+        .select('status')
+        .eq('request_id', requestId);
+
+    if (error || !items?.length) return;
+
+    const undecided = items.filter(i =>
+        i.status !== 'approved' && i.status !== 'rejected'
+    );
+    if (undecided.length > 0) return;
+
+    const allRejected  = items.every(i => i.status === 'rejected');
+    const anyRejected  = items.some(i => i.status === 'rejected');
+
+    const next = allRejected  ? 'rejected'
+               : anyRejected  ? 'partially_approved'
+               :                'approved';
+
+    const { error: upErr } = await supabase
+        .from('request')
+        .update({ status: next })
+        .eq('id', requestId);
+
+    if (upErr) console.warn('request status transition failed:', upErr.message);
+}
+
+/* Notifies the student when their request changes state. Reads the
+   student's user_id via the request row, then writes one notification.
+   Type is fixed; the message summarises without duplicating the item
+   decisions — the student opens the request to see those. */
+async function notifyStudentOfReview(requestId) {
+    const { data: request, error } = await supabase
+        .from('request')
+        .select('id, status, student:student_id (user_id, first_name)')
+        .eq('id', requestId)
+        .maybeSingle();
+
+    if (error || !request?.student?.user_id) return;
+
+    const label = {
+        approved:           'approved',
+        partially_approved: 'partially approved',
+        rejected:           'rejected',
+    }[request.status] ?? 'reviewed';
+
+    await supabase.from('notification').insert({
+        user_id: request.student.user_id,
+        type: 'request_reviewed',
+        title: `Advising request ${label}`,
+        message: `Your adviser has finished reviewing your request. Open it to see the decisions.`,
+        related_request_id: request.id,
+        is_read: false,
+    });
+}
+
+async function loadRequestCount() {
+    if (PREVIEW) {
+        setText('stat-requests', '3', 'stat-value');
+        return;
+    }
+    const { count, error } = await supabase
+        .from('request')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'submitted');
+
+    if (error) {
+        console.warn('request count failed:', error.message);
+        setText('stat-requests', '—', 'stat-value muted');
+        return;
+    }
+    setText('stat-requests', String(count ?? 0), 'stat-value');
+}
+
+$('req-queue')?.addEventListener('click', (e) => {
+    const approve = e.target.closest('[data-approve-item]');
+    if (approve) return reviewRequestItem(Number(approve.dataset.approveItem), 'approved');
+
+    const reject = e.target.closest('[data-reject-item]');
+    if (reject) return reviewRequestItem(Number(reject.dataset.rejectItem), 'rejected');
+});
+
+
 (async function init() {
 
     if (previewRequested()) {
@@ -728,7 +940,7 @@ function renderStudentRecord(records) {
 
     const { data: staff, error } = await supabase
         .from('faculty_staff')
-        .select('user_id, first_name, last_name, employee_id, email, department, is_approved')
+        .select('id, user_id, first_name, last_name, employee_id, email, department, is_approved')
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 
