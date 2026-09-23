@@ -24,6 +24,7 @@ let AUTH_UID = null;
 let FACULTY  = null;
 let STUDENTS = [];
 let PREVIEW  = false;
+let CURRENT_SLIP = null;
 
 
 /* preview mode (development only) */
@@ -365,6 +366,14 @@ function renderStudents() {
 $('student-search')?.addEventListener('input', renderStudents);
 $('student-filter')?.addEventListener('change', renderStudents);
 
+$('print-slip')?.addEventListener('click', () => {
+    if (!CURRENT_SLIP) return;
+    if (typeof window.AdvisingSlip === 'undefined') {
+        console.error('advisingslip.js not loaded — check script order');
+        return;
+    }
+    window.AdvisingSlip.print(CURRENT_SLIP);
+});
 
 /* dashboard tiles */
 
@@ -503,6 +512,13 @@ async function openStudent(studentRowId) {
     const userId = studentRowId;   // university_student.id, not user_id
     const student = STUDENTS.find(s => s.id === userId);
 
+    // Clear the slip action from any previous student before the
+    // new one is evaluated. Any branch that actually computes a
+    // result will set these back below.
+    CURRENT_SLIP = null;
+    const slipBtnReset = $('print-slip');
+    if (slipBtnReset) slipBtnReset.hidden = true;
+
     // Deep link straight to a student, before the list has loaded.
     if (!student && !studentsLoaded) {
         await loadStudents();
@@ -612,7 +628,24 @@ async function openStudent(studentRowId) {
 
     await window.ProspectusGrid.render(
         supabase, student.prospectus_id, eligBody, statusMap(result));
+
+            // The slip reads the same assess() output the grid above was just
+    // built from — a slip that disagreed with the screen would be worse
+    // than no slip at all.
+    CURRENT_SLIP = {
+        student,
+        result,
+        records,
+        term: {
+            label: document.querySelector('.topbar-term')?.textContent?.trim() ?? '',
+        },
+        adviser: fullName(FACULTY) || 'Faculty adviser',
+    };
+    const slipBtn = $('print-slip');
+    if (slipBtn) slipBtn.hidden = false;
 }
+
+
 
 
 /* academic record */

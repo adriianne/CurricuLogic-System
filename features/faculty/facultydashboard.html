@@ -35,9 +35,8 @@
             <a href="#students" data-view="students">
                 <i class="fa-solid fa-users" aria-hidden="true"></i> Students
             </a>
-            <a href="#requests" data-view="requests" class="is-planned">
+            <a href="#requests" data-view="requests">
                 <i class="fa-solid fa-inbox" aria-hidden="true"></i> Advising requests
-                <span class="nav-tag">Planned</span>
             </a>
             <a href="#profile" data-view="profile">
                 <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
@@ -201,6 +200,10 @@
                     <div class="card-head">
                         <span class="card-title">Subject eligibility</span>
                         <span class="card-note" id="detail-elig-note"></span>
+                        <button class="btn-small" id="print-slip" hidden>
+                            <i class="fa-solid fa-print" aria-hidden="true"></i>
+                            <span>Print advising slip</span>
+                        </button>
                     </div>
                     <div class="card-body" id="detail-elig-body"></div>
                 </section>
@@ -216,25 +219,29 @@
             </section>
 
             <!-- ============ ADVISING REQUESTS ============ -->
-            <section class="view" id="view-requests" hidden>
+            <section class="view view-wide" id="view-requests" hidden>
 
                 <div class="page-head">
                     <h1 class="page-title">Advising requests</h1>
                     <p class="page-sub">
-                        Questions raised by students about their recommended load.
+                        Subject plans submitted by your advisees. Each subject was
+                        already checked against the student's record -- review any
+                        flagged item, then approve or reject per subject.
                     </p>
                 </div>
 
+                <div id="req-msg" class="msg" role="status"></div>
+
                 <section class="card">
-                    <div class="card-body">
+                    <div class="card-head">
+                        <span class="card-title">Pending review</span>
+                        <span class="card-note" id="req-queue-count"></span>
+                    </div>
+                    <div class="card-body" id="req-queue">
                         <div class="empty">
-                            <i class="fa-solid fa-hammer" aria-hidden="true"></i>
-                            <h3>Planned for a later sprint</h3>
-                            <p>
-                                This module is not part of the current build. Once
-                                available, students will be able to query a
-                                recommendation and you will answer it here.
-                            </p>
+                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                            <h3>Loading</h3>
+                            <p>Fetching requests from your advisees.</p>
                         </div>
                     </div>
                 </section>
