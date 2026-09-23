@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="../curriculum/curriculum_builder.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
 
@@ -201,7 +202,36 @@
                     <div class="card-head">
                         <span class="card-title">Versions</span>
                         <span class="card-note" id="pros-count"></span>
+                        <button class="btn-small" id="toggle-new-pros">New version</button>
                     </div>
+
+                    <div class="card-body" id="new-pros-pane" hidden
+                        style="border-bottom: 1px solid var(--line);">
+                        <div class="form-grid">
+                            <div class="field field-sm">
+                                <label for="p-year">Effective year</label>
+                                <input type="number" id="p-year" min="2000" max="2100" step="1">
+                            </div>
+                            <div class="field field-sm">
+                                <label for="p-term">Starts</label>
+                                <select id="p-term">
+                                    <option value="1">1st Sem</option>
+                                    <option value="2">2nd Sem</option>
+                                    <option value="3">Summer</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="p-source">Copy from</label>
+                                <select id="p-source">
+                                    <option value="">Nothing — start empty</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="review-actions">
+                            <button class="btn-primary" id="create-pros">Create version</button>
+                        </div>
+                    </div>
+
                     <div class="card-body" id="pros-body"></div>
                 </section>
 
@@ -461,7 +491,7 @@
 
                                 <div class="template-builder">
                                     <p class="review-hint" id="tpl-summary">
-                                        Choose a section above to generate a template.
+                                        Choose a section below to generate a template.
                                     </p>
                                     <div class="tpl-row">
                                         <button class="btn-small" id="download-template">

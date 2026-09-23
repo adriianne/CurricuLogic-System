@@ -1392,3 +1392,87 @@
     flex-shrink: 0;
     letter-spacing: 0;
 }
+
+/* Rejection groups inside the upload preview notice. Each unique
+   reason becomes one block: a count, a label, and either a compact
+   chip list (when the values repeat) or line references (when each
+   instance is distinct). Ordered by count descending, so the biggest
+   problem appears first. */
+
+.reject-groups {
+    display: grid;
+    gap: var(--s2);
+    margin-top: 0.6rem;
+}
+
+.reject-group {
+    padding: 0.5rem 0 0;
+    border-top: 1px solid rgba(180, 83, 9, 0.18);
+}
+
+.reject-group:first-child { border-top: none; padding-top: 0; }
+
+.reject-head {
+    margin: 0;
+    font-size: 0.83rem;
+    font-weight: 600;
+    color: #78350f;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+.reject-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.4rem;
+    height: 1.4rem;
+    padding: 0 0.4rem;
+    background: #f59e0b;
+    color: #fff;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.reject-chips {
+    margin: 0.4rem 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.reject-chips code {
+    display: inline-block;
+    padding: 0.12rem 0.45rem;
+    background: #fff;
+    border: 1px solid rgba(180, 83, 9, 0.25);
+    border-radius: 5px;
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 0.75rem;
+    color: #78350f;
+}
+
+.reject-lines {
+    margin: 0.4rem 0 0;
+    padding-left: 0;
+    list-style: none;
+    font-size: 0.8rem;
+    line-height: 1.65;
+    color: #78350f;
+}
+
+.reject-lines li {
+    padding: 0.05rem 0;
+}
+
+.reject-hint {
+    margin: 0.4rem 0 0;
+    font-size: 0.76rem;
+    font-style: italic;
+    color: #a16207;
+    line-height: 1.55;
+}

@@ -180,6 +180,61 @@ function showMsg(boxId, text, type = 'error') {
     box.className = text ? 'msg ' + type : 'msg';
 }
 
+/* Grouped rejection display. One block per unique reason, ordered by
+   count descending, so a wall of identical errors reads as one problem
+   rather than a scattershot list. A single distinct error among many
+   duplicates stays visible instead of getting buried.
+
+   `bad`  is [{ kind, line, detail }, ...]
+   `meta` maps kind -> { label, mode: 'chips' | 'lines', hint? }
+
+   Returns the inner HTML of a notice block's text side. The caller
+   wraps it in .notice .pending with the icon. */
+function renderRejectionGroups(bad, meta) {
+    if (!bad?.length) return '';
+
+    const groups = new Map();
+    for (const b of bad) {
+        const key = b.kind || 'other';
+        if (!groups.has(key)) {
+            groups.set(key, {
+                key,
+                label: meta[key]?.label ?? 'Other',
+                mode:  meta[key]?.mode  ?? 'lines',
+                hint:  meta[key]?.hint  ?? '',
+                items: [],
+            });
+        }
+        groups.get(key).items.push(b);
+    }
+
+    const ordered = [...groups.values()]
+        .sort((a, b) => b.items.length - a.items.length);
+
+    return `
+        <strong>${bad.length} row${bad.length === 1 ? '' : 's'} need${bad.length === 1 ? 's' : ''} attention</strong>
+        <div class="reject-groups">
+            ${ordered.map(g => `
+                <div class="reject-group">
+                    <p class="reject-head">
+                        <span class="reject-count">${g.items.length}</span>
+                        ${escapeHtml(g.label)}
+                    </p>
+                    ${g.mode === 'chips'
+                        ? `<p class="reject-chips">${
+                            [...new Set(g.items.map(i => i.detail))]
+                                .map(d => `<code>${escapeHtml(d)}</code>`)
+                                .join(' ')
+                          }</p>`
+                        : `<ul class="reject-lines">${
+                            g.items.map(i => `<li>Line ${i.line}: ${escapeHtml(i.detail)}</li>`).join('')
+                          }</ul>`}
+                    ${g.hint ? `<p class="reject-hint">${escapeHtml(g.hint)}</p>` : ''}
+                </div>
+            `).join('')}
+        </div>`;
+}
+
 const subjectById = (id) => SUBJECTS.find(s => s.id === id);
 const rulesFor    = (id) => RULES.filter(r => r.subject_id === id);
 
@@ -492,7 +547,7 @@ async function loadCurriculum() {
     /* A draft can be edited without being active, so the curriculum view
        follows EDITING rather than assuming the active version. Defaulting
        to active keeps the common case one click shorter. */
-    if (!EDITING) EDITING = active;
+    if (!EDITING) EDITING = active ?? VERSIONS[0] ?? null;
     mountCurriculumBuilder();
 
     const pros = EDITING;
@@ -1470,7 +1525,27 @@ async function createVersion() {
             author:    STAFF_ID,
         }));
     } else {
-        const programId = VERSIONS[0]?.program_id ?? 1;
+        // Resolve the programme id at insert time. The old fallback
+        // hardcoded 1, which was only ever right because BSIT happened
+        // to be the first row in a fresh database. After a reset the
+        // sequence advances and that guess points at nothing.
+        let programId = VERSIONS[0]?.program_id;
+        if (!programId) {
+            const { data: prog, error: progErr } = await supabase
+                .from('program')
+                .select('id')
+                .order('id')
+                .limit(1)
+                .maybeSingle();
+
+            if (progErr || !prog) {
+                btn.disabled = false;
+                return showMsg('pros-msg',
+                    'No programme row found. Create one in the database first.');
+            }
+            programId = prog.id;
+        }
+
         ({ error } = await supabase.from('prospectus').insert([{
             program_id: programId,
             academic_year: year,
@@ -2049,6 +2124,23 @@ async function loadOfferings() {
 
     const { year, term } = schedTerm();
 
+    // No term selected → show the waiting state. PostgREST rejects
+    // `.eq('academic_year', null)` with a 400, so the query must not
+    // run at all until both dropdowns have real values.
+    if (!year || !term) {
+        OFFERINGS = [];
+        PENDING = [];
+        DIRTY.clear();
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-filter" aria-hidden="true"></i>
+                <h3>Choose a term and section</h3>
+                <p>Pick the dropdowns above, or upload a photo and the
+                   section will fill in automatically.</p>
+            </div>`;
+        return;
+    }
+
     body.innerHTML = `
         <div class="empty">
             <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
@@ -2063,29 +2155,23 @@ async function loadOfferings() {
 
     const { data, error } = await supabase
         .from('subject_offering')
-    .select('id, edp_code, subject_id, meeting_type, section, schedule_days, start_time, end_time, room, instructor, capacity, is_open')
+        .select('id, edp_code, subject_id, meeting_type, section, schedule_days, start_time, end_time, room, instructor, capacity, is_open')
         .eq('academic_year', year)
         .eq('term', term)
         .order('section');
 
-    if (!year || !term) {
-        OFFERINGS = [];
-        PENDING = [];
-        DIRTY.clear();
+    if (error) {
+        console.warn('offering load failed:', error.message);
         body.innerHTML = `
             <div class="empty">
-                <i class="fa-solid fa-filter" aria-hidden="true"></i>
-                <h3>Choose a term and section</h3>
-                <p>Pick the dropdowns above, or upload a photo and the
-                section will fill in automatically.</p>
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load offerings</h3>
+                <p>${escapeHtml(error.message)}</p>
             </div>`;
         return;
     }
 
     OFFERINGS = data ?? [];
-    // Working copy. Edits land here; the table reads from PENDING so
-    // changes are visible immediately without another fetch. Save diffs
-    // PENDING against OFFERINGS to know what to insert, update, delete.
     PENDING = OFFERINGS.map(o => ({ ...o }));
     DIRTY.clear();
     tagPendingKeys();
@@ -2660,10 +2746,14 @@ function refreshTemplateCount() {
     }
 }
 
-$('download-template')?.addEventListener('click', () => {
+$('download-template')?.addEventListener('click', async () => {
     const section = currentSection();
     if (!section) {
         return showMsg('sched-msg', 'Choose a section before downloading a template.');
+    }
+
+    if (typeof ExcelJS === 'undefined') {
+        return showMsg('sched-msg', 'The spreadsheet library did not load. Check your connection.');
     }
 
     const rows = buildTemplateRows();
@@ -2671,20 +2761,86 @@ $('download-template')?.addEventListener('click', () => {
         return showMsg('sched-msg', `No subjects for ${section} in this term.`);
     }
 
-    // Quote every cell — a title with a comma would shift every column
-    // after it on re-import.
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const csv = [
-        CSV_HEADERS.join(','),
-        ...rows.map(r => CSV_HEADERS.map(h => esc(r[h])).join(',')),
-    ].join('\n');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CurricuLogic';
+    wb.created = new Date();
 
+    const ws = wb.addWorksheet('Schedule', {
+        views: [{ state: 'frozen', ySplit: 2 }],   // freeze the guide + header rows
+    });
+
+    // ── Row 1 — guide row, merged across all columns ────────────
+    ws.mergeCells('A1:I1');
+    const guide = ws.getCell('A1');
+    guide.value = 'Fill in EDP CODE, START, END, DAYS, ROOM, and INSTRUCTOR for each row. ' +
+                  'Delete any subject not running this term. Rows left blank are treated as skipped.';
+    guide.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+    guide.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+    guide.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    ws.getRow(1).height = 30;
+
+    // ── Row 2 — header ──────────────────────────────────────────
+    const headerRow = ws.getRow(2);
+    headerRow.values = CSV_HEADERS.map(h => h.toUpperCase().replace(/_/g, ' '));
+    headerRow.font = { bold: true, color: { argb: 'FF0F172A' } };
+    headerRow.height = 22;
+    headerRow.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+        cell.border = {
+            bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        };
+    });
+
+    // ── Rows 3+ — one per template row ──────────────────────────
+    rows.forEach((r, i) => {
+        const rowNum = i + 3;
+        const row = ws.getRow(rowNum);
+        row.values = CSV_HEADERS.map(h => r[h]);
+        row.height = 18;
+
+        // LAB rows get the amber tint so the pair is obvious. LEC rows
+        // stay white. The subject cell renders as plain text — Excel
+        // will keep it left-aligned.
+        const isLab = String(r.type).toUpperCase() === 'LAB';
+        if (isLab) {
+            row.eachCell({ includeEmpty: true }, cell => {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+            });
+        }
+
+        row.eachCell({ includeEmpty: true }, cell => {
+            cell.alignment = { vertical: 'middle', horizontal: 'left' };
+            cell.font = { size: 11 };
+        });
+    });
+
+    // ── Column widths ───────────────────────────────────────────
+    ws.columns = [
+        { width: 12 },  // edp_code
+        { width: 20 },  // subject
+        { width:  8 },  // type
+        { width: 12 },  // section
+        { width: 12 },  // start_time
+        { width: 12 },  // end_time
+        { width:  8 },  // days
+        { width: 10 },  // room
+        { width: 22 },  // instructor
+    ];
+
+    // ── Download ────────────────────────────────────────────────
     const { year, term } = schedTerm();
-    const name = `schedule-${section}-${year}-term${term}.csv`;
+    const fileName = `schedule-${section}-${year}-term${term}.xlsx`;
 
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = name; a.click();
+    a.href = url;
+    a.download = fileName;
+    a.click();
     URL.revokeObjectURL(url);
 
     showMsg('sched-msg',
@@ -2875,30 +3031,36 @@ async function readScheduleFile(file) {
     const buf = await file.arrayBuffer();
     const wb  = XLSX.read(buf, { type: 'array', raw: false, cellDates: false });
     const ws  = wb.Sheets[wb.SheetNames[0]];
-
     if (!ws) throw new Error('The file has no readable sheet.');
 
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
-    if (rows.length === 0) throw new Error('The sheet is empty.');
+    // Read as arrays so the header row can be located rather than
+    // assumed. The template has a merged guide row above the header;
+    // an operator may also leave blank rows or notes at the top. Find
+    // the first row that contains 'edp_code' in any cell and treat
+    // that as the header.
+    const aoa = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false, header: 1 });
+    if (aoa.length === 0) throw new Error('The sheet is empty.');
 
-    const mapped = rows.map((r, i) => {
-        const out = { __line: i + 2 };
-        for (const [k, v] of Object.entries(r)) {
-            out[String(k).trim().toLowerCase().replace(/\s+/g, '_')] = String(v ?? '').trim();
-        }
-        return out;
-    });
+    const normalize = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, '_');
 
-    // The template's guide row starts with "#" in the EDP column.
-    // Drop it before anything else runs.
-    const data = mapped.filter(r => !String(r.edp_code || '').startsWith('#'));
-
-    if (data.length === 0) {
-        throw new Error('The file has a header but no data rows.');
+    let headerIdx = -1;
+    for (let i = 0; i < aoa.length; i++) {
+        const row = aoa[i].map(normalize);
+        if (row.includes('edp_code')) { headerIdx = i; break; }
     }
 
+    if (headerIdx === -1) {
+        throw new Error(
+            "Could not find a header row containing 'edp_code'. " +
+            'Expected headers: edp_code, subject, type, section, ' +
+            'start_time, end_time, days, room, instructor.'
+        );
+    }
+
+    const headers = aoa[headerIdx].map(normalize);
+
     const required = ['edp_code', 'subject', 'type', 'section'];
-    const missing  = required.filter(r => !(r in data[0]));
+    const missing  = required.filter(r => !headers.includes(r));
     if (missing.length) {
         throw new Error(
             `Missing column${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}. ` +
@@ -2907,7 +3069,47 @@ async function readScheduleFile(file) {
         );
     }
 
-    return data;
+    // Excel hands back times in whatever form the operator typed —
+    // "9:00", "9:00 AM", "9:00:00". The browser's <input type="time">
+    // only accepts zero-padded 24-hour HH:MM and silently blanks
+    // anything else, so a "9:00" cell renders as empty in the editable
+    // table even though it parsed fine. Normalize here.
+    const normalizeTime = (v) => {
+        const s = String(v ?? '').trim();
+        if (!s) return '';
+        const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+        if (!m) return s;
+        let h = Number(m[1]);
+        const min = m[2];
+        const ampm = (m[3] || '').toUpperCase();
+        if (ampm === 'PM' && h !== 12) h += 12;
+        if (ampm === 'AM' && h === 12) h = 0;
+        return String(h).padStart(2, '0') + ':' + min;
+    };
+
+    const data = aoa
+        .slice(headerIdx + 1)
+        .filter(row => row.some(c => String(c ?? '').trim() !== ''))
+        .map((row, i) => {
+            const out = { __line: headerIdx + i + 2 };
+            headers.forEach((h, j) => {
+                out[h] = String(row[j] ?? '').trim();
+            });
+            if (out.start_time !== undefined) out.start_time = normalizeTime(out.start_time);
+            if (out.end_time   !== undefined) out.end_time   = normalizeTime(out.end_time);
+            return out;
+        });
+
+    // Backward compat: guide rows written with a leading '#' in the EDP
+    // column are still dropped, so the older template format keeps
+    // working.
+    const filtered = data.filter(r => !String(r.edp_code || '').startsWith('#'));
+
+    if (filtered.length === 0) {
+        throw new Error('The file has a header but no data rows.');
+    }
+
+    return filtered;
 }
 
 /* Downscale the photo to a max long edge of 2000px before upload. A
@@ -3001,6 +3203,18 @@ const norm = (c) => (c || '').replace(/\s/g, '').toUpperCase();
 
 let PENDING_ROWS = [];
 
+
+const GRADE_REJECT_META = {
+    unknown_student:  { label: 'Student ID not registered',        mode: 'chips' },
+    unknown_subject:  { label: 'Subject not in the prospectus',    mode: 'chips',
+                        hint: 'Add it under Curriculum, or correct the code and re-upload.' },
+    bad_grade:        { label: 'Grade out of range (1.0–5.0)',     mode: 'lines' },
+    invalid_status:   { label: 'Invalid status value',             mode: 'lines' },
+    bad_term:         { label: 'Invalid term',                     mode: 'lines' },
+    bad_year:         { label: 'Invalid academic year',            mode: 'lines' },
+    missing_fields:   { label: 'Missing required fields',          mode: 'lines' },
+};
+
 async function previewUpload(rows, warnings = [], detected = null) {
     const box = $('upload-preview');
     if (!box) return;
@@ -3066,38 +3280,53 @@ async function previewUpload(rows, warnings = [], detected = null) {
         const type = String(r.type || '').trim().toUpperCase();
 
         if (!edp) {
-            bad.push({ line: r.__line, why: 'EDP code is required.' });
+            bad.push({ kind: 'missing_edp', line: r.__line, detail: 'no EDP code' });
             continue;
         }
         if (seenEdps.has(edp)) {
-            bad.push({ line: r.__line, why: `EDP ${edp} appears more than once in this file.` });
+            bad.push({ kind: 'duplicate_in_file', line: r.__line, detail: edp });
             continue;
         }
         if (existingEdps.has(edp)) {
-            bad.push({ line: r.__line, why: `EDP ${edp} is already assigned to another offering in this term.` });
+            bad.push({ kind: 'edp_taken', line: r.__line, detail: edp });
             continue;
         }
 
         const subject = byCode.get(code);
         if (!subject) {
-            bad.push({ line: r.__line, why: `${r.subject} is not in the prospectus.` });
+            bad.push({ kind: 'unknown_subject', line: r.__line, detail: r.subject || code });
             continue;
         }
 
         if (type !== 'LEC' && type !== 'LAB') {
-            bad.push({ line: r.__line, why: `Type must be LEC or LAB (got "${r.type}").` });
+            bad.push({ kind: 'bad_type', line: r.__line, detail: r.type });
             continue;
         }
 
         const hasLab = Number(subject.lab_units) > 0;
         if (type === 'LAB' && !hasLab) {
-            bad.push({ line: r.__line, why: `${subject.code} has no laboratory units — it cannot have a LAB meeting.` });
+            bad.push({ kind: 'lab_without_lab_units', line: r.__line, detail: subject.code });
             continue;
         }
 
-        // A wholly empty row (no days, no time, no room) means the
-        // section is not running that subject — treated as skipped,
-        // matching how the physical form handles unoffered subjects.
+        // Year and term must match the section. Electives exempt.
+        if (subject.year_level !== null) {
+            const sectionLevel = sectionYear(fileSection);
+            const sectionTerm  = schedTerm().term;
+
+            if (subject.year_level !== sectionLevel) {
+                bad.push({ kind: 'wrong_year', line: r.__line,
+                    detail: `${subject.code} is Year ${subject.year_level}, section is Year ${sectionLevel}` });
+                continue;
+            }
+            if (subject.term !== sectionTerm) {
+                bad.push({ kind: 'wrong_term', line: r.__line,
+                    detail: `${subject.code} is ${termLabel(subject.term)}, section is ${termLabel(sectionTerm)}` });
+                continue;
+            }
+        }
+
+        // A wholly empty row means the subject is not running — skip.
         if (!r.days && !r.start_time && !r.room) {
             skipped.push({ line: r.__line, subject: subject.code, type });
             continue;
@@ -3109,7 +3338,7 @@ async function previewUpload(rows, warnings = [], detected = null) {
         if (!r.end_time)   missing.push('end time');
         if (!r.room)       missing.push('room');
         if (missing.length) {
-            bad.push({ line: r.__line, why: `Missing ${missing.join(', ')}.` });
+            bad.push({ kind: 'missing_fields', line: r.__line, detail: missing.join(', ') });
             continue;
         }
 
@@ -3228,14 +3457,70 @@ async function previewUpload(rows, warnings = [], detected = null) {
     </div>`;
     })() : ''}
 
-        ${bad.length ? `
+        ${bad.length ? (() => {
+            // Group rejections by reason so eleven identical EDP
+            // conflicts read as one problem, not eleven lines of
+            // noise with the one genuinely-different error buried at
+            // the bottom.
+            const META = {
+                missing_edp:          { label: 'Missing an EDP code',        mode: 'lines' },
+                duplicate_in_file:    { label: 'EDP code appears twice in this file', mode: 'chips' },
+                edp_taken:            { label: 'EDP code already in use this term',  mode: 'chips',
+                                        hint: 'If you just saved this section and are re-uploading to fix a typo, edit the rows in the table below instead.' },
+                unknown_subject:      { label: 'Subject not in the prospectus', mode: 'chips' },
+                bad_type:             { label: 'Invalid meeting type',       mode: 'lines' },
+                lab_without_lab_units:{ label: 'Subject has no lab units',   mode: 'chips' },
+                wrong_year:           { label: 'Wrong year level for this section', mode: 'lines' },
+                wrong_term:           { label: 'Scheduled for the wrong term',      mode: 'lines' },
+                missing_fields:       { label: 'Missing required fields',    mode: 'lines' },
+            };
+
+            const groups = new Map();
+            for (const b of bad) {
+                const key = b.kind || 'other';
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        key,
+                        label: META[key]?.label ?? 'Other',
+                        mode:  META[key]?.mode  ?? 'lines',
+                        hint:  META[key]?.hint  ?? '',
+                        items: [],
+                    });
+                }
+                groups.get(key).items.push(b);
+            }
+
+            const ordered = [...groups.values()]
+                .sort((a, b) => b.items.length - a.items.length);
+
+            return `
             <div class="notice pending">
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div>
-                    <strong>${bad.length} row${bad.length === 1 ? '' : 's'} rejected</strong>
-                    ${bad.map(b => `Line ${b.line}: ${escapeHtml(b.why)}`).join('<br>')}
+                    <strong>${bad.length} row${bad.length === 1 ? '' : 's'} need${bad.length === 1 ? 's' : ''} attention</strong>
+                    <div class="reject-groups">
+                        ${ordered.map(g => `
+                            <div class="reject-group">
+                                <p class="reject-head">
+                                    <span class="reject-count">${g.items.length}</span>
+                                    ${escapeHtml(g.label)}
+                                </p>
+                                ${g.mode === 'chips'
+                                    ? `<p class="reject-chips">${
+                                        [...new Set(g.items.map(i => i.detail))]
+                                            .map(d => `<code>${escapeHtml(d)}</code>`)
+                                            .join(' ')
+                                    }</p>`
+                                    : `<ul class="reject-lines">${
+                                        g.items.map(i => `<li>Line ${i.line}: ${escapeHtml(i.detail)}</li>`).join('')
+                                    }</ul>`}
+                                ${g.hint ? `<p class="reject-hint">${escapeHtml(g.hint)}</p>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
                 </div>
-            </div>` : ''}
+            </div>`;
+        })() : ''}
 
         ${skipped.length ? `
             <div class="notice info">
@@ -3267,6 +3552,7 @@ async function previewUpload(rows, warnings = [], detected = null) {
                     </tbody>
                 </table>
                 ${ok.length > 12 ? `<p class="dim">and ${ok.length - 12} more</p>` : ''}
+            </div>
             <div class="preview-actions">
                 <button class="btn-accent" id="apply-upload">
                     <i class="fa-solid fa-arrow-down" aria-hidden="true"></i>
