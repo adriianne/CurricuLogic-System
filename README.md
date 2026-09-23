@@ -2,9 +2,13 @@
 
 A rule-based expert system for academic advising at the University of
 Cebu, College of Computer Studies. Verifies prerequisites, checks
-eligibility, and recommends subjects for the BSIT programme.
+eligibility, and recommends subjects. Currently scoped to the BSIT
+programme — the schema carries a `program` table and the section
+format is derived from `program.code`, but no second programme has
+been loaded yet.
 
-Advisory only. The system does not enrol students or record transactions.
+Advisory only. The system does not enrol students or record financial
+transactions.
 
 ---
 
@@ -21,57 +25,87 @@ away for nothing, because the rules are already published in the
 prospectus.
 
 The core architectural claim is the separation of knowledge from
-inference. Eligibility logic lives in `engine/`, never in a dashboard.
-If prerequisite checks end up inside `JS/studentdashboard.js`, the
-system is a form with if-statements and the claim no longer holds.
+inference. Eligibility logic lives in `shared/engine/`, never in a
+dashboard. If prerequisite checks end up inside
+`features/student/studentdashboard.js`, the system is a form with
+if-statements and the claim no longer holds.
+
+---
+
+## Status
+
+Working end-to-end for **Department Staff** (authoring) and
+**University Student** (advising). Faculty, Registrar, and System
+Administrator dashboards exist and are functional but have not been
+through the same consistency and redesign pass.
+
+### Shipped
+
+- **Curriculum authoring** — subjects, prerequisite rules, retire and
+  restore.
+- **Prospectus versions** — create from scratch, copy from an existing
+  version, activate, delete with a typed-year confirmation.
+- **Schedule** — CSV or Excel upload, AI photo scan of the registrar's
+  printed form, EDP-validated rows, per-section save.
+- **Grade upload** — student and prospectus validation, audit trail via
+  `grade_file` and `grade_file_row`, xlsx template with fixed column
+  widths.
+- **Student advisory** — eligibility engine over the live knowledge
+  base, plus the Cura AI chat.
+- **Profile** — avatar upload to `staff-avatars`, editable and
+  read-only columns, change-password modal.
+
+### In flight
+
+- **Grade upload UI refresh** — end-to-end verification pending.
+- **Schedule photo scan prompt rule 4** — reporting unknown subject
+  codes instead of substituting. Needs confirmation that it is
+  deployed to the live Edge Function.
+
+### Open
+
+- **`features/prospectus/prospectus.css`** carries duplicate `.photo-*`
+  rules from successive passes; the older ones win. Deduplication
+  pending.
+- **`commitGrades()`** is four independent DB writes, not atomic. A
+  failure mid-sequence leaves a stranded `grade_file` row. Candidate
+  for a Postgres RPC wrapped in `BEGIN...COMMIT`.
+- **Faculty, Registrar, and Admin dashboards** have not been rebuilt to
+  match the Department Staff visual language.
+
+### Deferred until a second programme lands
+
+- **Program-scoped access** — `department_staff.program_id` plus RLS
+  policies. Today `department_staff.department` is a free-text string,
+  which cannot distinguish two programmes under one college.
+- **Section letters and year ranges** become per-programme settings.
+  The `SECTION_LETTERS` constant is `['A','B','C','D']` today, and
+  year level is 1–4 — both correct for BSIT, both wrong for two-year
+  diploma programmes and post-baccalaureate programmes.
+
+### Data notices
+
+- One prospectus with **effective year 2031** is in the live database.
+  Almost certainly test data — worth confirming before any
+  demonstration.
+- **14 Year-2+ subjects** carry no prerequisite rule. Visible on the
+  dashboard integrity tile.
+
+---
+
+## Roles
+
+| Role | Path | Status |
+|------|------|--------|
+| Department Staff | `features/department/` | Authoring — complete |
+| University Student | `features/student/` | Advisory — complete |
+| Faculty | `features/faculty/` | Advising queue — functional, not audited |
+| Registrar | `features/registrar/` | Oversight — functional, not audited |
+| System Administrator | `features/admin/` | Account management — functional, not audited |
+
+Each dashboard is a single HTML file with hash routing. One JavaScript
+module per dashboard, one shared stylesheet.
 
 ---
 
 ## Layout
-
-```
-engine/     inference engine — pure, no dependencies
-tests/      engine tests, runnable with plain node
-data/       transcribed BSIT prospectus (CSV)
-db/         SQL migrations as applied to the live project
-docs/       decision register and working notes
-HTML/       page markup, one file per actor dashboard
-JS/         page logic, one file per page
-CSS/        dashboard.css is shared across all actor dashboards
-assets/     logo and assets
-```
-
----
-
-## Login identifiers
-
-| Actor | Format | Example |
-|---|---|---|
-| University Student | `uc-` + 7 digits | `uc-2401187` |
-| Staff | `EMP-` + digits | `EMP-00871` |
-| System Administrator | username | `sysadmin` |
-| Any | email | `althea1@gmail.com` |
-
-`resolve_login_identifier(text)` maps all four to an email server-side,
-so the actor tables need no anon read policy — one would expose the
-entire student list to anyone holding the public anon key.
-
-Student IDs are stored bare (`2401187`). The `uc-` prefix exists only at
-the login boundary. Storing the prefixed form inserts cleanly and then
-fails login silently.
-
----
-
-### PDF extraction is not reliable for this document
-
-`pdftotext -layout` scrambles the prospectus: merged cells, wrapped
-prerequisite lists, symbolic markers (`●`, `●●`, `**`, `***`), and
-placeholder codes with underscore runs. OCR from a photograph is worse.
-
-A misread subject code produces a rule that blocks a subject forever
-with no error anywhere. Out of scope, recorded under Future Development.
-
----
-
-A capstone project of the College of Computer Studies,
-University of Cebu.
