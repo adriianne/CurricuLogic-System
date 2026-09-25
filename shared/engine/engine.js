@@ -93,34 +93,44 @@ function buildFacts(student, records, subjects) {
         yearLevel: Number(student?.year_level) || null,
         passed, failed, enrolled,
         unitsEarned,
-        completedThroughYear: highestCompletedYear(passed, subjects),
+        completedThroughPosition: highestCompletedPosition(passed, subjects),
     };
 }
 
-/*
- * The highest year level for which every non-elective subject has been
- * passed.
- *
- * This backs the `standing` requirement, which the prospectus expresses
- * as "must finish all 1st to 2nd year courses". A unit threshold would be
- * a weaker reading — a student can reach the unit count while still owing
- * a subject, and would then clear a gate the printed curriculum does not
- * open.
- *
- * Electives are excluded: a student choosing three of seventeen has not
- * failed to complete the year by leaving fourteen untaken.
- */
-function highestCompletedYear(passed, subjects) {
-    let year = 0;
+/* A position is Y×10 + T: 11 = Year 1 Term 1, 12 = Year 1 Term 2,
+   22 = Year 2 Term 2, and so on. A position is complete when every
+   non-elective subject at that position or earlier is passed.
+   Iterating positions in order and stopping at the first gap gives
+   the highest contiguous position the student has finished. */
+function highestCompletedPosition(passed, subjects) {
+    const positions = [...new Set(
+        subjects
+            .filter(s => !s.is_elective && s.year_level != null && s.term != null)
+            .map(s => s.year_level * 10 + s.term)
+    )].sort((a, b) => a - b);
 
-    for (let y = 1; y <= 4; y++) {
-        const required = subjects.filter(s => s.year_level === y && !s.is_elective);
-        if (required.length === 0) break;
-        if (!required.every(s => passed.has(s.id))) break;
-        year = y;
+    let highest = 0;
+    for (const pos of positions) {
+        const upto = subjects.filter(s =>
+            !s.is_elective &&
+            s.year_level != null && s.term != null &&
+            s.year_level * 10 + s.term <= pos
+        );
+        if (upto.every(s => passed.has(s.id))) highest = pos;
+        else break;
     }
+    return highest;
+}
 
-    return year;
+/* Human-readable label for a position, used in the student-facing
+   "Why is this locked?" panel. */
+function describePosition(pos) {
+    if (!pos) return 'nothing yet';
+    const y = Math.floor(pos / 10);
+    const t = pos % 10;
+    const ord = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th' }[y] || `${y}th`;
+    const term = { 1: '1st Semester', 2: '2nd Semester', 3: 'Summer' }[t] || '';
+    return `${ord} Year, ${term}`;
 }
 
 
@@ -178,14 +188,15 @@ function evaluateCondition(rule, facts, byId) {
 
     if (type === STANDING) {
         const need = Number(rule.threshold_value);
-        const met  = facts.completedThroughYear >= need;
+        const have = facts.completedThroughPosition;
+        const met  = have >= need;
         return {
             type, met,
             threshold: need,
             detail: met
-                ? `All subjects through year ${need} are complete.`
-                : `Requires every subject up to year ${need} to be passed. ` +
-                  `Currently complete through year ${facts.completedThroughYear || 0}.`,
+                ? `Completed through ${describePosition(need)}.`
+                : `Requires completion through ${describePosition(need)}. ` +
+                `Currently through ${describePosition(have)}.`,
         };
     }
 
@@ -251,7 +262,7 @@ function chainForward(facts, kb, assumePassed = []) {
     for (const id of assumePassed) passed.add(id);
 
     const working = { ...facts, passed };
-    working.completedThroughYear = highestCompletedYear(passed, kb.subjects);
+    working.completedThroughPosition = highestCompletedPosition(passed, kb.subjects);
 
     const depth = new Map();
     let iteration = 0;
@@ -280,7 +291,7 @@ function chainForward(facts, kb, assumePassed = []) {
         /* Assume this notional term is passed before the next sweep —
            that is what makes the next depth level meaningful. */
         for (const id of newlyPassed) working.passed.add(id);
-        working.completedThroughYear = highestCompletedYear(working.passed, kb.subjects);
+        working.completedThroughPosition = highestCompletedPosition(working.passed, kb.subjects);
 
     } while (derivedThisPass > 0 && iteration < DEFAULTS.maxIterations);
 
@@ -458,7 +469,7 @@ function assess(student, records, knowledgeBase, options = {}) {
     return {
         facts: {
             unitsEarned: facts.unitsEarned,
-            completedThroughYear: facts.completedThroughYear,
+            completedThroughPosition: facts.completedThroughPosition,
             passedCount: facts.passed.size,
             failedCount: facts.failed.size,
             enrolledCount: facts.enrolled.size,
@@ -544,7 +555,8 @@ return {
     buildFacts,
     evaluateSubject,
     chainForward,
-    highestCompletedYear,
+    highestCompletedPosition,
+    describePosition,
     explain,
     DEFAULTS,
     PASSED, FAILED, ENROLLED,
