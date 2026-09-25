@@ -578,6 +578,8 @@ async function createAccount() {
         // what the bulk-upload path uses. create_staff_account was staff-only
         // and required an employee ID unconditionally, which is why this form
         // could never create a student even once the role were selectable.
+        const declaredPath = $('a-declared-path')?.value ?? 'existing';
+
         const { data, error } = await supabase.rpc('create_user_account', {
             p_first_name: first,
             p_last_name: last,
@@ -588,6 +590,7 @@ async function createAccount() {
             p_student_id: role === 'student' ? studentId : null,
             p_department: department,
             p_year_level: role === 'student' ? yearLevel : null,
+            p_declared_path: role === 'student' ? declaredPath : 'existing',
         });
 
         if (error) {
@@ -611,6 +614,10 @@ async function createAccount() {
 function clearCreateForm() {
     ['a-first-name', 'a-last-name', 'a-email', 'a-employee-id', 'a-student-id', 'a-department', 'a-password', 'a-confirm']
         .forEach(id => { const el = $(id); if (el) el.value = ''; });
+
+        const dp = $('a-declared-path');
+        if (dp) dp.value = 'new';
+
     $('a-role').value = 'faculty';
     updateRoleFields();
     $('a-first-name').focus();
@@ -622,9 +629,10 @@ function clearCreateForm() {
 // hidden field the user never touched should not be read as if it were.
 function updateRoleFields() {
     const isStudent = $('a-role').value === 'student';
-    $('a-employee-id-wrap').hidden = isStudent;
-    $('a-student-id-wrap').hidden  = !isStudent;
-    $('a-year-level-wrap').hidden  = !isStudent;
+    $('a-employee-id-wrap').hidden     = isStudent;
+    $('a-student-id-wrap').hidden      = !isStudent;
+    $('a-year-level-wrap').hidden      = !isStudent;
+    $('a-declared-path-wrap').hidden   = !isStudent;
 }
 
 $('a-role')?.addEventListener('change', updateRoleFields);
