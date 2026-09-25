@@ -1476,3 +1476,12 @@
     color: #a16207;
     line-height: 1.55;
 }
+
+/* Standing-rule labels in the prerequisite column. Softer than a code
+   link — it isn't clickable — and distinguishable from the printed
+   asterisk notation. */
+.pros-grid .pg-standing {
+    color: var(--ink-2, #475569);
+    font-style: italic;
+    font-size: 11px;
+}

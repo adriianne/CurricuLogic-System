@@ -1,9 +1,16 @@
 // prospectusgrid.js — renders a prospectus as the printed curriculum grid.
 // Load after config.js and before departmentdashboard.js.
 //
-// Exposes window.ProspectusGrid.render(supabase, prospectusId, mountEl).
+// Exposes window.ProspectusGrid.render(supabase, prospectusId, mountEl, statuses, offline).
 // No Supabase writes. Read-only, so every actor can reuse it — Faculty
 // and Student get the same grid with a status map layered on later.
+//
+// `offline` is optional: { subjects, rules } already in memory (e.g. the
+// student dashboard's ?preview fixture). When supplied, render() skips the
+// Supabase query entirely and builds the grid from that data instead. Every
+// existing caller (Faculty, Department, and the Student dashboard outside
+// preview) passes a real supabase client and no `offline` argument, so
+// their behaviour is unchanged.
 
 (function () {
 'use strict';
@@ -41,6 +48,48 @@ const CHIP = {
 
 /*  data  */
 
+/* Standing-condition label, shared by the live query branch and the
+   offline branch below — hoisted out of load() so both can call it. */
+function describeStanding(pos) {
+    const y = Math.floor(pos / 10);
+    const t = pos % 10;
+    const ord = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th' }[y] || `${y}th`;
+    const term = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' }[t] || '';
+
+    if (t === 2) {
+        // Year-level — printed notation: ** / *** / ****
+        return { mark: '*'.repeat(y + 1) };
+    }
+    return { label: `Through ${ord} Yr, ${term}` };
+}
+
+/* Builds the { subjects, rules } shape render() expects from a flat
+   subjects array and a flat prerequisite-rows array already in memory —
+   the same shape the live query branch below produces after its own
+   join. Used by the offline (preview) path. */
+function buildFromOffline(offline) {
+    const subjects = offline.subjects ?? [];
+    const byId = new Map(subjects.map(s => [s.id, s]));
+
+    const rules = new Map();
+    for (const p of (offline.rules ?? [])) {
+        if (!byId.has(p.subject_id)) continue;   // rule for another version
+        if (!rules.has(p.subject_id)) rules.set(p.subject_id, []);
+
+        if (p.requirement_type === 'standing') {
+            rules.get(p.subject_id).push(
+                describeStanding(Number(p.threshold_value) || 0)
+            );
+        } else {
+            rules.get(p.subject_id).push({
+                code: byId.get(p.prerequisite_subject_id)?.code ?? null
+            });
+        }
+    }
+
+    return { subjects, rules };
+}
+
 async function load(supabase, prospectusId) {
     const [subs, pres] = await Promise.all([
         supabase.from('subject')
@@ -58,23 +107,7 @@ async function load(supabase, prospectusId) {
     if (subs.error) throw new Error(subs.error.message);
     if (pres.error) throw new Error(pres.error.message);
 
-    const byId = new Map(subs.data.map(s => [s.id, s]));
-
-    // Group prerequisites onto their subject. A standing rule has no
-    // prerequisite_subject_id — it becomes a ** or *** marker.
-    const rules = new Map();
-    for (const p of (pres.data || [])) {
-        if (!byId.has(p.subject_id)) continue;   // rule for another version
-        if (!rules.has(p.subject_id)) rules.set(p.subject_id, []);
-
-        rules.get(p.subject_id).push(
-            p.requirement_type === 'standing'
-                ? { mark: '*'.repeat(Math.max(2, Number(p.threshold_value) || 2)) }
-                : { code: byId.get(p.prerequisite_subject_id)?.code ?? null }
-        );
-    }
-
-    return { subjects: subs.data, rules };
+    return buildFromOffline({ subjects: subs.data, rules: pres.data });
 }
 
 
@@ -96,15 +129,16 @@ function preCell(subject, rules) {
        themselves have real prerequisite chains — ELPHP2 requires ELPHP1 —
        and testing is_elective alone painted the marker over all of them. */
     if (subject.is_elective && subject.year_level != null) {
-        const m = subject.elective_type === 'FREE' ? '\u25CF\u25CF' : '\u25CF';
+        const m = subject.elective_type === 'FREE' ? '●●' : '●';
         return `<span class="pg-mark">${m}</span>`;
     }
 
     const list = rules.get(subject.id) || [];
-    if (!list.length) return '<span class="no">\u2014</span>';
+    if (!list.length) return '<span class="no">—</span>';
 
     return list.map(r => {
-        if (r.mark) return `<span class="pg-mark">${r.mark}</span>`;
+        if (r.mark)  return `<span class="pg-mark">${r.mark}</span>`;
+        if (r.label) return `<span class="pg-standing">${esc(r.label)}</span>`;
         if (!r.code) return '<span class="no">?</span>';   // dangling rule
         return `<span class="lk" data-jump="${esc(r.code)}">${esc(r.code)}</span>`;
     }).join(', ');
@@ -129,7 +163,7 @@ function panel(label, rows, rules, showSplit) {
         const catalogueId = 'pg-catalogue-' + (isFreeSlot ? 'freeelectivecourses' : 'itelectivecourses');
         const titleCell = s.is_elective
             ? `<span class="pg-slot-hint" data-jump-catalogue="${catalogueId}">`
-              + `Choose 1 \u2014 see ${isFreeSlot ? 'Free' : 'IT'} Elective Courses</span>`
+              + `Choose 1 — see ${isFreeSlot ? 'Free' : 'IT'} Elective Courses</span>`
             : esc(s.title);
 
         return `<tr class="${cls}" id="${slug(s.code)}">
@@ -271,16 +305,16 @@ function jump(code) {
 
 /*  entry point  */
 
-async function render(supabase, prospectusId, mountEl, statuses = null) {
+async function render(supabase, prospectusId, mountEl, statuses = null, offline = null) {
     MOUNT = mountEl;
     CUR = 0;
     STATUS = statuses;
     MOUNT.className = 'pros-grid';
-    MOUNT.innerHTML = '<div class="pg-empty">Loading curriculum\u2026</div>';
+    MOUNT.innerHTML = '<div class="pg-empty">Loading curriculum…</div>';
 
     let data;
     try {
-        data = await load(supabase, prospectusId);
+        data = offline ? buildFromOffline(offline) : await load(supabase, prospectusId);
     } catch (err) {
         console.error('[prospectus grid]', err.message);
         MOUNT.innerHTML = `<div class="pg-empty">Could not load the curriculum.</div>`;
@@ -347,8 +381,8 @@ async function render(supabase, prospectusId, mountEl, statuses = null) {
         <div class="pg-stage">${stage}</div>
 
         <div class="pg-pair">
-            ${electivePanel('IT Elective Courses', 'Choose four \u00b7 12 units', itEl, rules)}
-            ${electivePanel('Free Elective Courses', 'Choose four \u00b7 12 units', frEl, rules)}
+            ${electivePanel('IT Elective Courses', 'Choose four · 12 units', itEl, rules)}
+            ${electivePanel('Free Elective Courses', 'Choose four · 12 units', frEl, rules)}
         </div>
 
         <div class="pg-pair">
@@ -361,8 +395,8 @@ async function render(supabase, prospectusId, mountEl, statuses = null) {
                 <div class="pg-legend">
                     <div><span class="m">**</span><span class="t">Must finish all 1st year to 2nd year courses</span></div>
                     <div><span class="m">***</span><span class="t">Must finish all 1st year to 3rd year courses</span></div>
-                    <div><span class="m">\u25CF</span><span class="t">Choose from the IT elective courses</span></div>
-                    <div><span class="m">\u25CF\u25CF</span><span class="t">Choose from the free elective courses</span></div>
+                    <div><span class="m">●</span><span class="t">Choose from the IT elective courses</span></div>
+                    <div><span class="m">●●</span><span class="t">Choose from the free elective courses</span></div>
                 </div>
             </div>
         </div>`;
@@ -392,4 +426,4 @@ async function render(supabase, prospectusId, mountEl, statuses = null) {
 
 window.ProspectusGrid = { render };
 
-})();
+})();   
