@@ -39,9 +39,11 @@
                 <a href="#record"     data-view="record">
                     <i class="fa-solid fa-file-lines" aria-hidden="true"></i> Academic record
                 </a>
-                <a href="#requests"   data-view="requests">
-                    <i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Advising requests
-                    <span class="nav-tag">Planned</span>
+                <a href="#plan"       data-view="plan">
+                    <i class="fa-solid fa-square-pen" aria-hidden="true"></i> Build your plan
+                </a>
+                <a href="#myrequests" data-view="myrequests">
+                    <i class="fa-solid fa-paper-plane" aria-hidden="true"></i> My requests
                 </a>
                 <a href="#ask-ai"     data-view="ask-ai">
                     <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Ask AI
@@ -66,7 +68,7 @@
                 </button>
 
                 <span class="topbar-title" id="topbar-title">Dashboard</span>
-                <span class="topbar-term">1st Sem · AY 2026–2027</span>
+                <span class="topbar-term" id="topbar-term">1st Sem · AY 2023–2024</span>
 
                 <div class="topbar-user">
                     <span class="avatar" id="avatar">–</span>
@@ -89,8 +91,8 @@
                     <div class="page-head">
                         <h1 class="page-title" id="greeting">Welcome back</h1>
                         <p class="page-sub">
-                            What you can take this term, why it is suggested, and the
-                            requirement behind anything you cannot take yet.
+                            Your suggested subjects for this term, where your requests stand, and
+                            anything Faculty or the Registrar need you to know.
                         </p>
                     </div>
 
@@ -119,19 +121,60 @@
                         </div>
                     </div>
 
-                    <section class="card">
-                        <div class="card-head">
-                            <span class="card-title">Your term</span>
-                            <span class="card-note" id="elig-note"></span>
+                    <div class="dash-grid">
+                        <div class="dash-main">
+                            <section class="card">
+                                <div class="card-head">
+                                    <span class="card-title">Your term</span>
+                                    <span class="card-note" id="elig-note"></span>
+                                    <a href="#plan" class="dash-cta">Build your plan &rarr;</a>
+                                </div>
+                                <div class="card-body" id="elig-body">
+                                    <div class="empty">
+                                        <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                        <h3>Loading</h3>
+                                        <p>Checking your account.</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="card" id="elig-later-card" hidden>
+                                <div class="card-head">
+                                    <span class="card-title">Later in your degree</span>
+                                </div>
+                                <div class="card-body" id="elig-later"></div>
+                            </section>
                         </div>
-                        <div class="card-body" id="elig-body">
-                            <div class="empty">
-                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                                <h3>Loading</h3>
-                                <p>Checking your account.</p>
-                            </div>
-                        </div>
-                    </section>
+
+                        <aside class="dash-aside">
+                            <section class="card">
+                                <div class="card-head">
+                                    <span class="card-title">Advising requests</span>
+                                    <a href="#myrequests" class="card-note">View all &rarr;</a>
+                                </div>
+                                <div class="card-body" id="dash-requests-body">
+                                    <div class="empty">
+                                        <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                        <h3>Loading</h3>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="card">
+                                <div class="card-head">
+                                    <span class="card-title">Notifications</span>
+                                    <span class="card-note" id="notif-note"></span>
+                                    <button class="btn-link" id="notif-mark-read" type="button" hidden>Mark all read</button>
+                                </div>
+                                <div class="card-body" id="notif-body">
+                                    <div class="empty">
+                                        <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                        <h3>Loading</h3>
+                                    </div>
+                                </div>
+                            </section>
+                        </aside>
+                    </div>
 
                 </section>
 
@@ -200,15 +243,18 @@
 
                 </section>
 
-                <!-- Advising requests -->
-                <section class="view" id="view-requests" hidden>
+                <!-- Build your plan -->
+                <section class="view" id="view-plan" hidden>
 
                     <div class="page-head">
-                        <h1 class="page-title">Advising requests</h1>
+                        <h1 class="page-title">Build your plan</h1>
                         <p class="page-sub">
                             Pick the subjects you plan to take next term and submit them
                             for Faculty Staff to review. Each one is checked against your
-                            record automatically before it reaches your adviser.
+                            record automatically before it reaches your adviser. Subjects
+                            already pending or approved won't show here — a subject sent
+                            back for revision reappears with the reason so you can fix and
+                            resubmit it.
                         </p>
                     </div>
 
@@ -216,27 +262,45 @@
 
                     <section class="card">
                         <div class="card-head">
-                            <span class="card-title">Build your plan</span>
+                            <span class="card-title">Available subjects</span>
                         </div>
                         <div class="card-body">
                             <div id="req-picker" class="req-picker">
-                                <p class="dim">Loading your recommended subjects\u2026</p>
+                                <p class="dim">Loading your recommended subjects…</p>
                             </div>
-                            <div class="review-actions">
+                            <div class="plan-bar">
+                                <div class="plan-bar-load">
+                                    <span class="cb-hint" id="req-count">Nothing selected yet</span>
+                                    <div class="unit-meter" id="req-meter-track" aria-hidden="true">
+                                        <div class="unit-meter-fill" id="req-meter"></div>
+                                    </div>
+                                </div>
                                 <button class="btn-primary" id="req-submit" disabled>
                                     Submit for review
                                 </button>
-                                <span class="cb-hint" id="req-count"></span>
                             </div>
                         </div>
                     </section>
 
-                    <section class="card" id="req-history-card" hidden>
+                </section>
+
+                <!-- My requests -->
+                <section class="view" id="view-myrequests" hidden>
+
+                    <div class="page-head">
+                        <h1 class="page-title">My requests</h1>
+                        <p class="page-sub">
+                            Every advising request you've submitted, from Faculty review
+                            through the Registrar's final decision.
+                        </p>
+                    </div>
+
+                    <section class="card">
                         <div class="card-head">
-                            <span class="card-title">Your past requests</span>
+                            <span class="card-title">Submission history</span>
                         </div>
                         <div class="card-body">
-                            <div id="req-history"></div>
+                            <div id="myrequests-body"></div>
                         </div>
                     </section>
 
@@ -258,16 +322,21 @@
 
                     <section class="card ai-chat-card">
                         <div class="card-body">
+                            <div id="chat-context" class="chat-context" hidden></div>
                             <div id="chat-log" class="chat-log" aria-live="polite">
-                                <div class="chat-msg chat-msg-model">
-                                    <p>
-                                        Hi, I'm Cura! I can answer questions about what
-                                        you're eligible to take, what's recommended
-                                        next, and why a subject might be locked. What
-                                        would you like to know?
-                                    </p>
+                                <div class="chat-row chat-row-model">
+                                    <span class="chat-avatar" aria-hidden="true">C</span>
+                                    <div class="chat-msg chat-msg-model">
+                                        <p>
+                                            Hi, I'm Cura! I can answer questions about what
+                                            you're eligible to take, what's recommended
+                                            next, and why a subject might be locked. What
+                                            would you like to know?
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
+                            <div id="chat-suggestions" class="chat-suggestions" hidden></div>
                             <form id="chat-form" class="chat-form">
                                 <input type="text" id="chat-input"
                                        placeholder="Ask about your subjects..."
@@ -287,60 +356,99 @@
                     <div class="page-head">
                         <h1 class="page-title">Profile</h1>
                         <p class="page-sub">
-                            Your account details as held by the system.
+                            Your account, your progress toward the degree, and your sign-in.
                         </p>
                     </div>
 
-                    <section class="card">
-                        <div class="card-head">
-                            <span class="card-title">Account details</span>
-                        </div>
-                        <div class="card-body">
-                            <dl id="details">
-                                <div class="detail">
-                                    <dt>Name</dt>
-                                    <dd id="d-name"><span class="skeleton"></span></dd>
-                                </div>
-                                <div class="detail">
-                                    <dt>Student ID</dt>
-                                    <dd class="mono" id="d-sid"><span class="skeleton"></span></dd>
-                                </div>
-                                <div class="detail">
-                                    <dt>University email</dt>
-                                    <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
-                                </div>
-                                <div class="detail">
-                                    <dt>Programme</dt>
-                                    <dd id="d-program"><span class="skeleton"></span></dd>
-                                </div>
-                                <div class="detail">
-                                    <dt>Year level</dt>
-                                    <dd id="d-year"><span class="skeleton"></span></dd>
-                                </div>
-                                <div class="detail">
-                                    <dt>Account status</dt>
-                                    <dd id="d-status"><span class="skeleton"></span></dd>
-                                </div>
-                                <div class="detail">
-                                    <dt>Record verification</dt>
-                                    <dd id="d-verified"><span class="skeleton"></span></dd>
-                                </div>
-                            </dl>
+                    <section class="card prof-hero">
+                        <div class="prof-avatar" id="prof-avatar" aria-hidden="true"></div>
+                        <div class="prof-id">
+                            <h2 class="prof-name" id="prof-name"><span class="skeleton"></span></h2>
+                            <p class="prof-sub" id="prof-sub"></p>
+                            <div class="prof-pills">
+                                <span id="d-status"><span class="skeleton"></span></span>
+                                <span id="d-verified"><span class="skeleton"></span></span>
+                            </div>
                         </div>
                     </section>
 
                     <section class="card">
                         <div class="card-head">
-                            <span class="card-title">Changing your details</span>
+                            <span class="card-title">Progress toward your degree</span>
+                            <span class="cb-hint" id="prof-progress-note"></span>
                         </div>
                         <div class="card-body">
-                            <p class="prose">
-                                Name, student ID, programme, and year level are held in
-                                university records and cannot be edited here. To correct any
-                                of them, contact the Office of the Registrar.
-                            </p>
+                            <div id="prof-progress">
+                                <p class="dim">Loading…</p>
+                            </div>
                         </div>
                     </section>
+
+                    <div class="prof-grid">
+                        <section class="card">
+                            <div class="card-head">
+                                <span class="card-title">Account details</span>
+                            </div>
+                            <div class="card-body">
+                                <dl id="details">
+                                    <div class="detail">
+                                        <dt>Name</dt>
+                                        <dd id="d-name"><span class="skeleton"></span></dd>
+                                    </div>
+                                    <div class="detail">
+                                        <dt>Student ID</dt>
+                                        <dd class="mono" id="d-sid"><span class="skeleton"></span></dd>
+                                    </div>
+                                    <div class="detail">
+                                        <dt>Email</dt>
+                                        <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
+                                    </div>
+                                    <div class="detail">
+                                        <dt>Programme</dt>
+                                        <dd id="d-program"><span class="skeleton"></span></dd>
+                                    </div>
+                                    <div class="detail">
+                                        <dt>Year level</dt>
+                                        <dd id="d-year"><span class="skeleton"></span></dd>
+                                    </div>
+                                    <div class="detail">
+                                        <dt>Curriculum</dt>
+                                        <dd id="d-curriculum"><span class="skeleton"></span></dd>
+                                    </div>
+                                </dl>
+                                <p class="prof-note">
+                                    Name, student ID, programme and year level are held in
+                                    university records and cannot be edited here. To correct
+                                    any of them, contact the Office of the Registrar.
+                                </p>
+                            </div>
+                        </section>
+
+                        <section class="card">
+                            <div class="card-head">
+                                <span class="card-title">Change your password</span>
+                            </div>
+                            <div class="card-body">
+                                <form id="prof-pw-form" class="prof-form" autocomplete="off" novalidate>
+                                    <div id="pw-msg" class="msg" role="status"></div>
+
+                                    <label for="pw-current">Current password</label>
+                                    <input type="password" id="pw-current" autocomplete="current-password">
+
+                                    <label for="pw-new">New password</label>
+                                    <input type="password" id="pw-new" autocomplete="new-password">
+                                    <p class="prof-hint">At least 8 characters.</p>
+
+                                    <label for="pw-confirm">Confirm new password</label>
+                                    <input type="password" id="pw-confirm" autocomplete="new-password">
+
+                                    <button type="submit" class="btn-primary" id="pw-submit">
+                                        Change password
+                                    </button>
+                                </form>
+                            </div>
+                        </section>
+                    </div>
 
                 </section>
 
@@ -350,6 +458,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="../../shared/js/config.js"></script>
+<script src="../../shared/js/systemconfig.js"></script>
     <script src="../../ai-assist/eligibility-explanation.js"></script>
     <script src="../../ai-assist/eligibility-chat.js"></script>
     <script src="../../shared/engine/engine.js"></script>

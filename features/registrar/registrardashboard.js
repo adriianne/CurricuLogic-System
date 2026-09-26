@@ -24,6 +24,7 @@ let REGISTRAR     = null;   // registrar_staff row
 let REGISTRAR_ID  = null;   // registrar_staff.id — the FK target, not user_id
 let STUDENTS      = [];
 let PREVIEW       = false;
+let ADVISING_COUNT = 0;   // requests approved by Faculty, awaiting Registrar
 
 
 /* preview mode (development only) */
@@ -61,6 +62,7 @@ function previewRequested() {
 
 const VIEWS = {
     dashboard: 'Dashboard',
+    advising:  'Advising queue',
     requests:  'Account requests',
     students:  'Students',
     student:   'Student detail',
@@ -97,6 +99,16 @@ function showView(name, param) {
     if (name === 'students') renderStudents();
     if (name === 'student' && param) openStudent(param);
     if (name === 'prospectus') loadProspectus();
+
+    if (name === 'advising') {
+        const inDetail = !!param;
+        const queueEl  = $('adv-sub-queue');
+        const detailEl = $('adv-sub-detail');
+        if (queueEl)  queueEl.hidden  = inDetail;
+        if (detailEl) detailEl.hidden = !inDetail;
+        if (inDetail) loadAdvisingDetail(param);
+        else          loadAdvisingQueue();
+    }
 }
 
 /* prospectus */
@@ -229,7 +241,9 @@ function showMsg(boxId, text, type = 'error') {
     const box = $(boxId);
     if (!box) return;
     box.textContent = text;
-    box.className = 'msg ' + type;
+    // An empty message must never carry error styling (same fix already
+    // applied on Faculty/Department's showMsg).
+    box.className = text ? 'msg ' + type : 'msg';
 }
 
 
@@ -267,12 +281,125 @@ function renderNotice(staff) {
         </div>`;
 }
 
+/* Password change. Same pattern as Department Staff's and Faculty's:
+   re-authenticate with the current password first, then updateUser().
+   Registrar had no self-service path for this before -- and given this
+   role sits at the final approval gate for every advising plan, that
+   was arguably the more urgent of the two dashboards to fix. */
+function openPasswordModal() {
+    const modal = $('password-modal');
+    if (!modal) return;
+
+    ['pw-current', 'pw-new', 'pw-confirm'].forEach(id => {
+        const el = $(id); if (el) el.value = '';
+    });
+    showMsg('pw-msg', '');
+
+    modal.hidden = false;
+    setTimeout(() => $('pw-current')?.focus(), 60);
+
+    const close = () => {
+        modal.hidden = true;
+        $('pw-cancel')?.removeEventListener('click', onCancel);
+        $('pw-submit')?.removeEventListener('click', onSubmit);
+        modal.removeEventListener('click', onBackdrop);
+        document.removeEventListener('keydown', onKey);
+    };
+
+    const onCancel   = () => close();
+    const onSubmit   = () => submitPasswordChange(close);
+    const onBackdrop = (e) => { if (e.target === modal) close(); };
+    const onKey      = (e) => { if (e.key === 'Escape') close(); };
+
+    $('pw-cancel')?.addEventListener('click', onCancel);
+    $('pw-submit')?.addEventListener('click', onSubmit);
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+}
+
+async function submitPasswordChange(close) {
+    const current = $('pw-current')?.value ?? '';
+    const next    = $('pw-new')?.value ?? '';
+    const confirm = $('pw-confirm')?.value ?? '';
+
+    if (!current) return showMsg('pw-msg', 'Enter your current password.');
+    if (next.length < 8) return showMsg('pw-msg', 'New password must be at least 8 characters.');
+    if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
+
+    const btn = $('pw-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+
+    const finish = (msg, type) => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Change password'; }
+        showMsg('pw-msg', msg, type);
+    };
+
+    if (PREVIEW) {
+        finish('Password updated (preview only).', 'success');
+        return setTimeout(close, 900);
+    }
+
+    const email = REGISTRAR?.email;
+    if (!email) return finish('No email on record for this account.', 'error');
+
+    const { error: authErr } = await supabase.auth.signInWithPassword({
+        email,
+        password: current,
+    });
+    if (authErr) return finish('Current password is incorrect.', 'error');
+
+    const { error: upErr } = await supabase.auth.updateUser({ password: next });
+    if (upErr) return finish(upErr.message || 'Could not change password.');
+
+    if (REGISTRAR?.must_change_password && REGISTRAR_ID) {
+        await supabase.from('registrar_staff')
+            .update({ must_change_password: false })
+            .eq('id', REGISTRAR_ID);
+        REGISTRAR = { ...REGISTRAR, must_change_password: false };
+    }
+
+    finish('Password updated.', 'success');
+    setTimeout(close, 900);
+}
+
+$('p-change-password')?.addEventListener('click', openPasswordModal);
+
 
 /* data */
 
 const SELECT_COLS =
     'id, first_name, last_name, student_id, email, year_level, is_approved, ' +
-    'record_verified, approval_status, declared_path, review_note, created_at';
+    'record_verified, approval_status, declared_path, review_note, created_at, ' +
+    'program_id, prospectus_id';
+
+/* A student needs a prospectus to be assessed against. Admin provisioning
+   sets one, but a self-registered student arrives with none, and Faculty
+   cannot compute eligibility for a student who has none (the Student view
+   falls back to the active version; Faculty does not). Pin the active
+   version when the Registrar approves or verifies, so a returnee also
+   stays on the curriculum they entered under if a newer one is published
+   later. Returns {} when the student already has one. */
+let ACTIVE_PROSPECTUSES = null;
+
+async function prospectusPatchFor(student) {
+    if (!student || student.prospectus_id || PREVIEW || !supabase) return {};
+
+    if (!ACTIVE_PROSPECTUSES) {
+        const { data, error } = await supabase
+            .from('prospectus')
+            .select('id, program_id')
+            .eq('is_active', true);
+        if (error) {
+            console.warn('active prospectus lookup failed:', error.message);
+            return {};
+        }
+        ACTIVE_PROSPECTUSES = data ?? [];
+    }
+
+    const match = ACTIVE_PROSPECTUSES.find(p => p.program_id === student.program_id)
+        ?? ACTIVE_PROSPECTUSES[0];
+    return match ? { prospectus_id: match.id, program_id: match.program_id } : {};
+}
 
 async function loadStudents() {
     if (PREVIEW) {
@@ -450,6 +577,10 @@ async function decide(id, status, note = null) {
         reviewed_by:     REGISTRAR_ID,
         reviewed_at:     new Date().toISOString(),
     };
+
+    if (status === 'approved') {
+        Object.assign(patch, await prospectusPatchFor(STUDENTS.find(s => s.id === id)));
+    }
 
     if (PREVIEW) {
         Object.assign(STUDENTS.find(s => s.id === id), patch);
@@ -711,6 +842,29 @@ async function setVerified(id, verified) {
         verified_at:     verified ? new Date().toISOString() : null,
     };
 
+    if (verified) {
+        Object.assign(patch, await prospectusPatchFor(STUDENTS.find(s => s.id === id)));
+
+        // Verifying a student with nothing on file gives them an empty
+        // eligibility run that looks like "everything is open". Department
+        // Staff uploads the grades; make the Registrar confirm they mean it.
+        // A new student (declared_path 'new') has no history by definition.
+        const isNew = STUDENTS.find(s => s.id === id)?.declared_path === 'new';
+        if (!PREVIEW && supabase && !isNew) {
+            const { count } = await supabase
+                .from('academic_record')
+                .select('id', { count: 'exact', head: true })
+                .eq('student_id', id);
+
+            if (count === 0 && !window.confirm(
+                'This student has no grades on file yet. Verifying now means ' +
+                'eligibility will be computed from an empty record.\n\n' +
+                'Verify anyway?')) {
+                return;
+            }
+        }
+    }
+
     if (PREVIEW) {
         Object.assign(STUDENTS.find(s => s.id === id), patch);
         afterLoad();
@@ -742,6 +896,497 @@ $('student-search')?.addEventListener('input', renderStudents);
 $('student-filter')?.addEventListener('change', renderStudents);
 
 
+/* Advising queue (stage 2 of the two-stage approval flow) */
+
+/* Faculty has already reviewed the plan subject-by-subject; that stays
+   on the record as-is regardless of what happens here (per the agreed
+   design — a "send back" reflects the plan overall, not the individual
+   item decisions Faculty already made). The Registrar's job is the
+   whole-plan gate: approve for enrollment, or send it back to the
+   student with a reason. There is no per-item action on this screen. */
+
+async function loadAdvisingQueue() {
+    const queue   = $('adv-queue');
+    const countEl = $('adv-queue-count');
+    if (!queue) return;
+
+    if (PREVIEW) {
+        queue.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-flask" aria-hidden="true"></i>
+                <h3>Preview mode</h3>
+                <p>The advising queue reads live data and is not simulated here.</p>
+            </div>`;
+        if (countEl) countEl.textContent = '';
+        return;
+    }
+
+    if (!supabase) return;
+
+    // Includes partially_approved -- a plan where Faculty rejected some
+    // subjects still needs a final say on the ones that DID clear.
+    // Registrar reviews and, if approved, prints only the items Faculty
+    // actually approved (see printApprovedPlan) -- the rejected items
+    // are simply excluded, not resurrected.
+    const { data: requests, error } = await supabase
+        .from('request')
+        .select(`
+            id, status, requested_term, requested_year, created_at,
+            student:student_id (id, first_name, last_name, student_id, year_level),
+            request_item (id, status, subject:subject_id (units))
+        `)
+        .in('status', ['approved', 'partially_approved'])
+        .is('registrar_status', null)
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        console.warn('loadAdvisingQueue failed:', error.message);
+        queue.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load the queue</h3>
+                <p>${escapeHtml(error.message)}</p>
+            </div>`;
+        return;
+    }
+
+    const list = requests ?? [];
+    if (countEl) countEl.textContent = list.length ? `${list.length} pending` : '';
+
+    if (!list.length) {
+        queue.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+                <h3>Nothing pending</h3>
+                <p>No Faculty-approved plans are waiting on a Registrar decision.</p>
+            </div>`;
+        return;
+    }
+
+    queue.innerHTML = list.map(req => {
+        const items = req.request_item ?? [];
+        const approved = items.filter(i => i.status === 'approved');
+        const units = approved.reduce((sum, i) => sum + Number(i.subject?.units || 0), 0);
+        const termLbl = `${termLabel(req.requested_term)} ${req.requested_year || ''}`.trim();
+
+        return `
+        <div class="req-summary" data-view-plan="${req.id}">
+            <div class="req-summary-main">
+                <div class="req-summary-name">
+                    <strong>${escapeHtml(fullName(req.student))}</strong>
+                    <span class="mono">${escapeHtml(req.student?.student_id ?? '')}</span>
+                </div>
+                <p class="req-summary-meta">
+                    ${approved.length} of ${items.length} subject${items.length === 1 ? '' : 's'} approved
+                    · ${units} units
+                    · ${escapeHtml(termLbl)}
+                </p>
+                <div class="req-summary-status">
+                    ${req.status === 'partially_approved'
+                        ? `<span class="req-badge warning">
+                               <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                               Partially approved by Faculty
+                           </span>`
+                        : `<span class="req-badge ok">
+                               <i class="fa-solid fa-check" aria-hidden="true"></i>
+                               Faculty-approved
+                           </span>`}
+                </div>
+            </div>
+            <div class="req-summary-action">
+                <span class="req-summary-date">submitted ${new Date(req.created_at).toLocaleDateString()}</span>
+                <button class="btn-small adv-view-btn" type="button">
+                    Review
+                    <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+                </button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function loadAdvisingDetail(requestId) {
+    const nameEl    = $('adv-detail-name');
+    const countEl   = $('adv-detail-count');
+    const actionsEl = $('adv-detail-actions');
+    const bodyEl    = $('adv-detail-body');
+    if (!bodyEl) return;
+
+    bodyEl.innerHTML = `
+        <div class="empty">
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <h3>Loading</h3>
+        </div>`;
+    if (actionsEl) actionsEl.innerHTML = '';
+
+    const { data: req, error } = await supabase
+        .from('request')
+        .select(`
+            id, status, registrar_status, requested_term, requested_year, created_at,
+            student:student_id (id, first_name, last_name, student_id, year_level),
+            request_item (
+                id, status, remarks, offering_id,
+                subject:subject_id (code, title, units),
+                offering:offering_id (section, schedule_days, start_time, end_time, room)
+            )
+        `)
+        .eq('id', requestId)
+        .maybeSingle();
+
+    if (error || !req) {
+        console.warn('loadAdvisingDetail failed:', error?.message);
+        bodyEl.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load that plan</h3>
+                <p>It may have been reviewed on another device.</p>
+            </div>`;
+        return;
+    }
+
+    const items = req.request_item ?? [];
+    const units = items.reduce((sum, i) =>
+        i.status === 'approved' ? sum + Number(i.subject?.units || 0) : sum, 0);
+
+    setText('adv-detail-name', fullName(req.student) || '—');
+
+    const subParts = [
+        req.student?.student_id || 'No ID',
+        ordinal(req.student?.year_level) || 'Year not set',
+        [termLabel(req.requested_term), req.requested_year].filter(Boolean).join(' ') || null,
+        `submitted ${new Date(req.created_at).toLocaleDateString()}`,
+    ].filter(Boolean);
+    setText('adv-detail-sub', subParts.join(' · '));
+
+    if (countEl) {
+        countEl.textContent =
+            `${items.length} subject${items.length === 1 ? '' : 's'} · ${units} units`;
+    }
+
+    if (actionsEl) {
+        if (req.registrar_status === 'approved') {
+            // This is the ONLY print path in the system for a finalized
+            // plan -- Faculty has no equivalent "print this request"
+            // button. Faculty's separate "Print advising slip" (student
+            // detail view) is a different artifact: a live eligibility
+            // snapshot for an advising conversation, not tied to a
+            // submitted request, and it stays as-is. Printing the actual
+            // plan only becomes available once BOTH gates have passed,
+            // so the document a student carries to enrollment can never
+            // be mistaken for a Faculty-only, not-yet-final approval.
+            actionsEl.innerHTML = `
+                <span class="pill ok"><i class="fa-solid fa-check"></i> Approved for enrollment</span>
+                <button class="btn-small" data-print-plan="${req.id}">
+                    <i class="fa-solid fa-print" aria-hidden="true"></i>
+                    Print approved plan
+                </button>`;
+        } else if (req.registrar_status === 'rejected') {
+            actionsEl.innerHTML =
+                '<span class="pill bad"><i class="fa-solid fa-xmark"></i> Sent back to student</span>';
+        } else {
+            actionsEl.innerHTML = `
+                <button class="btn-small" data-approve-plan="${req.id}">
+                    <i class="fa-solid fa-check" aria-hidden="true"></i>
+                    Approve plan
+                </button>
+                <button class="btn-small" data-sendback-plan="${req.id}">
+                    <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                    Send back
+                </button>`;
+        }
+    }
+
+    // Read-only: Faculty's per-item decisions are shown as already
+    // reviewed. The Registrar's decision covers the plan as a whole
+    // (below), not each subject individually.
+    bodyEl.innerHTML = renderAdvisingTable(items);
+}
+
+function renderAdvisingTable(items) {
+    const rows = items.map(item => {
+        const o = item.offering;
+        const time = (o?.start_time && o?.end_time)
+            ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}`
+            : '';
+        const sched = o
+            ? [o.section, o.schedule_days, time].filter(Boolean).join(' · ')
+            : '—';
+
+        let statusHtml;
+        if (item.status === 'approved') {
+            statusHtml = `<span class="req-status is-approved">
+                <i class="fa-solid fa-check" aria-hidden="true"></i> Faculty-approved
+            </span>`;
+        } else if (item.status === 'rejected') {
+            statusHtml = `<span class="req-status is-rejected" title="${escapeHtml(item.remarks || '')}">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i> Faculty-rejected
+            </span>`;
+        } else {
+            statusHtml = `<span class="req-status">${escapeHtml(item.status)}</span>`;
+        }
+
+        return `
+            <tr data-item-id="${item.id}">
+                <td class="mono">${escapeHtml(item.subject?.code ?? '')}</td>
+                <td>${escapeHtml(item.subject?.title ?? '')}</td>
+                <td class="num">${item.subject?.units != null
+                    ? Number(item.subject.units).toFixed(1)
+                    : '—'}</td>
+                <td class="dim">${escapeHtml(sched)}</td>
+                <td class="req-status-cell">${statusHtml}</td>
+            </tr>`;
+    }).join('');
+
+    return `
+        <div class="table-wrap">
+            <table class="req-table">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Descriptive title</th>
+                        <th class="num">Units</th>
+                        <th>Schedule</th>
+                        <th class="req-status-col"></th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+/* Notifies the student of the Registrar's decision. Mirrors Faculty's
+   notifyStudentOfReview(): reads the student's user_id via the request
+   row, then writes one notification. Requires the "registrar notify on
+   advising decision" INSERT policy on notification (added alongside
+   this feature — Registrar has no advisee_assignment scoping the way
+   Faculty does, so the check is just "this request really belongs to
+   this user_id", not "is this my advisee"). */
+async function notifyStudentOfRegistrarDecision(requestId, decision) {
+    const { data: request, error } = await supabase
+        .from('request')
+        .select('id, student:student_id (user_id)')
+        .eq('id', requestId)
+        .maybeSingle();
+
+    if (error || !request?.student?.user_id) return;
+
+    const label = decision === 'approved'
+        ? 'approved for enrollment'
+        : 'sent back for changes';
+
+    await supabase.from('notification').insert({
+        user_id: request.student.user_id,
+        type: 'request_reviewed',
+        title: `Advising plan ${label}`,
+        message: decision === 'approved'
+            ? 'The Registrar has approved your subject plan. It is now final for enrollment.'
+            : 'The Registrar has sent your subject plan back. Open it to see the reason and resubmit.',
+        related_request_id: request.id,
+        is_read: false,
+    });
+}
+
+async function registrarApprovePlan(requestId) {
+    if (!supabase || !REGISTRAR_ID) return;
+
+    const { error } = await supabase
+        .from('request')
+        .update({
+            registrar_status:       'approved',
+            registrar_id:           REGISTRAR_ID,
+            registrar_reviewed_at:  new Date().toISOString(),
+        })
+        .eq('id', requestId);
+
+    if (error) {
+        console.warn('registrarApprovePlan failed:', error.message);
+        return showMsg('adv-detail-msg', 'Could not save that decision. Please try again.');
+    }
+
+    // Fire and forget -- a failed notification must not roll back the
+    // decision that already succeeded (same reasoning as Faculty's
+    // review flow).
+    notifyStudentOfRegistrarDecision(requestId, 'approved').catch(err =>
+        console.warn('notification insert failed:', err.message));
+
+    showMsg('adv-detail-msg', 'Plan approved for enrollment.', 'success');
+    loadAdvisingDetail(requestId);
+    loadAdvisingCount();
+}
+
+async function registrarSendBack(requestId) {
+    if (!supabase || !REGISTRAR_ID) return;
+
+    const note = window.prompt(
+        'Reason for sending this plan back to the student?\n\n' +
+        'The student sees this and will need to resubmit — be specific.');
+    if (note === null) return;
+    if (!note.trim()) {
+        return showMsg('adv-detail-msg', 'A reason is required when sending a plan back.');
+    }
+
+    // request.status is deliberately left as 'approved' here -- NOT
+    // reset to 'submitted'. submit-advising-request always INSERTs a
+    // new request row; there is no "edit and resubmit this same
+    // request" path anywhere in the client. Resetting status would
+    // make this row reappear in Faculty's queue (which filters on
+    // status='submitted') with every request_item already decided --
+    // nothing for Faculty to click, no way to re-transition it, and it
+    // would no longer match Registrar's own registrar_status IS NULL
+    // filter either. That is a dead end, not a return path. Leaving
+    // status='approved' keeps Faculty's verdict as history and makes
+    // registrar_status='rejected' + registrar_notes the terminal
+    // signal: this plan is closed, and the student's actual remedy is
+    // submitting a fresh request (a new row), which the architecture
+    // already supports.
+    const { error } = await supabase
+        .from('request')
+        .update({
+            registrar_status:       'rejected',
+            registrar_id:           REGISTRAR_ID,
+            registrar_reviewed_at:  new Date().toISOString(),
+            registrar_notes:        note.trim(),
+        })
+        .eq('id', requestId);
+
+    if (error) {
+        console.warn('registrarSendBack failed:', error.message);
+        return showMsg('adv-detail-msg', 'Could not save that decision. Please try again.');
+    }
+
+    notifyStudentOfRegistrarDecision(requestId, 'rejected').catch(err =>
+        console.warn('notification insert failed:', err.message));
+
+    showMsg('adv-detail-msg', 'Plan sent back to the student.', 'success');
+    loadAdvisingDetail(requestId);
+    loadAdvisingCount();
+}
+
+async function loadAdvisingCount() {
+    if (PREVIEW) {
+        setText('stat-advising', '—', 'stat-value muted');
+        return;
+    }
+    if (!supabase) return;
+
+    const { count, error } = await supabase
+        .from('request')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['approved', 'partially_approved'])
+        .is('registrar_status', null);
+
+    if (error) {
+        console.warn('advising count failed:', error.message);
+        setText('stat-advising', '—', 'stat-value muted');
+        return;
+    }
+
+    ADVISING_COUNT = count ?? 0;
+    setText('stat-advising', String(ADVISING_COUNT), 'stat-value');
+
+    const badge = $('nav-advising');
+    if (badge) {
+        badge.textContent = String(ADVISING_COUNT);
+        badge.hidden = ADVISING_COUNT === 0;
+    }
+}
+
+$('view-advising')?.addEventListener('click', (e) => {
+    const viewCard = e.target.closest('[data-view-plan]');
+    if (viewCard) {
+        window.location.hash = `#advising/${viewCard.dataset.viewPlan}`;
+        return;
+    }
+
+    const approve = e.target.closest('[data-approve-plan]');
+    if (approve) return registrarApprovePlan(approve.dataset.approvePlan);
+
+    const sendBack = e.target.closest('[data-sendback-plan]');
+    if (sendBack) return registrarSendBack(sendBack.dataset.sendbackPlan);
+
+    const printBtn = e.target.closest('[data-print-plan]');
+    if (printBtn) return printApprovedPlan(printBtn.dataset.printPlan);
+});
+
+/* Prints the final, both-gates-passed plan. Reuses advisingslip.js
+   (already shared with Faculty) but feeds it a SNAPSHOT of the actual
+   approved request_item rows, not a live assess() recompute -- an
+   approved plan is a decision already locked in; eligibility can
+   change the next day (a new failing grade, say) and the printed
+   artifact must not silently drift from what was actually approved.
+   Only the items Faculty approved are printed -- a partially_approved
+   plan's rejected items are excluded, not resurrected. */
+async function printApprovedPlan(requestId) {
+    if (!supabase) return;
+
+    if (typeof window.AdvisingSlip === 'undefined') {
+        console.error('advisingslip.js not loaded — check script order');
+        return showMsg('adv-detail-msg', 'Could not open the print view.');
+    }
+
+    const { data: req, error } = await supabase
+        .from('request')
+        .select(`
+            id, requested_term, requested_year, registrar_status,
+            student:student_id (id, first_name, last_name, student_id, year_level),
+            request_item (status, subject:subject_id (code, title, units))
+        `)
+        .eq('id', requestId)
+        .maybeSingle();
+
+    if (error || !req) {
+        return showMsg('adv-detail-msg', 'Could not load that plan.');
+    }
+    if (req.registrar_status !== 'approved') {
+        return showMsg('adv-detail-msg', 'This plan is not approved yet.');
+    }
+
+    const approvedItems = (req.request_item ?? []).filter(i => i.status === 'approved');
+    if (!approvedItems.length) {
+        return showMsg('adv-detail-msg', 'No approved subjects on this plan to print.');
+    }
+
+    // The name on the "Faculty adviser" signature line should be
+    // whoever actually reviewed this request, not the Registrar user
+    // who is clicking print -- request_review is the record of who did
+    // that, which is more precise than the nominal advisee_assignment.
+    const [{ data: review }, { data: records }] = await Promise.all([
+        supabase.from('request_review')
+            .select('faculty:faculty_id (first_name, last_name)')
+            .eq('request_id', requestId)
+            .limit(1)
+            .maybeSingle(),
+        supabase.from('academic_record')
+            .select('id, grade, grade_points, status, taken_term, taken_year, subject:subject_id (code, title, units)')
+            .eq('student_id', req.student.id)
+            .order('taken_year', { ascending: true })
+            .order('taken_term', { ascending: true }),
+    ]);
+
+    const result = {
+        recommended: approvedItems.map(i => ({
+            subject: i.subject,
+            reason: 'Approved by Faculty and confirmed by the Registrar for enrollment.',
+            retake: false,
+        })),
+    };
+
+    const normalizedRecords = (records ?? []).map(r => ({
+        ...r,
+        subject_code:  r.subject?.code  ?? '—',
+        subject_title: r.subject?.title ?? '—',
+        units:         r.subject?.units ?? 0,
+    }));
+
+    window.AdvisingSlip.print({
+        student: req.student,
+        result,
+        records: normalizedRecords,
+        term: { label: `${termLabel(req.requested_term)} ${req.requested_year || ''}`.trim() },
+        adviser: review?.faculty ? fullName(review.faculty) : 'Faculty adviser',
+    });
+}
+
+
 /* boot */
 
 (async function init() {
@@ -754,6 +1399,7 @@ $('student-filter')?.addEventListener('change', renderStudents);
         renderProfile(REGISTRAR, PREVIEW_REGISTRAR.email);
         renderNotice(REGISTRAR);
         await loadStudents();
+        await loadAdvisingCount();
         route();
         return;
     }
@@ -771,7 +1417,7 @@ $('student-filter')?.addEventListener('change', renderStudents);
 
     const { data: staff, error } = await supabase
         .from('registrar_staff')
-        .select('id, user_id, first_name, last_name, employee_id, email, is_approved')
+        .select('id, user_id, first_name, last_name, employee_id, email, is_approved, must_change_password')
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 
@@ -791,6 +1437,7 @@ $('student-filter')?.addEventListener('change', renderStudents);
     renderNotice(staff);
 
     await loadStudents();
+    await loadAdvisingCount();
     route();
 })();
 

@@ -3891,27 +3891,60 @@ async function loadStudentMap() {
     }
     const { data } = await supabase
         .from('university_student')
-        .select('id, student_id, first_name, last_name')
+        .select('id, student_id, first_name, last_name, prospectus_id')
         .not('student_id', 'is', null);
     gradeState.studentMap = new Map((data ?? []).map(s => [padStudentId(s.student_id), s]));
     return gradeState.studentMap;
 }
 
-async function loadSubjectMap() {
+/* A grade row has to resolve to a subject in the curriculum the STUDENT is
+   on, not the version Department Staff happens to be viewing: the student
+   engine matches academic_record.subject_id against their own prospectus,
+   so a record pointing at a subject in another version never counts toward
+   a prerequisite. A student with no prospectus_id is assessed against the
+   active version (see effectiveProspectusId in the student dashboard), so
+   the same fallback is used here.
+
+   Returns { activeId, byProspectus: Map<prospectusId, Map<code, subject>> }. */
+async function loadSubjectMap(students) {
     if (gradeState.subjectMap) return gradeState.subjectMap;
     if (PREVIEW) {
-        gradeState.subjectMap = new Map([
-            ['CC-COMPROG12', { id: 'sub1', code: 'CC-COMPROG12', title: 'Computer Programming 2', units: 3 }],
-            ['SOCIO101', { id: 'sub2', code: 'SOCIO101', title: 'Sociology', units: 3 }],
-            ['RIZAL101', { id: 'sub3', code: 'RIZAL101', title: 'Rizal Course', units: 3 }],
-        ]);
+        gradeState.subjectMap = {
+            activeId: 'preview',
+            byProspectus: new Map([['preview', new Map([
+                ['CC-COMPROG12', { id: 'sub1', code: 'CC-COMPROG12', title: 'Computer Programming 2', units: 3 }],
+                ['SOCIO101', { id: 'sub2', code: 'SOCIO101', title: 'Sociology', units: 3 }],
+                ['RIZAL101', { id: 'sub3', code: 'RIZAL101', title: 'Rizal Course', units: 3 }],
+            ])]]),
+        };
         return gradeState.subjectMap;
     }
-    const { data } = await supabase
-        .from('subject')
-        .select('id, code, title, units')
-        .eq('prospectus_id', PROSPECTUS?.id);
-    gradeState.subjectMap = new Map((data ?? []).map(s => [normCode(s.code), s]));
+
+    const { data: active } = await supabase
+        .from('prospectus')
+        .select('id')
+        .eq('is_active', true);
+    const activeId = active?.[0]?.id ?? PROSPECTUS?.id ?? null;
+
+    const ids = new Set([activeId]);
+    for (const s of students?.values?.() ?? []) ids.add(s.prospectus_id);
+    ids.delete(null);
+    ids.delete(undefined);
+
+    const { data } = ids.size
+        ? await supabase
+            .from('subject')
+            .select('id, code, title, units, prospectus_id')
+            .in('prospectus_id', [...ids])
+        : { data: [] };
+
+    const byProspectus = new Map();
+    for (const s of data ?? []) {
+        if (!byProspectus.has(s.prospectus_id)) byProspectus.set(s.prospectus_id, new Map());
+        byProspectus.get(s.prospectus_id).set(normCode(s.code), s);
+    }
+
+    gradeState.subjectMap = { activeId, byProspectus };
     return gradeState.subjectMap;
 }
 
@@ -3958,7 +3991,7 @@ $('grade-file')?.addEventListener('change', async (e) => {
 
 async function validateGrades(rows, fileName) {
     const students = await loadStudentMap();
-    const subjects = await loadSubjectMap();
+    const subjects = await loadSubjectMap(students);
 
     // 3.0 is UC's passing mark. It is not configurable — a program
     // setting a tighter threshold would fail students who passed under
@@ -4005,8 +4038,12 @@ async function validateGrades(rows, fileName) {
 
         if (!rawCode) { bad.push({ ...base, why: 'No subject code.' }); continue; }
         const cleanCode = normCode(rawCode);
-        const subject = subjects.get(cleanCode);
-        if (!subject) { bad.push({ ...base, why: `"${rawCode}" not in prospectus.` }); continue; }
+        const prospectusId = student.prospectus_id ?? subjects.activeId;
+        const subject = subjects.byProspectus.get(prospectusId)?.get(cleanCode);
+        if (!subject) {
+            bad.push({ ...base, why: `"${rawCode}" not in this student's prospectus.` });
+            continue;
+        }
 
         let points = null;
         let status = rawStatus;

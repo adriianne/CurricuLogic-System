@@ -11,6 +11,79 @@
     <link rel="stylesheet" href="../../shared/css/dashboard.css">
     <link rel="stylesheet" href="../prospectus/prospectus.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        /* Change-password modal. Self-contained: this page does not
+           load curriculum_builder.css, so nothing else styles these
+           classes here. Tokens (ink, slate, line, indigo, s1..s4)
+           come from the shared dashboard.css. */
+        .cbp-overlay {
+            position: fixed; inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            display: flex; align-items: center; justify-content: center;
+            padding: var(--s3);
+            z-index: 1000;
+        }
+        .cbp-overlay[hidden] { display: none; }
+        .pw-modal {
+            background: #fff;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 26rem;
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+        }
+        .pw-panel-right { padding: var(--s4); }
+        .pw-title { font-size: 1.15rem; color: var(--ink); margin-bottom: var(--s1); }
+        .pw-desc { font-size: 0.9rem; color: var(--slate); margin-bottom: var(--s3); }
+        .pw-hint { font-size: 0.78rem; color: var(--slate); margin-top: 0.3rem; }
+        #password-modal .field label {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 0.35rem;
+        }
+        #password-modal .field input[type="password"] {
+            width: 100%;
+            height: 2.6rem;
+            padding: 0 0.7rem;
+            border: 1.5px solid var(--line);
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.88rem;
+            color: var(--ink);
+            background: #fff;
+        }
+        #password-modal .field input[type="password"]:focus {
+            outline: none;
+            border-color: var(--indigo);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+        }
+        .act-actions {
+            display: flex; justify-content: flex-end; gap: var(--s2);
+            margin-top: var(--s2);
+        }
+        .act-cancel, .act-go {
+            padding: 0.6rem 1.1rem;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .act-cancel {
+            background: #fff;
+            color: var(--ink);
+            border: 1.5px solid var(--line);
+        }
+        .act-cancel:hover { border-color: var(--slate); }
+        .act-go {
+            background: var(--indigo);
+            color: #fff;
+            border: 1.5px solid var(--indigo);
+        }
+        .act-go:hover { background: var(--indigo-dark); }
+        .act-go:disabled { opacity: 0.6; cursor: not-allowed; }
+    </style>
 </head>
 <body>
 
@@ -31,6 +104,10 @@
         <nav class="side-nav" aria-label="Main">
             <a href="#dashboard" data-view="dashboard">
                 <i class="fa-solid fa-gauge" aria-hidden="true"></i> Dashboard
+            </a>
+            <a href="#advising" data-view="advising">
+                <i class="fa-solid fa-inbox" aria-hidden="true"></i> Advising queue
+                <span class="nav-count" id="nav-advising" hidden>0</span>
             </a>
             <a href="#requests" data-view="requests">
                 <i class="fa-solid fa-user-clock" aria-hidden="true"></i> Account requests
@@ -62,7 +139,7 @@
             </button>
 
             <span class="topbar-title" id="topbar-title">Dashboard</span>
-            <span class="topbar-term">1st Sem · AY 2026–2027</span>
+            <span class="topbar-term" id="topbar-term">1st Sem · AY 2023–2024</span>
 
             <div class="topbar-user">
                 <span class="avatar" id="avatar">–</span>
@@ -93,6 +170,11 @@
                 <div id="status-notice"></div>
 
                 <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Awaiting Registrar</span>
+                        <span class="stat-value muted" id="stat-advising">—</span>
+                        <span class="stat-hint">Advising plans, Faculty-approved</span>
+                    </div>
                     <div class="stat">
                         <span class="stat-label">Awaiting review</span>
                         <span class="stat-value muted" id="stat-pending">—</span>
@@ -128,6 +210,66 @@
                         </div>
                     </div>
                 </section>
+
+            </section>
+
+            <!-- Advising queue -->
+            <section class="view view-wide" id="view-advising" hidden>
+
+                <!-- Sub-view: queue -->
+                <div id="adv-sub-queue">
+
+                    <div class="page-head">
+                        <h1 class="page-title">Advising queue</h1>
+                        <p class="page-sub">
+                            Subject plans already reviewed and approved by Faculty.
+                            Review the plan as a whole, then approve it for enrollment
+                            or send it back to the student with a reason.
+                        </p>
+                    </div>
+
+                    <div id="adv-msg" class="msg" role="status"></div>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Awaiting Registrar review</span>
+                            <span class="card-note" id="adv-queue-count"></span>
+                        </div>
+                        <div class="card-body" id="adv-queue">
+                            <div class="empty">
+                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                <h3>Loading</h3>
+                                <p>Fetching plans.</p>
+                            </div>
+                        </div>
+                    </section>
+
+                </div>
+
+                <!-- Sub-view: detail -->
+                <div id="adv-sub-detail" hidden>
+
+                    <div class="page-head">
+                        <a href="#advising" class="back-link">
+                            <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                            <span>Back to queue</span>
+                        </a>
+                        <h1 class="page-title" id="adv-detail-name">Plan</h1>
+                        <p class="page-sub" id="adv-detail-sub"></p>
+                    </div>
+
+                    <div id="adv-detail-msg" class="msg" role="status"></div>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Subjects</span>
+                            <span class="req-detail-count" id="adv-detail-count"></span>
+                            <div class="req-detail-actions" id="adv-detail-actions"></div>
+                        </div>
+                        <div class="card-body" id="adv-detail-body"></div>
+                    </section>
+
+                </div>
 
             </section>
 
@@ -291,6 +433,10 @@
                 <section class="card">
                     <div class="card-head">
                         <span class="card-title">Account details</span>
+                        <button class="btn-small" id="p-change-password">
+                            <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                            <span>Change password</span>
+                        </button>
                     </div>
                     <div class="card-body">
                         <dl id="details">
@@ -318,15 +464,65 @@
                     </div>
                 </section>
 
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Changing your details</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="prose">
+                            Name, employee ID, and department are held in college
+                            records and cannot be edited here. To correct any of them,
+                            contact the System Administrator.
+                        </p>
+                    </div>
+                </section>
+
             </section>
 
         </div>
     </div>
 </div>
 
+<!-- Change password modal -->
+<div class="cbp-overlay" id="password-modal" hidden>
+    <div class="pw-modal" role="dialog" aria-labelledby="pw-title">
+
+        <div class="pw-panel-right">
+            <h2 class="pw-title" id="pw-title">Change your password</h2>
+            <p class="pw-desc">
+                Enter your current password, then choose a new one.
+            </p>
+
+            <div id="pw-msg" class="msg" role="status"></div>
+
+            <div class="field" style="margin-bottom: var(--s2);">
+                <label for="pw-current">Current password</label>
+                <input type="password" id="pw-current" autocomplete="current-password">
+            </div>
+            <div class="field" style="margin-bottom: var(--s2);">
+                <label for="pw-new">New password</label>
+                <input type="password" id="pw-new" autocomplete="new-password">
+                <p class="pw-hint">At least 8 characters.</p>
+            </div>
+            <div class="field" style="margin-bottom: var(--s3);">
+                <label for="pw-confirm">Confirm new password</label>
+                <input type="password" id="pw-confirm" autocomplete="new-password">
+            </div>
+
+            <div class="act-actions">
+                <button class="act-cancel" id="pw-cancel">Cancel</button>
+                <button class="act-go" id="pw-submit">Change password</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../../shared/js/config.js"></script>
+<script src="../../shared/js/systemconfig.js"></script>
 <script src="../../shared/js/prospectusgrid.js"></script>
+<script src="../../shared/js/advisingslip.js"></script>
 <script src="registrardashboard.js"></script>
 </body>
 </html>

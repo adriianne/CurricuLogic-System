@@ -692,12 +692,20 @@ function initBulkUpload() {
 }
 
 function downloadBulkTemplate() {
+    // NOTE: no sample "admin" row here on purpose. Admin accounts CAN be
+    // created through this same bulk path (create_user_account ->
+    // _provision_account already refuses to run for anyone who isn't
+    // is_system_admin(), and every provision is written to audit_log
+    // with 'via': 'ADMIN_BULK') — but a template that ships an admin
+    // row as boilerplate invites someone to bulk-upload a real batch of
+    // students/faculty without noticing they left a sample admin row
+    // in the sheet. commitBulk() below adds a typed confirmation gate
+    // specifically for admin rows so that can't happen silently.
     const rows = [
         { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: 'EMP-00101', student_id: '', department: 'College of Computer Studies', year_level: '', password: '', username: '' },
         { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: 'EMP-00102', student_id: '', department: 'Office of the Registrar', year_level: '', password: '', username: '' },
         { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: 'EMP-00103', student_id: '', department: 'College of Computer Studies', year_level: '', password: '', username: '' },
         { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '2401187', department: 'College of Computer Studies', year_level: '2', password: '', username: '' },
-        { first_name: 'System', last_name: 'Admin2', email: 'admin2@uc.edu.ph', role: 'admin', employee_id: 'EMP-ADMIN002', student_id: '', department: 'College of Computer Studies', year_level: '', password: '', username: 'admin2' },
     ];
 
     // Create worksheet with proper headers
@@ -907,6 +915,29 @@ async function commitBulk(fileName, bad) {
     const toCreate = roleFilter === 'all' ? PENDING_BULK : PENDING_BULK.filter(r => r.role === roleFilter);
 
     if (toCreate.length === 0) return;
+
+    // Admin accounts are the most sensitive thing this dashboard can
+    // create. The server already refuses the RPC unless the caller is
+    // an admin themselves, and every provision is audited — but a
+    // spreadsheet with dozens of rows makes it easy to wave through an
+    // admin row you didn't mean to include along with a batch of real
+    // student/faculty onboarding. Require the operator to type a fixed
+    // word before any admin row in this batch is created; this cannot
+    // be dismissed with Enter the way window.confirm() can.
+    const adminRows = toCreate.filter(r => r.role === 'admin');
+    if (adminRows.length > 0) {
+        const names = adminRows.map(r => `${r.first} ${r.last} <${r.email}>`).join('\n  - ');
+        const typed = window.prompt(
+            `This batch includes ${adminRows.length} ADMIN account${adminRows.length === 1 ? '' : 's'}:\n  - ${names}\n\n` +
+            `Admin accounts get full system access with no further approval step. ` +
+            `Type CONFIRM (in capitals) to proceed with creating them along with the rest of this batch, ` +
+            `or Cancel to stop and remove the admin row(s) from the file first.`
+        );
+        if (typed !== 'CONFIRM') {
+            showMsg('bulk-msg', 'Cancelled — no accounts were created.', 'pending');
+            return;
+        }
+    }
 
     const btn = $('commit-bulk');
     if (btn) {

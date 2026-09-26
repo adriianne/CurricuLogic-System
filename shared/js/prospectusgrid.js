@@ -43,6 +43,9 @@ const CHIP = {
     eligible: ['open',    'Can take'],
     retake:   ['danger',  'Retake'],
     blocked:  ['locked',  'Locked'],
+    /* Student view only: the subject is already part of a request. */
+    pending:  ['info',    'In your plan'],
+    approved: ['ok',      'Approved'],
 };
 
 

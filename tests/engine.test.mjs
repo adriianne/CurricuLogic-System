@@ -21,10 +21,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const E = require('../engine/engine.js');
+const E = require('../shared/engine/engine.js');
 
 const { assess, buildFacts, evaluateSubject, chainForward,
-        highestCompletedYear, explain,
+        highestCompletedPosition, explain,
         PASSED, FAILED, ENROLLED } = E;
 
 
@@ -126,33 +126,34 @@ describe('buildFacts', () => {
         const facts = buildFacts(student(), [], [subj('A')]);
         assert.equal(facts.passed.size, 0);
         assert.equal(facts.unitsEarned, 0);
-        assert.equal(facts.completedThroughYear, 0);
+        assert.equal(facts.completedThroughPosition, 0);
     });
 });
 
 
-/* ---- year standing ---- */
+/* ---- standing (position = year × 10 + term) ---- */
 
-describe('highestCompletedYear', () => {
+describe('highestCompletedPosition', () => {
 
-    test('a year counts only when every required subject in it is passed', () => {
-        const a = subj('A', { year: 1 });
-        const b = subj('B', { year: 1 });
+    test('a position counts only when every required subject up to it is passed', () => {
+        const a = subj('A', { year: 1, term: 1 });
+        const b = subj('B', { year: 1, term: 2 });
         const subjects = [a, b];
 
-        assert.equal(highestCompletedYear(new Set([a.id]), subjects), 0);
-        assert.equal(highestCompletedYear(new Set([a.id, b.id]), subjects), 1);
+        assert.equal(highestCompletedPosition(new Set([a.id]), subjects), 11);
+        assert.equal(highestCompletedPosition(new Set([a.id, b.id]), subjects), 12);
+        assert.equal(highestCompletedPosition(new Set(), subjects), 0);
     });
 
-    test('electives do not hold a year back', () => {
-        const core = subj('CORE', { year: 1 });
-        const el   = subj('EL', { year: 1, elective: true });
+    test('electives do not hold a position back', () => {
+        const core = subj('CORE', { year: 1, term: 1 });
+        const el   = subj('EL', { year: 1, term: 1, elective: true });
 
-        assert.equal(highestCompletedYear(new Set([core.id]), [core, el]), 1,
-            'choosing not to take an elective is not an incomplete year');
+        assert.equal(highestCompletedPosition(new Set([core.id]), [core, el]), 11,
+            'choosing not to take an elective is not an incomplete term');
     });
 
-    test('completion stops at the first incomplete year', () => {
+    test('completion stops at the first incomplete position', () => {
         const y1 = subj('Y1', { year: 1 });
         const y2 = subj('Y2', { year: 2 });
         const y3 = subj('Y3', { year: 3 });
@@ -160,7 +161,7 @@ describe('highestCompletedYear', () => {
 
         // Third year passed, second year still owing.
         const passed = new Set([y1.id, y3.id]);
-        assert.equal(highestCompletedYear(passed, subjects), 1,
+        assert.equal(highestCompletedPosition(passed, subjects), 11,
             'a later year passed out of order must not raise standing');
     });
 });
@@ -585,6 +586,95 @@ describe('offerings', () => {
         assert.equal(out.eligible.length, 2, 'both are eligible by the rules');
         assert.deepEqual(out.recommended.map(r => r.subject.code), ['A'],
             'only the one actually being run is recommended');
+    });
+});
+
+
+/* ---- term filter, load cap ---- */
+
+describe('term filter', () => {
+
+    test('without offerings, only the current term is recommended', () => {
+        const t1 = subj('T1', { year: 1, term: 1 });
+        const t2 = subj('T2', { year: 1, term: 2 });
+
+        const out = assess(student(), [], kbOf([t1, t2]),
+            { ...ignoreOfferings, term: 1 });
+
+        assert.equal(out.eligible.length, 2, 'both are still eligible by the rules');
+        assert.deepEqual(out.recommended.map(r => r.subject.code), ['T1']);
+    });
+
+    test('a retake is recommended whatever term it belongs to', () => {
+        const t1 = subj('T1', { year: 1, term: 1 });
+        const t2 = subj('T2', { year: 1, term: 2 });
+
+        const out = assess(student(), [rec(t2, FAILED)], kbOf([t1, t2]),
+            { ...ignoreOfferings, term: 1 });
+
+        assert.deepEqual(out.recommended.map(r => r.subject.code).sort(), ['T1', 'T2']);
+    });
+
+    test('real offerings take over from the term filter', () => {
+        const t1 = subj('T1', { year: 1, term: 1 });
+        const t2 = subj('T2', { year: 1, term: 2 });
+        const kb = kbOf([t1, t2], [], [{ subject_id: t2.id, section: '1-A' }]);
+
+        const out = assess(student(), [], kb, { term: 1 });
+
+        assert.deepEqual(out.recommended.map(r => r.subject.code), ['T2']);
+    });
+
+    test('no term option leaves recommendations unfiltered', () => {
+        const t1 = subj('T1', { year: 1, term: 1 });
+        const t2 = subj('T2', { year: 1, term: 2 });
+
+        const out = assess(student(), [], kbOf([t1, t2]), ignoreOfferings);
+
+        assert.equal(out.recommended.length, 2);
+    });
+});
+
+describe('unit cap', () => {
+
+    const many = (n) => Array.from({ length: n }, (_, i) => subj('S' + i, { units: 3 }));
+
+    test('units already being carried count against the cap', () => {
+        const subjects = many(20);
+        const out = assess(student(), [rec(subjects[0], ENROLLED)],
+            kbOf(subjects), ignoreOfferings);
+
+        assert.equal(out.enrolledUnits, 3);
+        assert.equal(out.availableUnits, 21);
+        assert.equal(out.recommended.length, 7);
+        assert.ok(out.recommendedUnits <= out.availableUnits);
+    });
+
+    test('the standard cap is 24', () => {
+        const out = assess(student(), [], kbOf(many(20)), ignoreOfferings);
+
+        assert.equal(out.graduating, false);
+        assert.equal(out.maxUnits, 24);
+        assert.equal(out.recommendedUnits, 24);
+    });
+
+    test('a student whose remaining work fits in 27 units gets the graduating cap', () => {
+        const subjects = many(10);   // 30 units in the curriculum
+        const out = assess(student(), [rec(subjects[0], PASSED)],
+            kbOf(subjects), ignoreOfferings);
+
+        assert.equal(out.graduating, true);
+        assert.equal(out.maxUnits, 27);
+        assert.equal(out.recommendedUnits, 27);
+    });
+
+    test('a student with a full curriculum still ahead is not graduating', () => {
+        const subjects = many(12);   // 36 units, one passed -> 33 remaining
+        const out = assess(student(), [rec(subjects[0], PASSED)],
+            kbOf(subjects), ignoreOfferings);
+
+        assert.equal(out.graduating, false);
+        assert.equal(out.maxUnits, 24);
     });
 });
 

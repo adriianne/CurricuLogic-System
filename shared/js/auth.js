@@ -48,7 +48,17 @@ const PAGE_ALLOWED_ROLES = (() => {
 })();
 const GENERIC_FAIL = 'Invalid username or password.';
 
-const DEBUG_LOGIN = true;
+/* DEBUG_LOGIN must be OFF in production. It exists purely to make local
+   development easier: verbose console logging of auth internals, and
+   more specific failure text (e.g. "this account exists but is not a
+   faculty account") instead of the generic message below. That
+   specific text is exactly the account-enumeration leak GENERIC_FAIL
+   exists to prevent -- it confirms to an attacker which login page a
+   given email "belongs" to. So this is derived from the hostname the
+   same way admindashboard.js's PREVIEW flag is, never hardcoded true:
+   it only turns on for localhost/127.0.0.1, and is off for the real
+   deployed origin regardless of what happens to this file afterward. */
+const DEBUG_LOGIN = ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
 
 
 /*  messages  */
@@ -169,7 +179,7 @@ async function handleLogin() {
         });
 
         if (error || !data?.user) {
-            console.warn('[FAIL: credentials] sign-in rejected:', error?.message);
+            if (DEBUG_LOGIN) console.warn('[FAIL: credentials] sign-in rejected:', error?.message);
             return showMsg(GENERIC_FAIL);
         }
 
@@ -184,7 +194,7 @@ async function handleLogin() {
             // staff login page. Both must show the same generic message
             // outside of DEBUG_LOGIN: confirming "your credentials are
             // real, just not for this page" is still information leakage.
-            console.warn('[FAIL: no actor row] authenticated uid', data.user.id,
+            if (DEBUG_LOGIN) console.warn('[FAIL: no actor row] authenticated uid', data.user.id,
                          'has no row in any allowed table for this page',
                          PAGE_ALLOWED_ROLES ?? '(all roles)');
             await supabase.auth.signOut();

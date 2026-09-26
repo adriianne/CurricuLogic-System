@@ -1416,7 +1416,9 @@ input[type="password"]::-ms-clear {
 
 .pg-code, .pg-u, .pg-st { white-space: nowrap; }
 
-.pg-panel th:nth-child(1), .pg-panel td.pg-code { width: 13%; }
+/* Wide enough for the longest code (CC-COMPROG11, 12 monospace characters)
+   in a half-width panel; a percentage cut them off with an ellipsis. */
+.pg-panel th:nth-child(1), .pg-panel td.pg-code { width: 8.25rem; }
 .pg-panel th:nth-child(2)                       { width: auto; }
 .pg-panel td.pg-u                               { width: 7%; }
 .pg-panel td.pg-pre                              { width: 16%; }
@@ -1473,6 +1475,96 @@ input[type="password"]::-ms-clear {
     font-size: 0.8rem;
     color: var(--slate);
     white-space: nowrap;
+}
+
+/* Picker groups: what the engine suggests vs what is merely eligible. */
+
+.req-group-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s2);
+    margin: 0.75rem 0 0.1rem;
+    font-size: 0.85rem;
+}
+.req-group-head:first-child { margin-top: 0; }
+
+.link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--indigo);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.link-btn:hover { color: var(--indigo-dark); text-decoration: underline; }
+
+.req-main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+.req-main .req-title { flex: none; }
+.req-why {
+    font-size: 0.78rem;
+    color: var(--slate);
+}
+/* The reason a subject was sent back, inside its own row so it can't
+   drift away from the subject it belongs to. */
+.req-reject-reason {
+    font-size: 0.78rem;
+    color: #b45309;
+}
+
+/* Load bar under the picker: the meter and the submit button stay
+   together, and stick to the bottom of the viewport while the list
+   scrolls under them. */
+
+.plan-bar {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s3);
+    margin: 0 calc(var(--s3) * -1) calc(var(--s3) * -1);
+    padding: var(--s2) var(--s3);
+    background: #fff;
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 12px 12px;
+}
+.plan-bar-load {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 0;
+}
+.plan-bar-load .cb-hint.over-cap { color: #b91c1c; font-weight: 600; }
+
+.unit-meter {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--line);
+    overflow: hidden;
+}
+.unit-meter-fill {
+    width: 0;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--indigo);
+    transition: width 0.15s ease, background 0.15s;
+}
+.unit-meter-fill.over-cap { background: #ef4444; }
+
+@media (max-width: 640px) {
+    .plan-bar { flex-direction: column; align-items: stretch; }
+    .req-group-head { flex-direction: column; gap: 0.2rem; }
 }
 
 /* Request history */
@@ -1832,4 +1924,357 @@ input[type="password"]::-ms-clear {
     font-size: 0.72rem;
     color: #94a3b8;
     margin: 0.3rem 0 0;
+}
+
+/* Section picker inside a request row. Reads as a chip, sized to fit
+   the section + time on one line. */
+.req-section-pick {
+    grid-column: 1 / -1;
+    margin-top: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--ink);
+    background: #fff;
+    cursor: pointer;
+    max-width: 100%;
+}
+
+.req-section-pick:focus {
+    outline: none;
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+/* A subject with no offering this term. Muted, unclickable. */
+.req-row.is-unscheduled {
+    opacity: 0.6;
+    cursor: default;
+    grid-template-columns: 1fr auto;
+}
+/* Section choice + clash warning inside a plan-builder row. */
+
+.req-sched {
+    font-size: 0.78rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+}
+.req-sched.is-none { color: var(--slate); font-style: italic; }
+
+.req-main .req-section-pick {
+    align-self: flex-start;
+    margin-top: 0.3rem;
+    padding: 0.3rem 0.5rem;
+}
+
+.req-clash {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #b91c1c;
+}
+.req-clash[hidden] { display: none; }
+.req-row.has-clash {
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
+/* Request status on a suggested-load card (dashboard). */
+.subject-request { margin: 0.4rem 0 0; }
+
+
+/* ── Student profile ────────────────────────────────────────────────── */
+
+.prof-hero {
+    display: flex;
+    align-items: center;
+    gap: var(--s3);
+    padding: var(--s3);
+}
+.prof-avatar {
+    flex: 0 0 auto;
+    width: 4.25rem;
+    height: 4.25rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--indigo);
+    color: #fff;
+    font-weight: 700;
+    font-size: 1.4rem;
+    letter-spacing: 0.02em;
+}
+.prof-id { min-width: 0; }
+.prof-name { margin: 0; font-size: 1.35rem; color: var(--ink); }
+.prof-sub  { margin: 0.15rem 0 0.6rem; font-size: 0.88rem; color: var(--slate); }
+.prof-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.prof-bar-head { margin-bottom: 0.5rem; font-size: 0.92rem; }
+.prof-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--s2);
+    margin-top: var(--s3);
+}
+.prof-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--canvas);
+}
+.prof-stat strong { font-size: 1.35rem; color: var(--ink); line-height: 1.1; }
+.prof-stat span   { font-size: 0.78rem; color: var(--slate); }
+
+.prof-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s3);
+    align-items: start;
+}
+.prof-note {
+    margin: var(--s2) 0 0;
+    font-size: 0.8rem;
+    color: var(--slate);
+}
+
+.prof-form { display: flex; flex-direction: column; gap: 0.35rem; }
+.prof-form label { font-size: 0.82rem; font-weight: 600; color: var(--ink); margin-top: 0.4rem; }
+.prof-form input {
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 0.92rem;
+}
+.prof-form input:focus-visible {
+    outline: none;
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+.prof-form .btn-primary { align-self: flex-start; margin-top: var(--s2); }
+.prof-hint { margin: 0; font-size: 0.75rem; color: var(--slate); }
+
+@media (max-width: 900px) {
+    .prof-grid { grid-template-columns: 1fr; }
+    .prof-stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 520px) {
+    .prof-hero { flex-direction: column; align-items: flex-start; }
+}
+
+
+/* ── Student academic record ────────────────────────────────────────── */
+
+.rec-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: var(--s3);
+}
+.rec-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--ink);
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+}
+.rec-chip:hover { border-color: var(--indigo); background: #f8f9ff; }
+.rec-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+.rec-chip.is-active {
+    border-color: var(--indigo);
+    background: var(--indigo);
+    color: #fff;
+}
+.rec-chip-n {
+    min-width: 1.25rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: var(--canvas);
+    color: var(--slate);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-align: center;
+}
+.rec-chip.is-active .rec-chip-n { background: rgba(255, 255, 255, 0.22); color: #fff; }
+
+.rec-group + .rec-group { margin-top: var(--s3); }
+.rec-group-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s2);
+    margin-bottom: 0.5rem;
+}
+.rec-group-head h3 { margin: 0; font-size: 0.95rem; color: var(--ink); }
+.rec-group-head .dim { font-size: 0.8rem; }
+
+.rec-note {
+    display: block;
+    margin-top: 0.1rem;
+    font-size: 0.75rem;
+    color: var(--slate);
+}
+.rec-note.bad { color: #b91c1c; font-weight: 600; }
+.rec-row-failed td:first-child { box-shadow: inset 3px 0 0 #ef4444; }
+
+@media (max-width: 640px) {
+    .rec-group-head { flex-direction: column; gap: 0.1rem; }
+}
+
+/* One table per term, so lock the columns or each group sizes itself
+   differently and the titles stop lining up down the page. */
+.rec-group .data-table { table-layout: fixed; width: 100%; }
+.rec-group .data-table th:nth-child(1) { width: 9.5rem; }
+.rec-group .data-table th:nth-child(3) { width: 4.5rem; }
+.rec-group .data-table th:nth-child(4) { width: 6.5rem; }
+.rec-group .data-table td { overflow-wrap: anywhere; }
+
+
+/* ── Student dashboard layout ───────────────────────────────────────── */
+
+.dash-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 21rem;
+    gap: var(--s3);
+    align-items: start;
+}
+.dash-main, .dash-aside { display: grid; gap: var(--s3); min-width: 0; }
+.dash-aside .card-body { padding: var(--s2) var(--s3); }
+
+.dash-cta {
+    margin-left: auto;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--indigo);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.dash-cta:hover { color: var(--indigo-dark); text-decoration: underline; }
+
+/* Suggested load: one compact row per subject. */
+.term-load { margin-bottom: var(--s2); }
+.term-load-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s2);
+    margin-bottom: 0.4rem;
+    font-size: 0.9rem;
+}
+.term-load-head .dim { font-size: 0.8rem; }
+
+.term-list { display: grid; }
+.term-row {
+    display: grid;
+    grid-template-columns: 8.25rem minmax(0, 1fr) auto;
+    gap: var(--s2);
+    align-items: start;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--line);
+}
+.term-row:first-child { border-top: none; }
+.term-code {
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding-top: 0.1rem;
+    white-space: nowrap;
+}
+.term-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.term-title { font-size: 0.92rem; font-weight: 600; line-height: 1.35; }
+.term-why   { font-size: 0.78rem; color: var(--slate); }
+.term-when  {
+    font-size: 0.78rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+}
+.term-when i { color: var(--slate); font-size: 0.72rem; }
+.term-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.3rem;
+    text-align: right;
+}
+.term-units { font-size: 0.78rem; color: var(--slate); white-space: nowrap; }
+
+/* Folded sections: later subjects, kept out of the way until wanted. */
+.fold + .fold { margin-top: var(--s2); }
+.fold {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0 var(--s2);
+    background: #fff;
+}
+.fold > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before {
+    content: '\25B8';
+    color: var(--slate);
+    transition: transform 0.15s;
+}
+.fold[open] > summary::before { transform: rotate(90deg); }
+.fold > summary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    border-radius: 6px;
+}
+.fold-n {
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    background: var(--canvas);
+    color: var(--slate);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.fold > .prose { margin: 0 0 var(--s2); font-size: 0.82rem; color: var(--slate); }
+.fold > .link-btn { margin: 0.25rem 0 var(--s2); }
+
+.lock-list { display: grid; }
+.lock-row { border-top: 1px solid var(--line); padding: 0.55rem 0; }
+.lock-row:first-child { border-top: none; }
+.lock-row[hidden] { display: none; }
+.lock-line {
+    display: grid;
+    grid-template-columns: 8.25rem minmax(0, 1fr) auto auto;
+    gap: var(--s2);
+    align-items: center;
+}
+.lock-title { font-size: 0.88rem; min-width: 0; }
+.lock-line .pill { margin-left: 0; white-space: nowrap; }
+.lock-row .why-body { margin-top: 0.5rem; }
+
+@media (max-width: 1100px) {
+    .dash-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+    .term-row { grid-template-columns: minmax(0, 1fr) auto; }
+    .term-code { grid-column: 1 / -1; padding-top: 0; }
+    .lock-line { grid-template-columns: minmax(0, 1fr) auto; }
+    .lock-line .term-code { grid-column: 1 / -1; }
+    .lock-title { grid-column: 1; }
+}
+
+/* Four stat tiles stacked in one column cost a whole phone screen. */
+@media (max-width: 640px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -1485,3 +1485,170 @@
     font-style: italic;
     font-size: 11px;
 }
+
+/* ── Advising queue — compact summary cards ─────────────────────── */
+
+.req-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s3);
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    margin-bottom: 0.6rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.req-summary:hover {
+    border-color: var(--indigo);
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.08);
+    transform: translateY(-1px);
+}
+
+.req-summary:last-child { margin-bottom: 0; }
+
+.req-summary-main { min-width: 0; flex: 1 1 auto; }
+
+.req-summary-name {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.15rem;
+}
+
+.req-summary-name strong { font-size: 0.95rem; color: var(--ink); }
+
+.req-summary-name .mono {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--slate);
+}
+
+.req-summary-meta {
+    font-size: 0.78rem;
+    color: var(--slate);
+    margin: 0 0 0.4rem;
+}
+
+.req-summary-status {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.req-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.req-badge.ok      { background: #dcfce7; color: var(--green, #0f8a5f); }
+.req-badge.warning { background: #fef3c7; color: #92400e; }
+
+.req-summary-action {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+.req-summary-date {
+    font-size: 0.72rem;
+    color: var(--slate);
+}
+
+.req-view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+/* ── Advising detail — one request, one table ───────────────────── */
+
+.req-detail-count {
+    font-size: 0.78rem;
+    color: var(--slate);
+    margin-left: var(--s2);
+}
+
+.req-detail-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 0.4rem;
+}
+
+.req-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.req-table th {
+    text-align: left;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--slate);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+    background: #fff;
+}
+
+.req-table td {
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+}
+
+.req-table tbody tr:last-child td { border-bottom: none; }
+.req-table .num { text-align: right; }
+
+.req-table .mono {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-weight: 600;
+    font-size: 0.82rem;
+}
+
+.req-status-col  { width: 200px; }
+.req-status-cell { text-align: right; white-space: nowrap; }
+
+.req-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+}
+
+.req-status.is-valid    { background: #dcfce7; color: var(--green, #0f8a5f); }
+.req-status.is-flagged  { background: #fef3c7; color: #92400e; }
+.req-status.is-approved { background: #eef2ff; color: var(--indigo); }
+.req-status.is-rejected { background: #fee2e2; color: #b91c1c; }
+
+.req-status-cell .btn-xs {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    padding: 0;
+    margin-left: 0.35rem;
+    font-size: 0.72rem;
+}
+
+.req-detail-foot {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--s2);
+}

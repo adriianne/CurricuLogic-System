@@ -45,7 +45,7 @@ function summarizeForExplanation(assessResult, studentName) {
         studentName: studentName ?? null,
         unitsEarned: facts.unitsEarned,
         totalUnits,
-        completedThroughYear: facts.completedThroughYear,
+        completedThroughPosition: facts.completedThroughPosition,
         recommended: recommendedSummary,
         recommendedUnits: assessResult.recommendedUnits,
         locked: lockedSummary,

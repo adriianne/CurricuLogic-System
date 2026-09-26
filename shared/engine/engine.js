@@ -442,7 +442,26 @@ function assess(student, records, knowledgeBase, options = {}) {
         a.subject.year_level - b.subject.year_level ||
         a.subject.code.localeCompare(b.subject.code));
 
-    const maxUnits = Number(options.maxUnits) || DEFAULTS.maxUnits;
+    /* Units already being carried count against the load. A student is
+       "graduating" when everything still unfinished fits inside the
+       graduating cap, which is the only case the higher cap applies to. */
+    const enrolledUnits = inProgress
+        .reduce((t, s) => t + (Number(s.units) || 0), 0);
+    const totalUnits = subjects.reduce((t, s) => t + Number(s.units || 0), 0);
+    const remainingUnits = totalUnits - facts.unitsEarned - enrolledUnits;
+    const graduating = remainingUnits > 0 && remainingUnits <= DEFAULTS.maxUnitsGraduating;
+
+    const maxUnits = graduating
+        ? Math.max(Number(options.maxUnits) || 0, DEFAULTS.maxUnitsGraduating)
+        : (Number(options.maxUnits) || DEFAULTS.maxUnits);
+    const availableUnits = Math.max(0, maxUnits - enrolledUnits);
+
+    /* With no schedule to lean on, the curriculum's own term is the next
+       best signal for what belongs in this semester. A retake is exempt:
+       a failed subject is owed whatever term it was originally placed in. */
+    const term = Number(options.term) || null;
+    const filterByTerm = term !== null && !respectOfferings;
+
     const recommended = [];
     let units = 0;
 
@@ -452,8 +471,10 @@ function assess(student, records, knowledgeBase, options = {}) {
            department is not running is the failure this replaces. */
         if (respectOfferings && !e.offered) continue;
 
+        if (filterByTerm && !e.retake && Number(e.subject.term) !== term) continue;
+
         const u = Number(e.subject.units) || 0;
-        if (units + u > maxUnits) continue;
+        if (units + u > availableUnits) continue;
 
         recommended.push({ ...e, reason: recommendationReason(e, facts) });
         units += u;
@@ -481,7 +502,10 @@ function assess(student, records, knowledgeBase, options = {}) {
         recommended,
         recommendedUnits: units,
         maxUnits,
-        totalUnits: subjects.reduce((t, s) => t + Number(s.units || 0), 0),
+        enrolledUnits,
+        availableUnits,
+        graduating,
+        totalUnits,
     };
 }
 
