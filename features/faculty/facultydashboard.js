@@ -101,7 +101,16 @@ function showView(name, param) {
 
     if (name === 'students') loadStudents();
     if (name === 'student' && param) openStudent(param);
-    if (name === 'requests') loadRequestQueue();
+
+    if (name === 'requests') {
+        const inDetail = !!param;
+        const queueEl  = $('req-sub-queue');
+        const detailEl = $('req-sub-detail');
+        if (queueEl)  queueEl.hidden  = inDetail;
+        if (detailEl) detailEl.hidden = !inDetail;
+        if (inDetail) loadRequestDetail(param);
+        else          loadRequestQueue();
+    }
 }
 
 function route() {
@@ -227,6 +236,93 @@ function renderNotice(staff) {
 
     box.innerHTML = '';
 }
+
+/* Password change. Same pattern as Department Staff's: re-authenticate
+   with the current password first (catches "left laptop open" and a
+   mistyped current password in one step; also refreshes the session
+   token as a harmless side effect), then call updateUser(). Faculty
+   had no self-service path for this at all before -- the only option
+   was asking the System Administrator to reset it by hand. */
+function openPasswordModal() {
+    const modal = $('password-modal');
+    if (!modal) return;
+
+    ['pw-current', 'pw-new', 'pw-confirm'].forEach(id => {
+        const el = $(id); if (el) el.value = '';
+    });
+    showMsg('pw-msg', '');
+
+    modal.hidden = false;
+    setTimeout(() => $('pw-current')?.focus(), 60);
+
+    const close = () => {
+        modal.hidden = true;
+        $('pw-cancel')?.removeEventListener('click', onCancel);
+        $('pw-submit')?.removeEventListener('click', onSubmit);
+        modal.removeEventListener('click', onBackdrop);
+        document.removeEventListener('keydown', onKey);
+    };
+
+    const onCancel   = () => close();
+    const onSubmit   = () => submitPasswordChange(close);
+    const onBackdrop = (e) => { if (e.target === modal) close(); };
+    const onKey      = (e) => { if (e.key === 'Escape') close(); };
+
+    $('pw-cancel')?.addEventListener('click', onCancel);
+    $('pw-submit')?.addEventListener('click', onSubmit);
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+}
+
+async function submitPasswordChange(close) {
+    const current = $('pw-current')?.value ?? '';
+    const next    = $('pw-new')?.value ?? '';
+    const confirm = $('pw-confirm')?.value ?? '';
+
+    if (!current) return showMsg('pw-msg', 'Enter your current password.');
+    if (next.length < 8) return showMsg('pw-msg', 'New password must be at least 8 characters.');
+    if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
+
+    const btn = $('pw-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+
+    const finish = (msg, type) => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Change password'; }
+        showMsg('pw-msg', msg, type);
+    };
+
+    if (PREVIEW) {
+        finish('Password updated (preview only).', 'success');
+        return setTimeout(close, 900);
+    }
+
+    // 1. Verify current password by attempting a sign-in.
+    const email = FACULTY?.email;
+    if (!email) return finish('No email on record for this account.', 'error');
+
+    const { error: authErr } = await supabase.auth.signInWithPassword({
+        email,
+        password: current,
+    });
+    if (authErr) return finish('Current password is incorrect.', 'error');
+
+    // 2. Change it.
+    const { error: upErr } = await supabase.auth.updateUser({ password: next });
+    if (upErr) return finish(upErr.message || 'Could not change password.');
+
+    // 3. Clear the must-change flag if it was set.
+    if (FACULTY?.must_change_password && FACULTY?.id) {
+        await supabase.from('faculty_staff')
+            .update({ must_change_password: false })
+            .eq('id', FACULTY.id);
+        FACULTY = { ...FACULTY, must_change_password: false };
+    }
+
+    finish('Password updated.', 'success');
+    setTimeout(close, 900);
+}
+
+$('p-change-password')?.addEventListener('click', openPasswordModal);
 
 
 /* students */
@@ -430,14 +526,6 @@ function renderRecent() {
 
 /* student detail */
 
-/* ============================================================
-   Paste over the existing openStudent() and loadStudentRecord()
-   in facultydashboard.js. loadStudentRecord's fetch has been split
-   out so the record is loaded once and used twice — the engine
-   needs the same rows the table renders.
-   ============================================================ */
-
-
 /* eligibility */
 
 /* One knowledge base per prospectus version, cached. Faculty move
@@ -629,7 +717,7 @@ async function openStudent(studentRowId) {
     await window.ProspectusGrid.render(
         supabase, student.prospectus_id, eligBody, statusMap(result));
 
-            // The slip reads the same assess() output the grid above was just
+    // The slip reads the same assess() output the grid above was just
     // built from — a slip that disagreed with the screen would be worse
     // than no slip at all.
     CURRENT_SLIP = {
@@ -644,8 +732,6 @@ async function openStudent(studentRowId) {
     const slipBtn = $('print-slip');
     if (slipBtn) slipBtn.hidden = false;
 }
-
-
 
 
 /* academic record */
@@ -751,8 +837,10 @@ function renderStudentRecord(records) {
    This select just needs to actually reach the real, already-flagged
    data the engine computed at submission time -- nothing here
    re-evaluates eligibility; request_item.status is already final. */
+/* Queue = one summary card per submitted request. Clicking View opens
+   the detail sub-view. Students with no requests never appear here. */
 async function loadRequestQueue() {
-    const queue = $('req-queue');
+    const queue   = $('req-queue');
     const countEl = $('req-queue-count');
     if (!queue || !supabase || !FACULTY) return;
 
@@ -760,8 +848,11 @@ async function loadRequestQueue() {
         .from('request')
         .select(`
             id, status, requested_term, requested_year, created_at,
-            student:student_id (id, first_name, last_name, student_id),
-            request_item (id, status, remarks, subject:subject_id (code, title, units))
+            student:student_id (id, first_name, last_name, student_id, year_level),
+            request_item (
+                id, status,
+                subject:subject_id (units)
+            )
         `)
         .eq('status', 'submitted')
         .order('created_at', { ascending: true });
@@ -773,36 +864,266 @@ async function loadRequestQueue() {
     }
 
     const list = requests ?? [];
-
     if (countEl) countEl.textContent = list.length ? `${list.length} pending` : '';
 
     if (!list.length) {
-        queue.innerHTML = '<div class="empty"><h3>Nothing pending</h3><p>No submitted requests from your advisees right now.</p></div>';
+        queue.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+                <h3>Nothing pending</h3>
+                <p>No submitted requests from your advisees right now.</p>
+            </div>`;
         return;
     }
 
-    queue.innerHTML = list.map(req => `
-        <div class="req-card" data-request-id="${req.id}">
-            <div class="req-card-head">
-                <strong>${escapeHtml(fullName(req.student))}</strong>
-                <span class="dim mono">${escapeHtml(req.student?.student_id ?? '')}</span>
-                <span class="dim">${new Date(req.created_at).toLocaleDateString()}</span>
+    queue.innerHTML = list.map(req => {
+        const items = req.request_item ?? [];
+        const flagged = items.filter(i => i.status === 'flagged').length;
+        const ready   = items.length - flagged;
+        const units = items.reduce((sum, i) =>
+            i.status !== 'flagged' ? sum + Number(i.subject?.units || 0) : sum, 0);
+
+        const termLbl = `${termLabel(req.requested_term)} ${req.requested_year || ''}`.trim();
+
+        return `
+        <div class="req-summary" data-view-request="${req.id}">
+            <div class="req-summary-main">
+                <div class="req-summary-name">
+                    <strong>${escapeHtml(fullName(req.student))}</strong>
+                    <span class="mono">${escapeHtml(req.student?.student_id ?? '')}</span>
+                </div>
+                <p class="req-summary-meta">
+                    ${items.length} subject${items.length === 1 ? '' : 's'}
+                    · ${units} units
+                    · ${escapeHtml(termLbl)}
+                </p>
+                <div class="req-summary-status">
+                    <span class="req-badge ok">
+                        <i class="fa-solid fa-check" aria-hidden="true"></i>
+                        ${ready} ready
+                    </span>
+                    ${flagged ? `
+                        <span class="req-badge warning">
+                            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                            ${flagged} flagged
+                        </span>` : ''}
+                </div>
             </div>
-            ${(req.request_item ?? []).map(item => `
-                <div class="req-review-row" data-item-id="${item.id}">
-                    <span class="req-code">${escapeHtml(item.subject?.code ?? '')}</span>
-                    <span class="req-title">${escapeHtml(item.subject?.title ?? '')}</span>
-                    <span class="pg-chip ${item.status === 'valid' ? 'ok' : item.status === 'flagged' ? 'danger' : item.status === 'approved' ? 'info' : 'locked'}">${escapeHtml(item.status)}</span>
-                    ${item.remarks ? `<span class="dim">${escapeHtml(item.remarks)}</span>` : '<span></span>'}
-                    <div class="req-review-actions">
-                        <button class="btn-small" data-approve-item="${item.id}">Approve</button>
-                        <button class="btn-small" data-reject-item="${item.id}">Reject</button>
-                    </div>
-                </div>`).join('')}
-        </div>`).join('');
+            <div class="req-summary-action">
+                <span class="req-summary-date">submitted ${new Date(req.created_at).toLocaleDateString()}</span>
+                <button class="btn-small req-view-btn" type="button">
+                    View
+                    <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+                </button>
+            </div>
+        </div>`;
+    }).join('');
 }
 
-async function reviewRequestItem(itemId, decision) {
+/* Detail sub-view. One request, its items in a compact table, and the
+   header/footer actions. Loaded fresh each time so a review done on
+   another tab is visible immediately. */
+async function loadRequestDetail(requestId) {
+    const nameEl    = $('req-detail-name');
+    const subEl     = $('req-detail-sub');
+    const countEl   = $('req-detail-count');
+    const actionsEl = $('req-detail-actions');
+    const bodyEl    = $('req-detail-body');
+    const footEl    = $('req-detail-foot');
+    if (!bodyEl) return;
+
+    bodyEl.innerHTML = `
+        <div class="empty">
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <h3>Loading</h3>
+        </div>`;
+    if (actionsEl) actionsEl.innerHTML = '';
+    if (footEl)    footEl.innerHTML = '';
+
+    const { data: req, error } = await supabase
+        .from('request')
+        .select(`
+            id, status, registrar_status, requested_term, requested_year, created_at,
+            student:student_id (id, first_name, last_name, student_id, year_level),
+            request_item (
+                id, status, remarks, offering_id,
+                subject:subject_id (code, title, units),
+                offering:offering_id (section, schedule_days, start_time, end_time, room)
+            )
+        `)
+        .eq('id', requestId)
+        .maybeSingle();
+
+    if (error || !req) {
+        console.warn('loadRequestDetail failed:', error?.message);
+        bodyEl.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load that request</h3>
+                <p>It may have been reviewed on another device.</p>
+            </div>`;
+        return;
+    }
+
+    const items = req.request_item ?? [];
+    const undecided = items.filter(i =>
+        i.status !== 'approved' && i.status !== 'rejected');
+    const units = items.reduce((sum, i) =>
+        (i.status === 'valid' || i.status === 'approved')
+            ? sum + Number(i.subject?.units || 0)
+            : sum, 0);
+
+    setText('req-detail-name', fullName(req.student) || '—');
+
+    // Build from parts and drop empty ones -- requested_year (or any
+    // other part) can be missing, and joining unconditionally with ' · '
+    // left a dangling separator ("1st Year ·  · submitted ...") when it
+    // was. Filtering keeps the line clean regardless of which parts
+    // exist for a given request.
+    const subParts = [
+        req.student?.student_id || 'No ID',
+        ordinal(req.student?.year_level) || 'Year not set',
+        [termLabel(req.requested_term), req.requested_year].filter(Boolean).join(' ') || null,
+        `submitted ${new Date(req.created_at).toLocaleDateString()}`,
+    ].filter(Boolean);
+    setText('req-detail-sub', subParts.join(' · '));
+
+    if (countEl) {
+        countEl.textContent =
+            `${items.length} subject${items.length === 1 ? '' : 's'} · ${units} units`;
+    }
+
+    if (actionsEl) {
+        if (undecided.length) {
+            actionsEl.innerHTML = `
+                <button class="btn-small" data-approve-all="${req.id}">
+                    <i class="fa-solid fa-check" aria-hidden="true"></i>
+                    Approve all
+                </button>
+                <button class="btn-small" data-reject-all="${req.id}">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                    Reject all
+                </button>`;
+        } else {
+            actionsEl.innerHTML =
+                '<span class="pill ok"><i class="fa-solid fa-check"></i> All reviewed</span>';
+        }
+    }
+
+    bodyEl.innerHTML = renderRequestTable(items);
+
+    // There is deliberately no print action here. The plan Faculty
+    // approves still needs the Registrar's final sign-off, and printing
+    // it at this stage would produce a document a student could carry
+    // to enrollment before it's actually final -- the same ambiguity as
+    // having two "official" approvals. The printable plan lives on the
+    // Registrar's Advising queue, gated on their approval.
+    if (footEl) {
+        if (req.registrar_status === 'approved') {
+            footEl.innerHTML = `
+                <p class="dim">
+                    <i class="fa-solid fa-check" aria-hidden="true"></i>
+                    Approved by the Registrar. The student's plan is printable from the
+                    Registrar's Advising queue.
+                </p>`;
+        } else if (req.registrar_status === 'rejected') {
+            footEl.innerHTML = `
+                <p class="dim">
+                    <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                    Sent back by the Registrar. This request is closed; the student will
+                    submit a new one.
+                </p>`;
+        } else if (req.status === 'approved' || req.status === 'partially_approved') {
+            footEl.innerHTML = `
+                <p class="dim">
+                    <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i>
+                    Awaiting the Registrar's final review before this plan is printable.
+                </p>`;
+        } else {
+            footEl.innerHTML = '';
+        }
+    }
+}
+
+/* The subject table for one request. One row per subject, status on the
+   right. Every undecided row shows a small approve/reject pair inline;
+   decided rows show their outcome. */
+function renderRequestTable(items) {
+    const rows = items.map(item => {
+        const o = item.offering;
+        const time = (o?.start_time && o?.end_time)
+            ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}`
+            : '';
+        const sched = o
+            ? [o.section, o.schedule_days, time].filter(Boolean).join(' · ')
+            : '—';
+
+        // Every undecided subject can be approved or rejected on its own,
+        // not only flagged ones: an adviser may want to reject one subject
+        // the engine is happy with (too heavy a load, say) and approve the
+        // rest. Approve all / Reject all remain for the common case.
+        const itemButtons = `
+                <button class="btn-icon btn-xs" data-approve-item="${item.id}" title="Approve this subject">
+                    <i class="fa-solid fa-check" aria-hidden="true"></i>
+                </button>
+                <button class="btn-icon btn-xs" data-reject-item="${item.id}" title="Reject this subject">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>`;
+
+        let statusHtml;
+        if (item.status === 'valid') {
+            // Labelled, so the engine's verdict is not mistaken for the
+            // approve button sitting next to it.
+            statusHtml = `<span class="req-status is-valid" title="${escapeHtml(item.remarks || 'All requirements met.')}">
+                <i class="fa-solid fa-check" aria-hidden="true"></i> ready
+            </span>${itemButtons}`;
+        } else if (item.status === 'flagged') {
+            statusHtml = `
+                <span class="req-status is-flagged" title="${escapeHtml(item.remarks || '')}">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> check
+                </span>${itemButtons}`;
+        } else if (item.status === 'approved') {
+            statusHtml = `<span class="req-status is-approved">
+                <i class="fa-solid fa-check" aria-hidden="true"></i> approved
+            </span>`;
+        } else if (item.status === 'rejected') {
+            statusHtml = `<span class="req-status is-rejected">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i> rejected
+            </span>`;
+        } else {
+            statusHtml = `<span class="req-status">${escapeHtml(item.status)}</span>`;
+        }
+
+        return `
+            <tr data-item-id="${item.id}">
+                <td class="mono">${escapeHtml(item.subject?.code ?? '')}</td>
+                <td>${escapeHtml(item.subject?.title ?? '')}</td>
+                <td class="num">${item.subject?.units != null
+                    ? Number(item.subject.units).toFixed(1)
+                    : '—'}</td>
+                <td class="dim">${escapeHtml(sched)}</td>
+                <td class="req-status-cell">${statusHtml}</td>
+            </tr>`;
+    }).join('');
+
+    return `
+        <div class="table-wrap">
+            <table class="req-table">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Descriptive title</th>
+                        <th class="num">Units</th>
+                        <th>Schedule</th>
+                        <th class="req-status-col"></th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+async function reviewRequestItem(itemId, decision, note = null) {
     if (!supabase || !FACULTY) return;
 
     // request_item itself holds the engine's verdict and is not
@@ -817,60 +1138,120 @@ async function reviewRequestItem(itemId, decision) {
         .maybeSingle();
 
     if (itemError || !item) {
-        return showMsg('req-msg', 'Could not find that request item.');
+        const box = parseHash().param ? 'req-detail-msg' : 'req-msg';
+        return showMsg(box, 'Could not find that request item.');
     }
 
-    const { error: reviewError } = await supabase.from('request_review').insert({
-        request_id: item.request_id,
-        faculty_id: FACULTY.id,
-        status: decision,
-    });
-
-    if (reviewError) {
-        console.warn('request_review insert failed:', reviewError.message);
-        return showMsg('req-msg', 'Could not save your review. Please try again.');
-    }
+    // A rejection carries a reason the student sees. On approval any
+    // prior remarks (a stale flag reason from the engine, say) are
+    // cleared -- leaving an old warning attached to an approved item
+    // would confuse the next reader.
+    const patch = { status: decision === 'approved' ? 'approved' : 'rejected' };
+    if (decision === 'rejected' && note) patch.remarks = note;
+    if (decision === 'approved')          patch.remarks = null;
 
     const { error: updateError } = await supabase
         .from('request_item')
-        .update({ status: decision === 'approved' ? 'approved' : 'rejected' })
+        .update(patch)
         .eq('id', itemId);
 
+    // The item decision is the thing being saved. If it did not go
+    // through, say so instead of carrying on and telling the student
+    // their request had been reviewed.
     if (updateError) {
         console.warn('request_item status update failed:', updateError.message);
+        const box = parseHash().param ? 'req-detail-msg' : 'req-msg';
+        return showMsg(box, 'Could not save your decision. Please try again.');
     }
 
-    // Transition the parent request once every item has a decision.
-    // Without this, a fully-reviewed request stays 'submitted' and
-    // clutters the queue forever.
-    await transitionRequestIfComplete(item.request_id);
+    // Once every item has a decision the request itself moves on, the
+    // review is recorded once for the whole request, and only then is
+    // the student told. Deciding one subject of several is not "finished
+    // reviewing", so it produces neither a review row nor a notification.
+    await finishReviewIfComplete(item.request_id);
 
-    // Tell the student their request changed state. Fire and forget —
-    // a failed notification must not roll back the review that already
-    // succeeded.
-    notifyStudentOfReview(item.request_id).catch(err =>
-        console.warn('notification insert failed:', err.message));
-
-    showMsg('req-msg', `Subject ${decision}.`, 'success');
-    loadRequestQueue();
+    // Re-render whichever screen the faculty is looking at. The detail
+    // view keeps them on the student's plan; the queue view refreshes
+    // the list because a completed request drops out of it.
+    const { param } = parseHash();
+    if (param) {
+        showMsg('req-detail-msg', `Subject ${decision}.`, 'success');
+        loadRequestDetail(param);
+    } else {
+        showMsg('req-msg', `Subject ${decision}.`, 'success');
+        loadRequestQueue();
+    }
     loadRequestCount();
 }
 
+async function reviewRequestBulk(requestId, decision) {
+    if (!supabase || !FACULTY) return;
+
+    let note = null;
+    if (decision === 'rejected') {
+        note = window.prompt(
+            'Reason for rejecting this plan?\n\n' +
+            'The student sees this. Be specific: which subject, what requirement.');
+        if (note === null) return;
+        if (!note.trim()) {
+            return showMsg('req-detail-msg', 'A reason is required when rejecting.');
+        }
+        note = note.trim();
+    }
+
+    const { data: items, error } = await supabase
+        .from('request_item')
+        .select('id')
+        .eq('request_id', requestId)
+        .not('status', 'in', '(approved,rejected)');
+
+    if (error || !items?.length) {
+        return showMsg('req-detail-msg', 'Nothing to review on that request.');
+    }
+
+    // One update for the whole set of undecided items, not one round trip
+    // (and one review row) per item.
+    const patch = { status: decision };
+    if (note) patch.remarks = note;
+
+    const { error: upErr } = await supabase
+        .from('request_item')
+        .update(patch)
+        .in('id', items.map(i => i.id));
+
+    if (upErr) {
+        console.warn('bulk item update failed:', upErr.message);
+        return showMsg('req-detail-msg', 'Could not save your decisions. Please try again.');
+    }
+    const ok = items.length;
+
+    await finishReviewIfComplete(requestId);
+
+    const { param } = parseHash();
+    if (param) {
+        showMsg('req-detail-msg', `${ok} subject${ok === 1 ? '' : 's'} ${decision}.`, 'success');
+        loadRequestDetail(param);
+    } else {
+        showMsg('req-msg', `${ok} subject${ok === 1 ? '' : 's'} ${decision}.`, 'success');
+        loadRequestQueue();
+    }
+    loadRequestCount();
+}
 /* Counts undecided items on a request. When there are none, flips the
    request's own status based on the aggregate outcome. Called after
    every item decision — cheap, and the request is small. */
 async function transitionRequestIfComplete(requestId) {
     const { data: items, error } = await supabase
         .from('request_item')
-        .select('status')
+        .select('status, remarks')
         .eq('request_id', requestId);
 
-    if (error || !items?.length) return;
+    if (error || !items?.length) return null;
 
     const undecided = items.filter(i =>
         i.status !== 'approved' && i.status !== 'rejected'
     );
-    if (undecided.length > 0) return;
+    if (undecided.length > 0) return null;
 
     const allRejected  = items.every(i => i.status === 'rejected');
     const anyRejected  = items.some(i => i.status === 'rejected');
@@ -884,7 +1265,56 @@ async function transitionRequestIfComplete(requestId) {
         .update({ status: next })
         .eq('id', requestId);
 
-    if (upErr) console.warn('request status transition failed:', upErr.message);
+    if (upErr) {
+        console.warn('request status transition failed:', upErr.message);
+        return null;
+    }
+
+    // The reasons given for any rejected subjects, for the review record.
+    const remarks = [...new Set(items
+        .filter(i => i.status === 'rejected' && i.remarks)
+        .map(i => i.remarks))].join(' ') || null;
+
+    return { status: next, remarks };
+}
+
+/* request_review has no item column: it is one row per request. Write it
+   once when the review completes, and update it if this adviser has
+   already recorded one (a request sent back and decided again), rather
+   than piling up a row per subject. */
+async function recordReview(requestId, status, remarks) {
+    const { data: existing } = await supabase
+        .from('request_review')
+        .select('id')
+        .eq('request_id', requestId)
+        .eq('faculty_id', FACULTY.id)
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    const row = { status, remarks, reviewed_at: new Date().toISOString() };
+
+    const { error } = existing
+        ? await supabase.from('request_review').update(row).eq('id', existing.id)
+        : await supabase.from('request_review').insert({
+              request_id: requestId, faculty_id: FACULTY.id, ...row });
+
+    if (error) console.warn('request_review save failed:', error.message);
+}
+
+/* Runs after any item decision. Does nothing until the last undecided
+   item has one; then moves the request, records the review, and tells
+   the student, once. */
+async function finishReviewIfComplete(requestId) {
+    const outcome = await transitionRequestIfComplete(requestId);
+    if (!outcome) return;
+
+    await recordReview(requestId, outcome.status, outcome.remarks);
+
+    // Fire and forget: a failed notification must not undo a review that
+    // already succeeded.
+    notifyStudentOfReview(requestId).catch(err =>
+        console.warn('notification insert failed:', err.message));
 }
 
 /* Notifies the student when their request changes state. Reads the
@@ -910,7 +1340,7 @@ async function notifyStudentOfReview(requestId) {
         user_id: request.student.user_id,
         type: 'request_reviewed',
         title: `Advising request ${label}`,
-        message: `Your adviser has finished reviewing your request. Open it to see the decisions.`,
+        message: `Your adviser has ${label} your advising request. Open it to see the decisions.`,
         related_request_id: request.id,
         is_read: false,
     });
@@ -934,12 +1364,34 @@ async function loadRequestCount() {
     setText('stat-requests', String(count ?? 0), 'stat-value');
 }
 
-$('req-queue')?.addEventListener('click', (e) => {
+/* One delegated handler on the whole requests section. Covers the queue
+   (View cards) and the detail sub-view (per-row actions, bulk actions,
+   print), since both live inside #view-requests. */
+$('view-requests')?.addEventListener('click', (e) => {
+    // View — opens the detail sub-view.
+    const viewCard = e.target.closest('[data-view-request]');
+    if (viewCard) {
+        window.location.hash = `#requests/${viewCard.dataset.viewRequest}`;
+        return;
+    }
+
     const approve = e.target.closest('[data-approve-item]');
     if (approve) return reviewRequestItem(Number(approve.dataset.approveItem), 'approved');
 
     const reject = e.target.closest('[data-reject-item]');
-    if (reject) return reviewRequestItem(Number(reject.dataset.rejectItem), 'rejected');
+    if (reject) {
+        const reason = window.prompt('Reason for rejecting this subject?');
+        if (reason === null) return;
+        return reviewRequestItem(
+            Number(reject.dataset.rejectItem), 'rejected', reason.trim() || null);
+    }
+
+    const approveAll = e.target.closest('[data-approve-all]');
+    if (approveAll) return reviewRequestBulk(Number(approveAll.dataset.approveAll), 'approved');
+
+    const rejectAll = e.target.closest('[data-reject-all]');
+    if (rejectAll) return reviewRequestBulk(Number(rejectAll.dataset.rejectAll), 'rejected');
+
 });
 
 
@@ -952,6 +1404,7 @@ $('req-queue')?.addEventListener('click', (e) => {
         renderProfile(FACULTY, PREVIEW_FACULTY.email);
         renderNotice(FACULTY);
         await loadStudents();
+        loadRequestCount();
         route();
         return;
     }
@@ -973,16 +1426,29 @@ $('req-queue')?.addEventListener('click', (e) => {
 
     const { data: staff, error } = await supabase
         .from('faculty_staff')
-        .select('id, user_id, first_name, last_name, employee_id, email, department, is_approved')
+        .select('id, user_id, first_name, last_name, employee_id, email, department, is_approved, must_change_password')
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 
-    if (error) console.warn('faculty load failed:', error.message);
+    if (error) {
+        // A failed lookup is not proof this is the wrong kind of account;
+        // do not bounce a real faculty member because the network blinked.
+        console.warn('faculty load failed:', error.message);
+        setText('greeting', 'Could not load your account');
+        return;
+    }
 
-    // A student who lands here by editing the URL has no faculty row and
-    // no read access. Send them back rather than showing an empty shell.
+    // Unapproved staff are signed out.
     if (staff && staff.is_approved === false) {
         await supabase.auth.signOut();
+        window.location.href = LOGIN_PAGE;
+        return;
+    }
+
+    // A signed-in user with no faculty row (a student who edited the URL)
+    // has no business here. Send them back rather than showing an empty
+    // shell. Not signed out: they are validly signed in, just elsewhere.
+    if (!staff) {
         window.location.href = LOGIN_PAGE;
         return;
     }
@@ -992,6 +1458,7 @@ $('req-queue')?.addEventListener('click', (e) => {
     renderNotice(staff);
 
     await loadStudents();
+    loadRequestCount();
     route();
 })();
 

@@ -1652,3 +1652,10 @@
     justify-content: flex-end;
     margin-top: var(--s2);
 }
+/* Approving a subject should not look like a destructive control: the
+   shared .btn-icon hover is red, which is right for reject only. */
+.req-status-cell [data-approve-item]:hover {
+    color: var(--green, #0f8a5f);
+    border-color: #86efac;
+    background: #f0fdf4;
+}

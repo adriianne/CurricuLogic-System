@@ -80,6 +80,51 @@ document.querySelectorAll('.toggle-pw').forEach((btn) => {
 });
 
 
+/* ---------- degree programs ---------- */
+
+/* The programs come from the database, so the form offers exactly the
+   programs the university has set up rather than a hardcoded one. The list
+   is readable without signing in. If it cannot be loaded, registration
+   still works without a program (as it did before): the Registrar confirms
+   it when verifying the account. */
+let PROGRAMS_LOADED = false;
+
+async function loadPrograms() {
+    const sel = $('program');
+    if (!sel) return;
+
+    // The hint under the field follows what the field can actually do, so it
+    // never says "choose" over a list that has nothing to choose.
+    const hint = sel.closest('.field')?.querySelector('.hint');
+    const fallback = (text) => {
+        sel.replaceChildren(new Option(text, ''));
+        sel.disabled = true;
+        if (hint) hint.textContent = 'The Office of the Registrar will confirm your degree program when it verifies your account.';
+    };
+
+    if (!supabase) return fallback('To be confirmed by the Registrar');
+
+    const { data, error } = await supabase
+        .from('program')
+        .select('id, code, name')
+        .order('code');
+
+    if (error || !data?.length) {
+        console.warn('register.js: could not load programs.', error?.message);
+        return fallback('To be confirmed by the Registrar');
+    }
+
+    PROGRAMS_LOADED = true;
+    const options = data.map(p => new Option(p.name, String(p.id)));
+    // With one program it is preselected; with several the student chooses,
+    // so nobody is registered under whichever happens to be listed first.
+    if (data.length > 1) options.unshift(new Option('Select your program', ''));
+    sel.replaceChildren(...options);
+}
+
+loadPrograms();
+
+
 /* ---------- validation ---------- */
 
 function validate() {
@@ -98,6 +143,10 @@ function validate() {
     if (!email)                return mark('email', 'Enter your university email.');
     if (!EMAIL_RE.test(email)) return mark('email', 'That does not look like a valid email address.');
 
+    // Checked here, before the account is created: failing after signUp
+    // would leave a sign-in with no student record behind it.
+    if (PROGRAMS_LOADED && !$('program').value) return mark('program', 'Choose your degree program.');
+
     if ($('password').value.length < 8)             return mark('password', 'Password must be at least 8 characters.');
     if ($('password').value !== $('confirm').value) return mark('confirm', 'The two passwords do not match.');
     if (!$('consent').checked) return 'Please confirm your details and accept the data privacy notice.';
@@ -107,6 +156,24 @@ function validate() {
 
 
 /* ---------- submit ---------- */
+
+/* What to tell the student when signUp() itself failed (not the separate
+   "already registered" case just below, which deliberately stays vague to
+   avoid confirming an email exists). Most failures still get the same
+   generic sentence as before — a signUp error can mean almost anything,
+   and most of those reasons are either sensitive (leaking which emails
+   exist, details of an internal failure) or not actionable by the student
+   anyway. Rate limiting is the one case worth calling out by name: it is
+   safe to say (it reveals nothing about any account), and unlike the
+   others it tells the student the honest, correct thing to do — wait,
+   rather than re-check details that were never wrong. */
+function signUpFailureMessage(error) {
+    const text = String(error?.message ?? '').toLowerCase();
+    if (error?.status === 429 || text.includes('rate limit')) {
+        return 'Too many requests right now. Please wait a few minutes and try again.';
+    }
+    return 'We could not submit your request. Please check your details and try again.';
+}
 
 async function handleRegister() {
     clearMsg();
@@ -130,7 +197,7 @@ async function handleRegister() {
 
         if (error || !data?.user) {
             console.error('signUp failed:', error);
-            return showMsg('We could not submit your request. Please check your details and try again.');
+            return showMsg(signUpFailureMessage(error));
         }
 
         // Supabase returns a phantom user with an empty identities array when the
@@ -158,9 +225,10 @@ async function handleRegister() {
             row.student_id = $('student-id').value.trim();
         }
 
-        // NOTE: the #program select on the form is not read. Either wire it to
-        // a program_id column here, or remove the control from registerpage.html
-        // so users are not filling in a field that has no effect.
+        // The chosen program. Left out when none could be chosen (the list
+        // failed to load), so registration is never blocked by it.
+        const programId = Number($('program')?.value);
+        if (Number.isInteger(programId) && programId > 0) row.program_id = programId;
 
         const { error: insertError } = await supabase
             .from('university_student')
