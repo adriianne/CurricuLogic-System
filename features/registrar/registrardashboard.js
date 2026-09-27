@@ -145,7 +145,7 @@ async function loadProspectus() {
         // never even sent to the browser, not merely hidden after the fact.
         const { data, error } = await supabase
             .from('prospectus')
-            .select('id, academic_year, is_active')
+            .select('id, academic_year, is_active, program_id')
             .eq('is_active', true)
             .order('academic_year', { ascending: false });
 
@@ -171,11 +171,20 @@ async function loadProspectus() {
         const active = VERSIONS.find(v => v.is_active) ?? VERSIONS[0];
         sel.value = String(active.id);
 
+        // The card names the programme of the version being shown.
+        const paintTitle = () => {
+            const v = VERSIONS.find(x => x.id === Number(sel.value));
+            setText('pros-title', v ? programName(v) : 'Prospectus');
+        };
+
         // onchange rather than addEventListener: this runs again whenever
         // the view is opened, and listeners would stack.
-        sel.onchange = () => window.ProspectusGrid.render(
-            supabase, Number(sel.value), body);
+        sel.onchange = () => {
+            paintTitle();
+            return window.ProspectusGrid.render(supabase, Number(sel.value), body);
+        };
 
+        paintTitle();
         prospectusReady = true;
     }
 
@@ -217,6 +226,14 @@ function setText(id, value, className) {
     if (!el) return;
     el.textContent = value;
     if (className) el.className = className;
+}
+
+/* A student's degree, looked up from their program_id rather than typed.
+   No programme set reads "—". Preview has no database, so it shows the
+   sample programme its fixtures describe. */
+function programName(row) {
+    return window.CurriculogicPrograms?.nameOf(row?.program_id, PREVIEW ? 'BS Information Technology' : '—')
+        ?? '—';
 }
 
 const ordinal = (n) =>
@@ -378,11 +395,19 @@ const SELECT_COLS =
    falls back to the active version; Faculty does not). Pin the active
    version when the Registrar approves or verifies, so a returnee also
    stays on the curriculum they entered under if a newer one is published
-   later. Returns {} when the student already has one. */
+   later.
+
+   Returns { patch, warning }. The prospectus is the active one for the
+   STUDENT'S OWN programme; a student with no programme only gets one when
+   there is exactly one active curriculum, because with several, guessing
+   would put them on another programme's curriculum. When nothing can be
+   attached the patch is empty and `warning` says why, so the Registrar is
+   told rather than left with a student who silently has no curriculum. */
 let ACTIVE_PROSPECTUSES = null;
 
 async function prospectusPatchFor(student) {
-    if (!student || student.prospectus_id || PREVIEW || !supabase) return {};
+    const none = { patch: {}, warning: null };
+    if (!student || student.prospectus_id || PREVIEW || !supabase) return none;
 
     if (!ACTIVE_PROSPECTUSES) {
         const { data, error } = await supabase
@@ -391,14 +416,20 @@ async function prospectusPatchFor(student) {
             .eq('is_active', true);
         if (error) {
             console.warn('active prospectus lookup failed:', error.message);
-            return {};
+            return { patch: {}, warning: 'The curriculum could not be looked up, so none was attached.' };
         }
         ACTIVE_PROSPECTUSES = data ?? [];
     }
 
-    const match = ACTIVE_PROSPECTUSES.find(p => p.program_id === student.program_id)
-        ?? ACTIVE_PROSPECTUSES[0];
-    return match ? { prospectus_id: match.id, program_id: match.program_id } : {};
+    const pick = window.CurriculogicPrograms.fallbackProspectus(student.program_id, ACTIVE_PROSPECTUSES);
+    if (pick) return { patch: { prospectus_id: pick.id, program_id: pick.program_id }, warning: null };
+
+    const why = student.program_id != null
+        ? 'No curriculum is published for this student’s programme yet.'
+        : ACTIVE_PROSPECTUSES.length === 0
+            ? 'No curriculum is published yet.'
+            : 'This student has no programme set and more than one programme is active.';
+    return { patch: {}, warning: `${why} No curriculum was attached, so eligibility cannot be computed until one is.` };
 }
 
 async function loadStudents() {
@@ -520,8 +551,10 @@ function renderRequests() {
                 <div>
                     <h3 class="review-name">${escapeHtml(fullName(s) || '—')}</h3>
                     <p class="review-meta">
-                        <span class="mono">${escapeHtml(s.student_id || 'No ID given')}</span>
-                        · ${escapeHtml(s.email || '—')}
+                        ${s.declared_path === 'new'
+                            ? '' /* no static ID line here — the assign-id field below replaces it */
+                            : `<span class="mono">${escapeHtml(s.student_id || 'No ID given')}</span> · `}
+                        ${escapeHtml(s.email || '—')}
                         · requested ${daysAgo(s.created_at)}
                     </p>
                 </div>
@@ -536,6 +569,20 @@ function renderRequests() {
                     : 'Match the student ID above against the official student list before approving.'}
             </p>
 
+            ${s.declared_path === 'new' ? `
+            <div class="review-id-field">
+                <label for="assign-id-${escapeHtml(s.id)}">Student ID</label>
+                <input type="text" id="assign-id-${escapeHtml(s.id)}" class="assign-id-input"
+                       data-assign-id="${escapeHtml(s.id)}"
+                       value="${escapeHtml(s.student_id || '')}"
+                       placeholder="e.g. 2501234" inputmode="numeric" autocomplete="off">
+                <span class="review-id-hint">
+                    7 digits, from the official student list. Can be left blank if it has
+                    not been issued yet — approval still lets them sign in, but their
+                    grades cannot be matched until an ID is set.
+                </span>
+            </div>` : ''}
+
             <div class="review-actions">
                 <button class="btn-accent" data-approve="${escapeHtml(s.id)}">
                     <i class="fa-solid fa-check" aria-hidden="true"></i>
@@ -549,9 +596,39 @@ function renderRequests() {
         </article>`).join('');
 
     body.querySelectorAll('[data-approve]').forEach(b =>
-        b.addEventListener('click', () => decide(b.dataset.approve, 'approved')));
+        b.addEventListener('click', () => approveWithId(b.dataset.approve)));
     body.querySelectorAll('[data-decline]').forEach(b =>
         b.addEventListener('click', () => promptDecline(b.dataset.decline)));
+}
+
+/* Cleans and checks a typed student ID against the same rule the database's
+   own provisioning function uses (an optional "uc-" prefix, then exactly
+   7 digits) — so an ID the registrar types here is never rejected by the
+   database for a reason the UI didn't already catch, and never accepted
+   here only to silently fail to match anything later (grade upload, the
+   student's own sign-in) because of a stray space or a wrong digit count. */
+function cleanStudentId(typed) {
+    const trimmed = String(typed ?? '').trim();
+    if (!trimmed) return { value: null };   // blank is allowed — see the hint text
+    const stripped = trimmed.replace(/^uc-/i, '');
+    if (!/^\d{7}$/.test(stripped)) {
+        return { error: 'Student ID must be 7 digits, e.g. 2501234 (an optional "uc-" prefix is fine).' };
+    }
+    return { value: stripped };
+}
+
+/* Only 'new' students carry the assign-id field; 'existing' students typed
+   their ID at registration and it is approved as-is. */
+function approveWithId(id) {
+    const input = document.querySelector(`[data-assign-id="${id}"]`);
+    if (!input) return decide(id, 'approved');
+
+    const cleaned = cleanStudentId(input.value);
+    if (cleaned.error) {
+        input.focus();
+        return showMsg('request-msg', cleaned.error);
+    }
+    decide(id, 'approved', null, cleaned.value);
 }
 
 function promptDecline(id) {
@@ -569,7 +646,7 @@ function promptDecline(id) {
     decide(id, 'declined', note.trim());
 }
 
-async function decide(id, status, note = null) {
+async function decide(id, status, note = null, studentId) {
     const patch = {
         approval_status: status,
         is_approved:     status === 'approved',
@@ -578,8 +655,17 @@ async function decide(id, status, note = null) {
         reviewed_at:     new Date().toISOString(),
     };
 
+    // Only ever set for a 'new' student who had none — see approveWithId().
+    // Undefined (not passed) leaves the column untouched; an explicit null
+    // is never sent, so approving twice can't blank out an ID set the
+    // first time.
+    if (studentId) patch.student_id = studentId;
+
+    let pinWarning = null;
     if (status === 'approved') {
-        Object.assign(patch, await prospectusPatchFor(STUDENTS.find(s => s.id === id)));
+        const pin = await prospectusPatchFor(STUDENTS.find(s => s.id === id));
+        Object.assign(patch, pin.patch);
+        pinWarning = pin.warning;
     }
 
     if (PREVIEW) {
@@ -595,6 +681,13 @@ async function decide(id, status, note = null) {
 
     if (error) {
         console.error('decision failed:', error.message);
+        // 23505: the unique index on student_id — the same ID is already on
+        // another record. The most common real cause is a typo, so send the
+        // registrar back to fix it rather than a generic failure message.
+        if (error.code === '23505') {
+            return showMsg('request-msg',
+                `Student ID ${studentId} is already assigned to another student. Check the number and try again.`);
+        }
         return showMsg('request-msg', 'Could not save that decision. Please try again.');
     }
 
@@ -602,11 +695,15 @@ async function decide(id, status, note = null) {
     Object.assign(student, patch);
     afterLoad();
 
+    const outcome = status === 'approved'
+        ? `${fullName(student)} approved. They can now sign in.`
+        : `${fullName(student)} declined.`;
+
+    // The approval itself succeeded; a warning is an addition, shown in the
+    // error style so it is not missed.
     showMsg('request-msg',
-        status === 'approved'
-            ? `${fullName(student)} approved. They can now sign in.`
-            : `${fullName(student)} declined.`,
-        'success');
+        pinWarning ? `${outcome} ${pinWarning}` : outcome,
+        pinWarning ? 'error' : 'success');
 }
 
 
@@ -712,7 +809,7 @@ async function openStudent(studentRowId) {
 
     setText('detail-name', fullName(s) || '—');
     setText('detail-sub',
-        `${s.student_id || 'No ID'} · ${ordinal(s.year_level) || 'Year not set'} · BS Information Technology`);
+        `${s.student_id || 'No ID'} · ${ordinal(s.year_level) || 'Year not set'} · ${programName(s)}`);
 
     $('detail-status').innerHTML = `
         <div class="detail"><dt>University email</dt><dd class="mono">${escapeHtml(s.email || '—')}</dd></div>
@@ -842,8 +939,11 @@ async function setVerified(id, verified) {
         verified_at:     verified ? new Date().toISOString() : null,
     };
 
+    let pinWarning = null;
     if (verified) {
-        Object.assign(patch, await prospectusPatchFor(STUDENTS.find(s => s.id === id)));
+        const pin = await prospectusPatchFor(STUDENTS.find(s => s.id === id));
+        Object.assign(patch, pin.patch);
+        pinWarning = pin.warning;
 
         // Verifying a student with nothing on file gives them an empty
         // eligibility run that looks like "everything is open". Department
@@ -885,11 +985,13 @@ async function setVerified(id, verified) {
     Object.assign(student, patch);
     afterLoad();
 
+    const outcome = verified
+        ? `${fullName(student)}'s record verified.${pinWarning ? '' : ' Eligibility can now be computed.'}`
+        : `${fullName(student)}'s record marked unverified.`;
+
     showMsg('student-msg',
-        verified
-            ? `${fullName(student)}'s record verified. Eligibility can now be computed.`
-            : `${fullName(student)}'s record marked unverified.`,
-        'success');
+        pinWarning ? `${outcome} ${pinWarning}` : outcome,
+        pinWarning ? 'error' : 'success');
 }
 
 $('student-search')?.addEventListener('input', renderStudents);
@@ -932,7 +1034,7 @@ async function loadAdvisingQueue() {
         .from('request')
         .select(`
             id, status, requested_term, requested_year, created_at,
-            student:student_id (id, first_name, last_name, student_id, year_level),
+            student:student_id (id, first_name, last_name, student_id, year_level, program_id),
             request_item (id, status, subject:subject_id (units))
         `)
         .in('status', ['approved', 'partially_approved'])
@@ -1175,7 +1277,9 @@ async function notifyStudentOfRegistrarDecision(requestId, decision) {
 
     await supabase.from('notification').insert({
         user_id: request.student.user_id,
-        type: 'request_reviewed',
+        // Its own type: Faculty already uses request_reviewed for the
+        // adviser's decision, and the two are different events.
+        type: 'plan_decided',
         title: `Advising plan ${label}`,
         message: decision === 'approved'
             ? 'The Registrar has approved your subject plan. It is now final for enrollment.'
@@ -1327,7 +1431,7 @@ async function printApprovedPlan(requestId) {
         .from('request')
         .select(`
             id, requested_term, requested_year, registrar_status,
-            student:student_id (id, first_name, last_name, student_id, year_level),
+            student:student_id (id, first_name, last_name, student_id, year_level, program_id),
             request_item (status, subject:subject_id (code, title, units))
         `)
         .eq('id', requestId)
@@ -1383,6 +1487,10 @@ async function printApprovedPlan(requestId) {
         records: normalizedRecords,
         term: { label: `${termLabel(req.requested_term)} ${req.requested_year || ''}`.trim() },
         adviser: review?.faculty ? fullName(review.faculty) : 'Faculty adviser',
+        program: {
+            name: programName(req.student),
+            college: window.CurriculogicPrograms?.collegeOf(req.student.program_id, '') ?? '',
+        },
     });
 }
 
@@ -1421,10 +1529,25 @@ async function printApprovedPlan(requestId) {
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 
-    if (error) console.warn('registrar load failed:', error.message);
+    if (error) {
+        // A failed lookup is not proof this is the wrong kind of account;
+        // do not bounce a real registrar because the network blinked.
+        console.warn('registrar load failed:', error.message);
+        setText('greeting', 'Could not load your account');
+        return;
+    }
 
     if (staff && staff.is_approved === false) {
         await supabase.auth.signOut();
+        window.location.href = LOGIN_PAGE;
+        return;
+    }
+
+    // A signed-in user with no registrar row (a student or faculty member
+    // who edited the URL) has no business here. Send them back instead of
+    // showing an empty shell. Not signed out: they are validly signed in,
+    // just somewhere else.
+    if (!staff) {
         window.location.href = LOGIN_PAGE;
         return;
     }
@@ -1435,6 +1558,9 @@ async function printApprovedPlan(requestId) {
 
     renderProfile(staff, session.user.email);
     renderNotice(staff);
+
+    // Looked up, not typed: each student's line names their own degree.
+    await window.CurriculogicPrograms?.load(supabase);
 
     await loadStudents();
     await loadAdvisingCount();
