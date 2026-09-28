@@ -60,8 +60,13 @@ function describeStanding(pos) {
     const term = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' }[t] || '';
 
     if (t === 2) {
-        // Year-level — printed notation: ** / *** / ****
-        return { mark: '*'.repeat(y + 1) };
+        // Year-level — printed notation matches the Remarks legend exactly:
+        // y=2 (finish through Year 2) -> **, y=3 (finish through Year 3) -> ***.
+        // Previously used y+1, which shifted every tier up by one asterisk
+        // (y=2 rendered as ***, y=3 as ****) and produced a mark the legend
+        // never defined. See learnings.md for the migration that introduced
+        // the Y*10+T position encoding this now matches correctly.
+        return { mark: '*'.repeat(y) };
     }
     return { label: `Through ${ord} Yr, ${term}` };
 }
@@ -76,13 +81,25 @@ function buildFromOffline(offline) {
 
     const rules = new Map();
     for (const p of (offline.rules ?? [])) {
-        if (!byId.has(p.subject_id)) continue;   // rule for another version
+        const subject = byId.get(p.subject_id);
+        if (!subject) continue;   // rule for another version
         if (!rules.has(p.subject_id)) rules.set(p.subject_id, []);
 
         if (p.requirement_type === 'standing') {
-            rules.get(p.subject_id).push(
-                describeStanding(Number(p.threshold_value) || 0)
-            );
+            // Every subject from 2nd year onward carries a "standing" row
+            // as its normal sequencing gate (e.g. every 2nd-year-1st-sem
+            // subject requires "finished Year 1") -- that is inference-engine
+            // bookkeeping, not something the printed prospectus ever footnotes:
+            // it's obviously true for anyone who reached that year, so the
+            // official document leaves 1st- and 2nd-year subjects unmarked
+            // and only starts printing the **/*** standing footnote at 3rd
+            // year, where a student could plausibly be behind. Confirmed with
+            // Kin 2026-09-28 against the real prospectus (see learnings.md).
+            if (Number(subject.year_level) >= 3) {
+                rules.get(p.subject_id).push(
+                    describeStanding(Number(p.threshold_value) || 0)
+                );
+            }
         } else {
             rules.get(p.subject_id).push({
                 code: byId.get(p.prerequisite_subject_id)?.code ?? null
@@ -429,4 +446,4 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
 
 window.ProspectusGrid = { render };
 
-})();   
+})();
