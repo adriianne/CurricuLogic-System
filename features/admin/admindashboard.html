@@ -41,6 +41,9 @@
             <a href="#staff" data-view="staff">
                 <i class="fa-solid fa-users" aria-hidden="true"></i> Staff management
             </a>
+            <a href="#programs" data-view="programs">
+                <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i> Programs
+            </a>
             <a href="#students" data-view="students">
                 <i class="fa-solid fa-user-graduate" aria-hidden="true"></i> Students
             </a>
@@ -50,7 +53,7 @@
         </nav>
 
         <p class="side-foot">
-            University of Cebu<br>College of Computer Studies
+            University of Cebu
         </p>
 
     </aside>
@@ -116,6 +119,54 @@
                         <span class="stat-hint">Registered accounts</span>
                     </div>
                 </div>
+
+                <section class="card" id="term-card">
+                    <div class="card-head">
+                        <span class="card-title">Academic term</span>
+                        <span class="card-note" id="term-updated"></span>
+                    </div>
+                    <div class="card-body">
+
+                        <p class="term-lead">
+                            The term every student, faculty member and the Department's
+                            schedule work in. Currently
+                            <strong id="term-current">&mdash;</strong>.
+                        </p>
+
+                        <div id="term-msg" class="msg" role="status"></div>
+
+                        <form id="term-form" class="term-form" novalidate>
+                            <div class="term-field">
+                                <label for="term-year">Academic year (start)</label>
+                                <input type="number" id="term-year" min="2000" max="2100" step="1"
+                                       inputmode="numeric">
+                                <span class="term-hint" id="term-year-hint"></span>
+                            </div>
+                            <div class="term-field">
+                                <label for="term-term">Term</label>
+                                <select id="term-term">
+                                    <option value="1">1st Sem</option>
+                                    <option value="2">2nd Sem</option>
+                                    <option value="3">Summer</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn-primary" id="term-change">
+                                Change term
+                            </button>
+                        </form>
+
+                        <div id="term-confirm" class="term-confirm" hidden>
+                            <p id="term-confirm-text"></p>
+                            <div class="term-confirm-actions">
+                                <button type="button" class="btn-primary" id="term-confirm-yes">
+                                    Yes, change the term
+                                </button>
+                                <button type="button" class="btn-link" id="term-confirm-no">Cancel</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
 
                 <section class="card">
                     <div class="card-head">
@@ -209,9 +260,15 @@
                                     <option value="existing">Existing student — has prior records</option>
                                 </select>
                             </div>
-                            <div class="field">
-                                <label for="a-department">Department</label>
-                                <input type="text" id="a-department" placeholder="College of Computer Studies" autocomplete="off">
+                            <div class="field" id="a-program-wrap" hidden>
+                                <label for="a-program">Programme</label>
+                                <select id="a-program"></select>
+                            </div>
+                            <div class="field" id="a-department-wrap">
+                                <label for="a-department">Department / college</label>
+                                <input type="text" id="a-department" list="college-list"
+                                       placeholder="Name of the college or department" autocomplete="off">
+                                <datalist id="college-list"></datalist>
                             </div>
                             <div class="field">
                                 <label for="a-password">Temporary password</label>
@@ -261,8 +318,11 @@
                     <div>
                         <strong>File format</strong>
                         Required columns: <span class="mono">first_name, last_name, email, role</span>.
-                        For staff: <span class="mono">employee_id</span> is required.
+                        For staff (faculty, registrar, department): <span class="mono">employee_id</span> is required.
                         For students: <span class="mono">student_id</span> is required.
+                        Every role except admin also needs <span class="mono">program_code</span> --
+                        which programme decides a student's curriculum, and is what each staff
+                        role's per-programme account cap is checked against.
                         Optional: <span class="mono">password, department, year_level</span>.
                     </div>
                 </div>
@@ -283,6 +343,12 @@
                                     <option value="registrar">Registrar</option>
                                     <option value="department">Department</option>
                                     <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                            <div class="field field-sm" style="margin-bottom:0;">
+                                <label for="bulk-program-filter">Program</label>
+                                <select id="bulk-program-filter" style="height:2.6rem; padding:0 0.8rem; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:0.88rem;">
+                                    <option value="all">All programmes</option>
                                 </select>
                             </div>
                         </div>
@@ -368,6 +434,64 @@
                             </div>
                         </div>
 
+                    </div>
+                </section>
+
+            </section>
+
+            <!--  PROGRAMS  -->
+            <section class="view" id="view-programs" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Programs</h1>
+                    <p class="page-sub">
+                        The degree programmes the university offers. Each has its own
+                        curriculum, its own students, and its own faculty, registrar
+                        and department staff, chosen explicitly when their account is
+                        created or reassigned in Staff management.
+                    </p>
+                </div>
+
+                <div id="programs-msg" class="msg" role="status"></div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Add a programme</span>
+                    </div>
+                    <div class="card-body">
+                        <form id="program-form" class="prog-form" novalidate>
+                            <div class="term-field">
+                                <label for="prog-code">Code</label>
+                                <input type="text" id="prog-code" maxlength="10" placeholder="BSN"
+                                       autocomplete="off" spellcheck="false">
+                                <span class="term-hint">2 to 10 letters. Used in section names, such as BSN-1A. Cannot be changed later.</span>
+                            </div>
+                            <div class="term-field prog-wide">
+                                <label for="prog-name">Name</label>
+                                <input type="text" id="prog-name" placeholder="Bachelor of Science in Nursing"
+                                       autocomplete="off">
+                            </div>
+                            <div class="term-field prog-wide">
+                                <label for="prog-college">College</label>
+                                <input type="text" id="prog-college" list="college-list"
+                                       placeholder="College of Nursing" autocomplete="off">
+                                <span class="term-hint">A free-text label shown on staff accounts. Staff are linked to this programme explicitly, not by matching this text.</span>
+                            </div>
+                            <button type="submit" class="btn-primary" id="prog-add">Add programme</button>
+                        </form>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Programmes</span>
+                        <span class="card-note" id="programs-count"></span>
+                    </div>
+                    <div class="card-body" id="programs-body">
+                        <div class="empty">
+                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                            <h3>Loading</h3>
+                        </div>
                     </div>
                 </section>
 
@@ -468,7 +592,7 @@
                     </div>
                     <div class="card-body">
                         <p class="prose">
-                            Admin accounts are provisioned by the College of Computer Studies
+                            Admin accounts are provisioned by the university
                             and cannot be self-registered. Contact IT support if you need to
                             change your credentials.
                         </p>

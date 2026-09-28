@@ -10,10 +10,14 @@
 (function () {
 'use strict';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC ?? {};
 
+// Bucketed storage key (see config.js) -- keeps an admin session in this
+// tab from colliding with a different role signed in in another tab.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { storageKey: authStorageKey?.(['system_administrator']) },
+    })
     : null;
 
 const $ = (id) => document.getElementById(id);
@@ -23,6 +27,9 @@ const LOGIN_PAGE = '../auth/html/adminloginpage.html';
 let AUTH_UID = null;
 let ADMIN    = null;
 let STAFF    = [];
+let PROGRAMS = [];                 // [{ id, code, name }]
+let PROGRAMS_READY = false;        // false until the program table loads
+let EDITING_PROGRAM_FOR = null;    // { staffId, role } whose programme is open for editing
 let STUDENTS = [];
 let PREVIEW  = false;
 
@@ -66,6 +73,7 @@ const VIEWS = {
     accounts:  'Create account',
     bulk:      'Bulk upload',
     staff:     'Staff management',
+    programs:  'Programs',
     students:  'Students',
     profile:   'Profile',
 };
@@ -93,6 +101,7 @@ function showView(name) {
     shell?.classList.remove('nav-open');
 
     if (name === 'staff')    loadStaff();
+    if (name === 'programs') loadPrograms();
     if (name === 'students') loadStudents();
     if (name === 'bulk')     initBulkUpload();
 }
@@ -223,6 +232,9 @@ function renderNotice(admin) {
 async function loadStaff(force = false) {
     if (PREVIEW) {
         STAFF = [...PREVIEW_STAFF];
+        PROGRAMS = [{ id: 1, code: 'BSIT', name: 'BS Information Technology', college: 'College of Computer Studies' },
+                    { id: 2, code: 'BSCS', name: 'BS Computer Science', college: 'College of Computer Studies' }];
+        PROGRAMS_READY = true;
         renderStats();
         renderStaff();
         return;
@@ -230,18 +242,28 @@ async function loadStaff(force = false) {
 
     if (!supabase) return;
 
-    const [faculty, registrar, department] = await Promise.all([
+    // Each staff table carries its own program_id since db/030 -- no more
+    // separate join-table query or per-faculty Set of programs. One
+    // programme per account, same shape as university_student.
+    const [faculty, registrar, department, programs] = await Promise.all([
         supabase.from('faculty_staff')
-            .select('id, first_name, last_name, email, employee_id, is_approved, created_at'),
+            .select('id, first_name, last_name, email, employee_id, department, program_id, is_approved, created_at'),
         supabase.from('registrar_staff')
-            .select('id, first_name, last_name, email, employee_id, is_approved, created_at'),
+            .select('id, first_name, last_name, email, employee_id, department, program_id, is_approved, created_at'),
         supabase.from('department_staff')
-            .select('id, first_name, last_name, email, employee_id, is_approved, created_at'),
+            .select('id, first_name, last_name, email, employee_id, department, program_id, is_approved, created_at'),
+        supabase.from('program').select('id, code, name, college').order('code'),
     ]);
 
     if (faculty.error)  console.warn('faculty load failed:', faculty.error.message);
     if (registrar.error) console.warn('registrar load failed:', registrar.error.message);
     if (department.error) console.warn('department load failed:', department.error.message);
+
+    PROGRAMS_READY = !programs.error;
+    if (!PROGRAMS_READY) {
+        console.warn('programs unavailable:', programs.error.message);
+    }
+    PROGRAMS = programs.data ?? [];
 
     STAFF = [
         ...(faculty.data ?? []).map(s => ({ ...s, role: 'faculty' })),
@@ -249,6 +271,8 @@ async function loadStaff(force = false) {
         ...(department.data ?? []).map(s => ({ ...s, role: 'department' })),
     ];
 
+    refreshColleges();
+    renderProgramPicker();
     renderStats();
     renderStaff();
 }
@@ -359,6 +383,16 @@ const ROLE_PILLS = {
     department: '<span class="pill waiting">Department</span>',
 };
 
+// Where each staff role's program_id (db/030) actually lives, and the
+// per-programme cap _provision_account enforces for new accounts of
+// that role. Students have no entry -- they are never capped.
+const ROLE_TABLE = {
+    faculty:    'faculty_staff',
+    registrar:  'registrar_staff',
+    department: 'department_staff',
+};
+const ROLE_LIMIT = { faculty: 10, registrar: 2, department: 1 };
+
 function renderStaff() {
     const body  = $('staff-body');
     const count = $('staff-count');
@@ -401,6 +435,7 @@ function renderStaff() {
                         <th>Name</th>
                         <th>Email</th>
                         <th>Role</th>
+                        <th>Programme</th>
                         <th>Status</th>
                         <th>Created</th>
                     </tr>
@@ -412,6 +447,7 @@ function renderStaff() {
                             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
                             <td class="dim">${escapeHtml(s.email || '—')}</td>
                             <td>${ROLE_PILLS[s.role] || '—'}</td>
+                            <td>${staffProgramCell(s)}</td>
                             <td>${s.is_approved
                                 ? '<span class="pill ok">Active</span>'
                                 : '<span class="pill waiting">Pending</span>'}</td>
@@ -422,6 +458,110 @@ function renderStaff() {
             </table>
         </div>`;
 }
+
+/* Which programme a staff member belongs to (db/030 -- one per account,
+   same shape as a student's). For faculty specifically, this is also
+   which students' advising requests reach them for review
+   (is_adviser_of_student compares program_id directly). */
+function staffProgramCell(s) {
+    if (!PROGRAMS_READY) {
+        return '<span class="dim" title="Programs could not be loaded">Not set up</span>';
+    }
+
+    const editing = EDITING_PROGRAM_FOR?.staffId === s.id && EDITING_PROGRAM_FOR?.role === s.role;
+
+    if (editing) {
+        return `
+            <div class="prog-edit" data-staff="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">
+                <select class="prog-select">
+                    ${PROGRAMS.map(p => `
+                        <option value="${p.id}" ${p.id === s.program_id ? 'selected' : ''}>${escapeHtml(p.code)}</option>
+                    `).join('')}
+                </select>
+                <span class="prog-actions">
+                    <button type="button" class="btn-link" data-program-save="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">Save</button>
+                    <button type="button" class="btn-link" data-program-cancel>Cancel</button>
+                </span>
+            </div>`;
+    }
+
+    const mine = PROGRAMS.find(p => p.id === s.program_id);
+
+    return `
+        ${mine
+            ? `<span class="pill info" title="${escapeHtml(mine.name)}">${escapeHtml(mine.code)}</span>`
+            : '<span class="pill waiting" title="No programme assigned">None</span>'}
+        <button type="button" class="btn-link" data-program-edit="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">Edit</button>`;
+}
+
+async function saveStaffProgram(staffId, role, newProgramId) {
+    const staff = STAFF.find(s => s.id === staffId && s.role === role);
+    if (!staff) { EDITING_PROGRAM_FOR = null; return renderStaff(); }
+
+    if (newProgramId === staff.program_id) { EDITING_PROGRAM_FOR = null; return renderStaff(); }
+
+    const done = () => {
+        staff.program_id = newProgramId;
+        EDITING_PROGRAM_FOR = null;
+        renderStaff();
+    };
+
+    if (PREVIEW || !supabase) {
+        done();
+        return showMsg('staff-msg', 'Programme updated (preview only, not saved).', 'success');
+    }
+
+    // Moving a staff member into a programme that is already at its cap
+    // is exactly as unwanted as creating a new account past it -- check
+    // the same limit here, against everyone else already in that
+    // programme (excluding this account's own current row).
+    const table = ROLE_TABLE[role];
+    const limit = ROLE_LIMIT[role];
+    if (table && limit) {
+        const { count, error: countError } = await supabase
+            .from(table)
+            .select('id', { count: 'exact', head: true })
+            .eq('program_id', newProgramId)
+            .neq('id', staffId);
+        if (countError) {
+            console.warn('program count check failed:', countError.message);
+            return showMsg('staff-msg', 'Could not check the programme cap. Please try again.');
+        }
+        if ((count ?? 0) >= limit) {
+            const progCode = PROGRAMS.find(p => p.id === newProgramId)?.code ?? 'This programme';
+            return showMsg('staff-msg',
+                `${progCode} already has the maximum of ${limit} ${role} account${limit === 1 ? '' : 's'}.`);
+        }
+    }
+
+    const { error } = await supabase.from(table)
+        .update({ program_id: newProgramId }).eq('id', staffId);
+    if (error) {
+        console.warn('staff program update failed:', error.message);
+        return showMsg('staff-msg', 'Could not update the programme. Please try again.');
+    }
+
+    done();
+    showMsg('staff-msg', 'Programme updated.', 'success');
+}
+
+$('staff-body')?.addEventListener('click', (e) => {
+    const edit = e.target.closest('[data-program-edit]');
+    if (edit) {
+        EDITING_PROGRAM_FOR = { staffId: edit.dataset.programEdit, role: edit.dataset.role };
+        return renderStaff();
+    }
+
+    if (e.target.closest('[data-program-cancel]')) { EDITING_PROGRAM_FOR = null; return renderStaff(); }
+
+    const save = e.target.closest('[data-program-save]');
+    if (save) {
+        const box = save.closest('.prog-edit');
+        const chosen = Number(box.querySelector('.prog-select')?.value);
+        save.disabled = true;
+        return saveStaffProgram(save.dataset.programSave, save.dataset.role, chosen);
+    }
+});
 
 $('staff-search')?.addEventListener('input', renderStaff);
 $('staff-filter')?.addEventListener('change', renderStaff);
@@ -528,7 +668,6 @@ async function createAccount() {
     const studentId  = $('a-student-id')?.value.trim() ?? '';
     const yearLevel  = $('a-year-level')?.value ?? '';
     const role       = $('a-role').value;
-    const department = $('a-department').value.trim() || 'College of Computer Studies';
     const password   = $('a-password').value;
     const confirm    = $('a-confirm').value;
 
@@ -547,6 +686,21 @@ async function createAccount() {
         if (!employeeId) return showMsg(boxId, 'Enter an employee ID.');
     }
 
+    // Every role in this form belongs to exactly one programme (db/030) --
+    // a student's decides their curriculum, and a staff role's is what
+    // that programme's per-role account cap is checked against. Every
+    // role here needs one chosen, never assumed.
+    const pc = resolveProgramCode($('a-program')?.value ?? '');
+    if (pc.error) return showMsg(boxId, pc.error);
+    const programCode = pc.value;
+
+    // Free-text label only now (db/030 retired the department-text-to-
+    // college matching that used to link faculty to programmes) -- still
+    // asked for because it is a useful human-readable note on the account.
+    const dep = resolveDepartment(role, $('a-department')?.value.trim() ?? '');
+    if (dep.error) return showMsg(boxId, dep.error);
+    const department = dep.value;
+
     if (!password || password.length < 8) return showMsg(boxId, 'Password must be at least 8 characters.');
     if (password !== confirm) return showMsg(boxId, 'The two passwords do not match.');
 
@@ -563,6 +717,7 @@ async function createAccount() {
                 last_name: last,
                 email,
                 employee_id: employeeId,
+                program_id: PROGRAMS.find(p => p.code === programCode)?.id ?? null,
                 is_approved: true,
                 created_at: new Date().toISOString(),
             });
@@ -580,7 +735,7 @@ async function createAccount() {
         // could never create a student even once the role were selectable.
         const declaredPath = $('a-declared-path')?.value ?? 'existing';
 
-        const { data, error } = await supabase.rpc('create_user_account', {
+        const params = {
             p_first_name: first,
             p_last_name: last,
             p_email: email,
@@ -591,7 +746,13 @@ async function createAccount() {
             p_department: department,
             p_year_level: role === 'student' ? yearLevel : null,
             p_declared_path: role === 'student' ? declaredPath : 'existing',
-        });
+        };
+        // Every role sends one now (db/030) -- only skipped when resolution
+        // above came back empty, in which case the database keeps its own
+        // default rather than being sent an explicit blank.
+        if (programCode) params.p_program_code = programCode;
+
+        const { data, error } = await supabase.rpc('create_user_account', params);
 
         if (error) {
             console.error('create account failed:', error.message);
@@ -627,12 +788,56 @@ function clearCreateForm() {
 // The two field sets are mutually exclusive, not just cosmetically --
 // createAccount() sends only the pair matching the selected role, and a
 // hidden field the user never touched should not be read as if it were.
+//
+// Programme is shown for every role in this dropdown now (db/030) --
+// faculty, registrar and department staff each belong to exactly one
+// programme too, the same as a student, and that link is what a
+// programme's per-role account cap (createAccount() below) is checked
+// against.
 function updateRoleFields() {
     const isStudent = $('a-role').value === 'student';
     $('a-employee-id-wrap').hidden     = isStudent;
     $('a-student-id-wrap').hidden      = !isStudent;
     $('a-year-level-wrap').hidden      = !isStudent;
     $('a-declared-path-wrap').hidden   = !isStudent;
+    $('a-program-wrap').hidden         = false;
+    // A student's department is not used; their programme is what matters.
+    $('a-department-wrap').hidden      = isStudent;
+}
+
+/* The programme code to send for a student, from what was typed or picked.
+   With one programme it is that one; with several, one must be named, so a
+   student is never filed under whichever happens to come first. When the
+   list could not be loaded, nothing is sent and the database default holds. */
+function resolveProgramCode(typed) {
+    const value = String(typed ?? '').trim();
+    if (PROGRAMS.length === 0) return { value: '' };
+
+    const codes = PROGRAMS.map(p => p.code).join(', ');
+    if (value) {
+        const match = PROGRAMS.find(p => p.code.toLowerCase() === value.toLowerCase());
+        return match
+            ? { value: match.code }
+            : { error: `Unknown programme "${value}". Known programmes: ${codes}.` };
+    }
+    if (PROGRAMS.length === 1) return { value: PROGRAMS[0].code };
+    return { error: `Choose a programme (${codes}).` };
+}
+
+/* The department to send for an account -- a free-text label only since
+   db/030 (staff are linked to their programme through program_id, chosen
+   explicitly via resolveProgramCode() above, not by matching this text to
+   a college). A blank is filled in when there is exactly one college it
+   could mean; the Registrar is university-wide. */
+function resolveDepartment(role, typed) {
+    const value = String(typed ?? '').trim();
+    if (value) return { value };
+    if (role === 'registrar') return { value: 'Office of the Registrar' };
+    if (role === 'student') return { value: knownColleges()[0] ?? '' };
+
+    const colleges = knownColleges();
+    if (colleges.length === 1) return { value: colleges[0] };
+    return { error: 'Enter the department or college. Faculty are linked to programmes through it.' };
 }
 
 $('a-role')?.addEventListener('change', updateRoleFields);
@@ -653,13 +858,16 @@ document.querySelectorAll('#view-accounts input').forEach((input) => {
    ============================================================ */
 
 const BULK_HEADERS = [
-    'first_name', 'last_name', 'email', 'role', 
-    'employee_id', 'student_id', 'department', 'year_level', 'password', 'username'
+    'first_name', 'last_name', 'email', 'role',
+    'employee_id', 'student_id', 'program_code', 'department', 'year_level', 'password', 'username'
 ];
 
 const VALID_ROLES = ['student', 'faculty', 'registrar', 'department', 'admin'];
 
 let PENDING_BULK = [];
+let PENDING_BULK_BAD = [];       // rejected rows from the last validation, kept so
+                                  // re-filtering (role/program) doesn't lose them
+let PENDING_BULK_FILE = '';
 let BULK_HISTORY = [];
 let bulkInitialized = false;
 
@@ -680,12 +888,20 @@ function initBulkUpload() {
     // File input
     $('bulk-file')?.addEventListener('change', handleBulkFile);
 
-    // Role filter
-    $('bulk-role-filter')?.addEventListener('change', () => {
-        if (PENDING_BULK.length > 0) {
-            renderBulkPreview(PENDING_BULK, [], 'filtered');
+    // Role and programme filters
+    const rerenderOnFilterChange = () => {
+        if (PENDING_BULK.length > 0 || PENDING_BULK_BAD.length > 0) {
+            renderBulkPreview(PENDING_BULK, PENDING_BULK_BAD, PENDING_BULK_FILE);
         }
-    });
+    };
+    $('bulk-role-filter')?.addEventListener('change', rerenderOnFilterChange);
+    $('bulk-program-filter')?.addEventListener('change', rerenderOnFilterChange);
+
+    // Programme options mirror the Role dropdown: every programme that
+    // currently exists, available as soon as the page loads -- not only
+    // once a file has been parsed. init() awaits loadStaff() (which
+    // populates PROGRAMS) before calling this, so the list is ready here.
+    refreshBulkProgramFilter();
 
     // Load history
     loadBulkHistory();
@@ -701,11 +917,17 @@ function downloadBulkTemplate() {
     // students/faculty without noticing they left a sample admin row
     // in the sheet. commitBulk() below adds a typed confirmation gate
     // specifically for admin rows so that can't happen silently.
+    // Sample values come from the programmes that exist, not from a literal
+    // that is only right for one of them. program_code is required for
+    // every role below except admin (db/030 -- each row's programme is
+    // what that role's per-programme account cap is checked against).
+    const sampleProgram = PROGRAMS[0]?.code ?? '';
+    const sampleCollege = PROGRAMS[0]?.college ?? knownColleges()[0] ?? '';
     const rows = [
-        { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: 'EMP-00101', student_id: '', department: 'College of Computer Studies', year_level: '', password: '', username: '' },
-        { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: 'EMP-00102', student_id: '', department: 'Office of the Registrar', year_level: '', password: '', username: '' },
-        { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: 'EMP-00103', student_id: '', department: 'College of Computer Studies', year_level: '', password: '', username: '' },
-        { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '2401187', department: 'College of Computer Studies', year_level: '2', password: '', username: '' },
+        { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: 'EMP-00101', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
+        { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: 'EMP-00102', student_id: '', program_code: sampleProgram, department: 'Office of the Registrar', year_level: '', password: '', username: '' },
+        { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: 'EMP-00103', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
+        { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '2401187', program_code: sampleProgram, department: '', year_level: '2', password: '', username: '' },
     ];
 
     // Create worksheet with proper headers
@@ -719,6 +941,7 @@ function downloadBulkTemplate() {
         { wch: 12 },  // role
         { wch: 15 },  // employee_id
         { wch: 15 },  // student_id
+        { wch: 14 },  // program_code
         { wch: 30 },  // department
         { wch: 12 },  // year_level
         { wch: 15 },  // password
@@ -792,12 +1015,12 @@ function validateBulkRows(rows, fileName) {
         const role = (r.role || '').toLowerCase();
         const employeeId = (r.employee_id || '').toUpperCase();
         const studentId = (r.student_id || '').replace(/[\s-]/g, '');
-        const department = r.department || 'College of Computer Studies';
+        const department = r.department || '';
         const yearLevel = r.year_level ? parseInt(r.year_level) : null;
         const password = r.password || generateDefaultPassword();
         const username = r.username || '';
 
-        const base = { line: r.__line, first, last, email, role, employeeId, studentId, department, yearLevel, password, username };
+        const base = { line: r.__line, first, last, email, role, employeeId, studentId, programCode: '', department, yearLevel, password, username };
 
         // Basic validation
         if (!first) { bad.push({ ...base, why: 'Missing first name.' }); continue; }
@@ -813,6 +1036,22 @@ function validateBulkRows(rows, fileName) {
             if (seenStudentIds.has(studentId)) { bad.push({ ...base, why: 'Duplicate student ID in file.' }); continue; }
             seenStudentIds.add(studentId);
         }
+
+        // Every role except admin belongs to exactly one programme
+        // (db/030) -- a student's decides their curriculum, and a staff
+        // role's is what that programme's per-role account cap
+        // (_provision_account) is checked against.
+        if (role !== 'admin') {
+            const pc = resolveProgramCode(r.program_code || '');
+            if (pc.error) { bad.push({ ...base, why: pc.error }); continue; }
+            base.programCode = pc.value;
+        }
+
+        // Free-text label only now (db/030 retired the department-text-to-
+        // college matching that used to link faculty to programmes).
+        const dep = resolveDepartment(role, department);
+        if (dep.error) { bad.push({ ...base, why: dep.error }); continue; }
+        base.department = dep.value;
 
         if (['faculty', 'registrar', 'department', 'admin'].includes(role)) {
             if (!employeeId) { bad.push({ ...base, why: 'Employee ID is required for staff.' }); continue; }
@@ -832,6 +1071,8 @@ function validateBulkRows(rows, fileName) {
     }
 
     PENDING_BULK = ok;
+    PENDING_BULK_BAD = bad;
+    PENDING_BULK_FILE = fileName;
     renderBulkPreview(ok, bad, fileName);
 }
 
@@ -844,13 +1085,32 @@ function generateDefaultPassword() {
     return result;
 }
 
+/* Mirrors the Role dropdown: every programme that currently exists in
+   the system, listed as soon as PROGRAMS loads -- not only the ones
+   that happen to appear in whatever file was last uploaded. Called
+   once at init, and again whenever the Programs page might have
+   changed PROGRAMS since (loadPrograms() calls this too). */
+function refreshBulkProgramFilter() {
+    const sel = $('bulk-program-filter');
+    if (!sel) return;
+    const current = sel.value;
+
+    const codes = [...new Set(PROGRAMS.map(p => p.code))].sort();
+    sel.innerHTML = ['<option value="all">All programmes</option>']
+        .concat(codes.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`))
+        .join('');
+    if (codes.includes(current)) sel.value = current;
+}
+
 function renderBulkPreview(ok, bad, fileName) {
     const box = $('bulk-preview');
     if (!box) return;
 
-    // Apply role filter if selected
     const roleFilter = $('bulk-role-filter')?.value || 'all';
-    const filteredOk = roleFilter === 'all' ? ok : ok.filter(r => r.role === roleFilter);
+    const programFilter = $('bulk-program-filter')?.value || 'all';
+    const filteredOk = ok
+        .filter(r => roleFilter === 'all' || r.role === roleFilter)
+        .filter(r => programFilter === 'all' || r.programCode === programFilter);
 
     box.innerHTML = `
         <div class="notice ${bad.length ? 'pending' : 'info'}">
@@ -886,12 +1146,13 @@ function renderBulkPreview(ok, bad, fileName) {
             <h3 class="group-head" style="margin-top:var(--s3);">Ready to create (${filteredOk.length})</h3>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>ID</th><th>Password</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Program</th><th>ID</th><th>Password</th></tr></thead>
                     <tbody>${filteredOk.slice(0, 10).map(r => `
                         <tr>
                             <td>${escapeHtml(r.first)} ${escapeHtml(r.last)}</td>
                             <td class="mono">${escapeHtml(r.email)}</td>
                             <td><span class="pill ${r.role === 'student' ? 'info' : r.role === 'admin' ? 'bad' : 'waiting'}">${escapeHtml(r.role)}</span></td>
+                            <td class="mono">${escapeHtml(r.programCode || '—')}</td>
                             <td class="mono">${escapeHtml(r.studentId || r.employeeId || r.username || '—')}</td>
                             <td class="mono dim">${escapeHtml(r.password)}</td>
                         </tr>
@@ -912,7 +1173,10 @@ async function commitBulk(fileName, bad) {
     if (PENDING_BULK.length === 0) return;
 
     const roleFilter = $('bulk-role-filter')?.value || 'all';
-    const toCreate = roleFilter === 'all' ? PENDING_BULK : PENDING_BULK.filter(r => r.role === roleFilter);
+    const programFilter = $('bulk-program-filter')?.value || 'all';
+    const toCreate = PENDING_BULK
+        .filter(r => roleFilter === 'all' || r.role === roleFilter)
+        .filter(r => programFilter === 'all' || r.programCode === programFilter);
 
     if (toCreate.length === 0) return;
 
@@ -956,7 +1220,7 @@ async function commitBulk(fileName, bad) {
                 continue;
             }
 
-            const { error } = await supabase.rpc('create_user_account', {
+            const params = {
                 p_first_name: row.first,
                 p_last_name: row.last,
                 p_email: row.email,
@@ -967,7 +1231,13 @@ async function commitBulk(fileName, bad) {
                 p_department: row.department,
                 p_year_level: row.yearLevel,
                 p_username: row.username || null,
-            });
+            };
+            // Every role sends one now (db/030), except admin which has
+            // none to send -- left out when there is none, so the
+            // database default holds.
+            if (row.programCode) params.p_program_code = row.programCode;
+
+            const { error } = await supabase.rpc('create_user_account', params);
 
             if (error) {
                 failed.push({ ...row, why: error.message });
@@ -1038,6 +1308,8 @@ async function commitBulk(fileName, bad) {
 
     // Clear pending
     PENDING_BULK = [];
+    PENDING_BULK_BAD = [];
+    PENDING_BULK_FILE = '';
 
     const msg = `${success.length} account${success.length === 1 ? '' : 's'} created.`;
     showMsg('bulk-msg', failed.length ? msg + ` ${failed.length} failed.` : msg, 'success');
@@ -1135,6 +1407,465 @@ async function loadBulkHistory() {
 } 
 
 
+/* ---------- programmes ---------- */
+
+/* The degree programmes. Creating one here is what lets the rest of the
+   system hold a second programme at all: students, faculty and curricula all
+   hang off a program row. Codes are 2 to 10 letters because section names
+   (BSN-1A) are built from them and read back with a letters-only pattern.
+   A programme is never deleted from the app: a prospectus, students and
+   faculty links depend on it. */
+
+const PROGRAM_CODE_RE = /^[A-Za-z]{2,10}$/;
+let PROGRAM_STATS = new Map();   // program id -> { faculty, students, curriculum }
+let EDITING_PROGRAM = null;      // program id whose name and college are open for editing
+
+/* Colleges the system already knows: on programmes, and as the department
+   text on faculty and department accounts. Offered as suggestions so a
+   college is spelled the same way everywhere, because faculty are linked to
+   a programme by exact match on it. */
+function knownColleges() {
+    const set = new Set();
+    for (const p of PROGRAMS) if (p.college) set.add(p.college);
+    for (const s of STAFF) if (s.department && s.role !== 'registrar') set.add(s.department);
+    return [...set].sort();
+}
+
+function refreshColleges() {
+    const list = $('college-list');
+    if (list) {
+        list.innerHTML = knownColleges()
+            .map(c => `<option value="${escapeHtml(c)}"></option>`).join('');
+    }
+}
+
+/* The programme dropdown on the student account form. With one programme
+   it is preselected; with several the admin must choose, so a student is
+   never quietly filed under whichever came first. */
+function renderProgramPicker() {
+    const sel = $('a-program');
+    if (!sel) return;
+    const current = sel.value;
+
+    if (PROGRAMS.length === 0) {
+        sel.innerHTML = '<option value="">No programmes yet</option>';
+        return;
+    }
+    sel.innerHTML =
+        (PROGRAMS.length > 1 ? '<option value="">Select programme…</option>' : '') +
+        PROGRAMS.map(p =>
+            `<option value="${escapeHtml(p.code)}">${escapeHtml(p.code)} — ${escapeHtml(p.name)}</option>`
+        ).join('');
+    if (current && PROGRAMS.some(p => p.code === current)) sel.value = current;
+}
+
+async function loadPrograms() {
+    const body = $('programs-body');
+    if (!body) return;
+
+    if (PREVIEW || !supabase) {
+        PROGRAM_STATS = new Map(PROGRAMS.map(p => [p.id, { faculty: 1, registrar: 0, department: 0, students: 0, curriculum: p.id === 1 }]));
+        refreshColleges();
+        renderProgramPicker();
+        refreshBulkProgramFilter();
+        return renderPrograms();
+    }
+
+    const [progs, faculty, registrar, department, studs, actives] = await Promise.all([
+        supabase.from('program').select('id, code, name, college').order('code'),
+        supabase.from('faculty_staff').select('program_id'),
+        supabase.from('registrar_staff').select('program_id'),
+        supabase.from('department_staff').select('program_id'),
+        supabase.from('university_student').select('program_id'),
+        supabase.from('prospectus').select('program_id').eq('is_active', true),
+    ]);
+
+    if (progs.error) {
+        console.warn('program load failed:', progs.error.message);
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load programmes</h3>
+                <p>${escapeHtml(progs.error.message)}</p>
+            </div>`;
+        return;
+    }
+
+    PROGRAMS = progs.data ?? [];
+    PROGRAM_STATS = new Map(PROGRAMS.map(p => [p.id, { faculty: 0, registrar: 0, department: 0, students: 0, curriculum: false }]));
+    for (const f of faculty.data ?? [])    { const s = PROGRAM_STATS.get(f.program_id); if (s) s.faculty++; }
+    for (const r of registrar.data ?? [])  { const s = PROGRAM_STATS.get(r.program_id); if (s) s.registrar++; }
+    for (const d of department.data ?? []) { const s = PROGRAM_STATS.get(d.program_id); if (s) s.department++; }
+    for (const s of studs.data ?? []) { const x = PROGRAM_STATS.get(s.program_id); if (x) x.students++; }
+    for (const a of actives.data ?? []) { const x = PROGRAM_STATS.get(a.program_id); if (x) x.curriculum = true; }
+
+    refreshColleges();
+    renderProgramPicker();
+    refreshBulkProgramFilter();
+    renderPrograms();
+}
+
+function renderPrograms() {
+    const body  = $('programs-body');
+    const count = $('programs-count');
+    if (!body) return;
+
+    if (count) count.textContent = PROGRAMS.length ? `${PROGRAMS.length}` : '';
+
+    if (!PROGRAMS.length) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i>
+                <h3>No programmes yet</h3>
+                <p>Add the first one above.</p>
+            </div>`;
+        return;
+    }
+
+    body.innerHTML = `
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Code</th><th>Name</th><th>College</th>
+                        <th class="prog-num">Faculty</th>
+                        <th class="prog-num">Registrar</th>
+                        <th class="prog-num">Department</th>
+                        <th class="prog-num">Students</th>
+                        <th>Curriculum</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${PROGRAMS.map(p => {
+                        const st = PROGRAM_STATS.get(p.id) ?? { faculty: 0, registrar: 0, department: 0, students: 0, curriculum: false };
+                        const editing = EDITING_PROGRAM === p.id;
+                        // A role at its cap is worth a glance, not a blocker here --
+                        // the cap itself is enforced at creation/reassignment time
+                        // (createAccount(), saveStaffProgram()); this is just a
+                        // quota readout.
+                        const capCell = (n, limit) =>
+                            `<span${n >= limit ? ' class="pill waiting" title="At the cap for this role"' : ''}>${n} / ${limit}</span>`;
+                        return `
+                        <tr>
+                            <td class="mono"><strong>${escapeHtml(p.code)}</strong></td>
+                            <td>${editing
+                                ? `<input class="prog-edit-name" value="${escapeHtml(p.name)}" aria-label="Name">`
+                                : escapeHtml(p.name)}</td>
+                            <td>${editing
+                                ? `<input class="prog-edit-college" list="college-list" value="${escapeHtml(p.college ?? '')}" aria-label="College">`
+                                : (p.college ? escapeHtml(p.college) : '<span class="pill waiting">not set</span>')}</td>
+                            <td class="prog-num">${capCell(st.faculty, ROLE_LIMIT.faculty)}</td>
+                            <td class="prog-num">${capCell(st.registrar, ROLE_LIMIT.registrar)}</td>
+                            <td class="prog-num">${capCell(st.department, ROLE_LIMIT.department)}</td>
+                            <td class="prog-num">${st.students}</td>
+                            <td>${st.curriculum
+                                ? '<span class="pill ok">Published</span>'
+                                : '<span class="pill waiting" title="Department Staff has not activated a curriculum">None yet</span>'}</td>
+                            <td>${editing
+                                ? `<button type="button" class="btn-link" data-prog-save="${p.id}">Save</button>
+                                   <button type="button" class="btn-link" data-prog-cancel>Cancel</button>`
+                                : `<button type="button" class="btn-link" data-prog-edit="${p.id}">Edit</button>`}</td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+$('program-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showMsg('programs-msg', '');
+
+    let code = $('prog-code').value.trim();
+    const name = $('prog-name').value.trim();
+    const college = $('prog-college').value.trim();
+
+    if (!PROGRAM_CODE_RE.test(code)) {
+        return showMsg('programs-msg',
+            'The code must be 2 to 10 letters, with no digits, spaces or hyphens. It becomes part of section names such as BSN-1A.');
+    }
+    // A code typed in lower case is a code typed carelessly, not a name.
+    if (code === code.toLowerCase()) code = code.toUpperCase();
+
+    if (PROGRAMS.some(p => p.code.toLowerCase() === code.toLowerCase())) {
+        return showMsg('programs-msg', `A programme with the code ${code} already exists.`);
+    }
+    if (name.length < 3) return showMsg('programs-msg', 'Enter the programme name.');
+    if (!college) {
+        return showMsg('programs-msg',
+            'Enter the college. Faculty are linked to the programme through it.');
+    }
+
+    const btn = $('prog-add');
+    btn.disabled = true;
+    const done = () => { btn.disabled = false; };
+
+    if (PREVIEW || !supabase) {
+        PROGRAMS.push({ id: Date.now(), code, name, college });
+        $('program-form').reset();
+        await loadPrograms();
+        done();
+        return showMsg('programs-msg', `${code} added (preview only, not saved).`, 'success');
+    }
+
+    const { data, error } = await supabase
+        .from('program')
+        .insert({ code, name, college })
+        .select('id')
+        .single();
+
+    if (error) {
+        console.warn('program insert failed:', error.message);
+        done();
+        if (error.code === '23505') return showMsg('programs-msg', `A programme with the code ${code} already exists.`);
+        if (error.code === '42501') return showMsg('programs-msg', 'Only the System Administrator can add programmes.');
+        return showMsg('programs-msg', 'Could not add the programme. Please try again.');
+    }
+
+    // db/030 retired the auto-link-by-college-text trigger that used to
+    // run here -- staff are now linked to a programme explicitly, at
+    // account creation or via Staff management, never as a side effect
+    // of adding the programme itself.
+    $('program-form').reset();
+    await loadPrograms();
+    await loadStaff(true);
+    done();
+    showMsg('programs-msg',
+        `${code} added. Create or reassign faculty, registrar and department accounts to it from Create account or Staff management.`,
+        'success');
+});
+
+$('programs-body')?.addEventListener('click', async (e) => {
+    const edit = e.target.closest('[data-prog-edit]');
+    if (edit) { EDITING_PROGRAM = Number(edit.dataset.progEdit); return renderPrograms(); }
+
+    if (e.target.closest('[data-prog-cancel]')) { EDITING_PROGRAM = null; return renderPrograms(); }
+
+    const save = e.target.closest('[data-prog-save]');
+    if (!save) return;
+
+    const id = Number(save.dataset.progSave);
+    const row = save.closest('tr');
+    const name = row.querySelector('.prog-edit-name')?.value.trim() ?? '';
+    const college = row.querySelector('.prog-edit-college')?.value.trim() ?? '';
+    const before = PROGRAMS.find(p => p.id === id);
+
+    if (name.length < 3) return showMsg('programs-msg', 'Enter the programme name.');
+    if (!college) return showMsg('programs-msg', 'Enter the college.');
+    if (before && before.name === name && (before.college ?? '') === college) {
+        EDITING_PROGRAM = null;
+        return renderPrograms();
+    }
+
+    save.disabled = true;
+
+    if (PREVIEW || !supabase) {
+        Object.assign(before, { name, college });
+        EDITING_PROGRAM = null;
+        renderPrograms();
+        return showMsg('programs-msg', 'Programme updated (preview only, not saved).', 'success');
+    }
+
+    const { error } = await supabase
+        .from('program')
+        .update({ name, college, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (error) {
+        console.warn('program update failed:', error.message);
+        save.disabled = false;
+        return showMsg('programs-msg', 'Could not update the programme. Please try again.');
+    }
+
+    const collegeChanged = (before?.college ?? '') !== college;
+    Object.assign(before, { name, college });
+    EDITING_PROGRAM = null;
+    refreshColleges();
+    renderProgramPicker();
+    renderPrograms();
+    showMsg('programs-msg',
+        collegeChanged
+            ? 'Programme updated. Faculty links are not changed automatically: check Staff management if the college changed.'
+            : 'Programme updated.',
+        'success');
+});
+
+
+/* ---------- academic term ---------- */
+
+/* The single row in system_config that says what term it is. Students read
+   it to choose which offerings to show and what to stamp on an advising
+   request; Faculty and the Registrar read the term stored on the request;
+   the Department's schedule defaults to it. Only the administrator may
+   change it (RLS), which is why the control lives here. */
+
+const TERM_NAMES = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
+let TERM = null;          // { term, year, updated_at }
+let TERM_PENDING = null;  // { term, year } awaiting confirmation
+
+const termLabel = (t, y) => `${TERM_NAMES[t] ?? 'Term ' + t} · AY ${y}–${y + 1}`;
+
+async function loadTermConfig() {
+    if (PREVIEW || !supabase) {
+        TERM = { term: 1, year: 2023, updated_at: null };
+        return renderTerm();
+    }
+
+    const { data, error } = await supabase
+        .from('system_config')
+        .select('current_term, current_academic_year, updated_at')
+        .eq('id', 1)
+        .maybeSingle();
+
+    if (error || !data) {
+        console.warn('term config load failed:', error?.message);
+        TERM = null;
+        return renderTerm();
+    }
+
+    TERM = { term: data.current_term, year: data.current_academic_year, updated_at: data.updated_at };
+    renderTerm();
+}
+
+function renderTerm() {
+    const cur = $('term-current');
+    const stamp = $('term-updated');
+    const year = $('term-year');
+    const term = $('term-term');
+
+    if (!TERM) {
+        if (cur) cur.textContent = 'not available';
+        if (stamp) stamp.textContent = '';
+        showMsg('term-msg', 'Could not read the current term. The setting may be missing.');
+        return;
+    }
+
+    if (cur) cur.textContent = termLabel(TERM.term, TERM.year);
+    if (stamp) {
+        stamp.textContent = TERM.updated_at
+            ? `changed ${new Date(TERM.updated_at).toLocaleDateString()}`
+            : '';
+    }
+    // Do not overwrite something the operator is in the middle of typing.
+    if (year && !TERM_PENDING && document.activeElement !== year) year.value = TERM.year;
+    if (term && !TERM_PENDING && document.activeElement !== term) term.value = String(TERM.term);
+    updateTermYearHint();
+}
+
+function updateTermYearHint() {
+    const y = Number($('term-year')?.value);
+    const hint = $('term-year-hint');
+    if (hint) hint.textContent = Number.isInteger(y) && y >= 2000 && y <= 2100
+        ? `AY ${y}–${y + 1}` : '';
+}
+
+function hideTermConfirm() {
+    TERM_PENDING = null;
+    const box = $('term-confirm');
+    if (box) box.hidden = true;
+    const btn = $('term-change');
+    if (btn) btn.disabled = false;
+}
+
+$('term-year')?.addEventListener('input', () => { hideTermConfirm(); updateTermYearHint(); });
+$('term-term')?.addEventListener('change', hideTermConfirm);
+
+/* Step 1: validate, then say what changing it would do. Nothing is written
+   until the second click. */
+$('term-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showMsg('term-msg', '');
+
+    const year = Number($('term-year')?.value);
+    const term = Number($('term-term')?.value);
+
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+        return showMsg('term-msg', 'Enter the academic year as a four-digit year, such as 2026.');
+    }
+    if (![1, 2, 3].includes(term)) return showMsg('term-msg', 'Choose a term.');
+    if (TERM && year === TERM.year && term === TERM.term) {
+        return showMsg('term-msg', `${termLabel(term, year)} is already the current term.`);
+    }
+
+    // What students would find when the term switches: how much of that
+    // term is actually scheduled. Switching to an empty term leaves every
+    // student with nothing offered.
+    let scheduled = null;
+    if (!PREVIEW && supabase) {
+        const { count, error } = await supabase
+            .from('subject_offering')
+            .select('id', { count: 'exact', head: true })
+            .eq('academic_year', year)
+            .eq('term', term);
+        if (!error) scheduled = count;
+    } else {
+        scheduled = 11;
+    }
+
+    TERM_PENDING = { term, year };
+    const text = $('term-confirm-text');
+    const nothing = scheduled === 0;
+    if (text) {
+        text.innerHTML =
+            `Change the term to <strong>${escapeHtml(termLabel(term, year))}</strong>? ` +
+            'Every student, faculty member and the Department will switch to it right away. ' +
+            (scheduled === null
+                ? 'I could not check whether a schedule exists for it.'
+                : nothing
+                    ? '<span class="term-warn">No schedule exists for that term yet, so students will see no ' +
+                      'offered subjects until Department Staff publishes one.</span>'
+                    : `${scheduled} offering${scheduled === 1 ? ' is' : 's are'} scheduled for it.`);
+    }
+    $('term-confirm').hidden = false;
+    $('term-change').disabled = true;
+});
+
+/* Step 2: write it. */
+$('term-confirm-yes')?.addEventListener('click', async () => {
+    if (!TERM_PENDING) return;
+    const { term, year } = TERM_PENDING;
+    const yes = $('term-confirm-yes');
+    if (yes) yes.disabled = true;
+
+    const finish = () => { if (yes) yes.disabled = false; };
+
+    if (PREVIEW || !supabase) {
+        TERM = { term, year, updated_at: new Date().toISOString() };
+        hideTermConfirm(); finish(); renderTerm();
+        return showMsg('term-msg', `Term changed to ${termLabel(term, year)} (preview only, not saved).`, 'success');
+    }
+
+    const { error } = await supabase
+        .from('system_config')
+        .update({
+            current_term: term,
+            current_academic_year: year,
+            updated_by: AUTH_UID,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', 1);
+
+    if (error) {
+        console.warn('term update failed:', error.message);
+        finish();
+        return showMsg('term-msg', 'Could not change the term. Please try again.');
+    }
+
+    TERM = { term, year, updated_at: new Date().toISOString() };
+    hideTermConfirm();
+    finish();
+    renderTerm();
+
+    // The topbar was painted from the old value when the page loaded.
+    const bar = $('topbar-term');
+    if (bar) bar.textContent = termLabel(term, year);
+
+    showMsg('term-msg', `The term is now ${termLabel(term, year)}.`, 'success');
+});
+
+$('term-confirm-no')?.addEventListener('click', hideTermConfirm);
+
+
 /* ---------- boot ---------- */
 
 (async function init() {
@@ -1147,6 +1878,7 @@ async function loadBulkHistory() {
         renderNotice(ADMIN);
         await loadStaff();
         await loadStudents();
+        await loadTermConfig();
         renderSystemStatus();
         initBulkUpload();
         route();
@@ -1188,6 +1920,7 @@ async function loadBulkHistory() {
 
     await loadStaff();
     await loadStudents();
+    await loadTermConfig();
     renderSystemStatus();
     initBulkUpload();
 
