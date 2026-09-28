@@ -56,7 +56,7 @@
         </nav>
 
         <p class="side-foot">
-            University of Cebu<br>College of Computer Studies
+            University of Cebu
         </p>
 
     </aside>
@@ -69,7 +69,13 @@
             </button>
 
             <span class="topbar-title" id="topbar-title">Dashboard</span>
-            <span class="topbar-term">1st Sem · AY 2026–2027</span>
+            <span class="topbar-term" id="topbar-term">1st Sem · AY 2023–2024</span>
+
+            <!-- Shown only when the university has more than one programme. -->
+            <label class="topbar-program" id="dept-program-wrap" hidden>
+                <span class="topbar-program-label">Programme</span>
+                <select id="dept-program" aria-label="Programme you are working on"></select>
+            </label>
 
             <div class="topbar-user">
                 <span class="avatar" id="avatar">–</span>
@@ -445,6 +451,7 @@
                 </div>
 
                 <div id="sched-msg" class="msg" role="status"></div>
+                <p id="sched-term-note" class="review-hint" role="status" hidden></p>
                 <div id="schedule-blocked" hidden></div>
 
                 <section class="card">
@@ -524,7 +531,7 @@
 
                         <div class="toolbar" style="margin-bottom: var(--s3);">
                             <div class="field field-sm">
-                                <label for="sched-year">Academic ye ar</label>
+                                <label for="sched-year">Academic year</label>
                                 <select id="sched-year"></select>
                             </div>
                             <div class="field field-sm">
@@ -883,6 +890,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../../shared/js/config.js"></script>
+<script src="../../shared/js/systemconfig.js"></script>
+<script src="../../shared/js/programs.js"></script>
 <script src="../../shared/js/prospectusgrid.js"></script>
 <script src="../curriculum/curriculum_builder.js"></script>
 <script src="departmentdashboard.js"></script>

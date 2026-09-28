@@ -12,10 +12,16 @@
 (function () {
 'use strict';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC ?? {};
 
+// Bucketed storage key (see config.js) -- department, faculty and
+// registrar share the "staff" bucket, since they already share one
+// login page/form; this just keeps that bucket separate from student
+// and admin sessions in other tabs.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { storageKey: authStorageKey?.(['department_staff']) },
+    })
     : null;
 
 const $ = (id) => document.getElementById(id);
@@ -40,6 +46,98 @@ let DIRTY       = new Set();  /* section names with unsaved changes in the sched
    in loadCurriculum(). The default covers the window before that first
    fetch resolves, and the preview branch. */
 let PROGRAM_CODE = 'BSIT';
+
+/* ---- working programme ----
+
+   With one programme (BSIT today) none of this does anything: the selector
+   is hidden and every variable above holds what it always held. With more
+   than one, the page works on ONE programme at a time, chosen in the top
+   bar, and the variables above are narrowed to it:
+
+     ALL_VERSIONS  every prospectus version of every programme (the data)
+     VERSIONS      the versions of the chosen programme (what the page reads)
+     PROSPECTUS    that programme's active version
+     PROGRAM_CODE  its code, which prefixes section names (BSN-1A)
+
+   Keeping VERSIONS / PROSPECTUS / PROGRAM_CODE as the names the page
+   already reads is deliberate: every place that used "the active version"
+   now follows the chosen programme without being touched. */
+let ALL_VERSIONS = [];
+let PROGRAM_LIST = [];   // every programme, by code
+let PROGRAM      = null; // the one being worked on: { id, code, name, college }
+const PROGRAM_KEY = 'cl.dept.program';
+
+const programScoped = () => PROGRAM_LIST.length > 1;
+
+/* Pure. Which programme to work on: the saved choice if it still exists,
+   else the programme of the first active version, else the first
+   programme. Null when there are none. */
+function pickProgram(programs, savedId, versions) {
+    if (!programs.length) return null;
+    const byId = (id) => programs.find(p => p.id === id) ?? null;
+    return byId(savedId)
+        ?? byId((versions ?? []).find(v => v.is_active)?.program_id)
+        ?? programs[0];
+}
+
+/* Pure. The versions belonging to a programme. Every version when no
+   programme is given, which is the single-programme case. */
+function versionsFor(program, all) {
+    return program ? (all ?? []).filter(v => v.program_id === program.id) : (all ?? []);
+}
+
+function savedProgramId() {
+    try {
+        const v = Number(localStorage.getItem(PROGRAM_KEY));
+        return Number.isInteger(v) && v > 0 ? v : null;
+    } catch (_) { return null; }
+}
+
+function saveProgramId(id) {
+    try { localStorage.setItem(PROGRAM_KEY, String(id)); } catch (_) { /* private mode */ }
+}
+
+/* Called once at boot, before anything reads the variables above. */
+function initPrograms() {
+    PROGRAM_LIST = window.CurriculogicPrograms?.list() ?? [];
+    PROGRAM = pickProgram(PROGRAM_LIST, savedProgramId(), ALL_VERSIONS);
+    renderProgramSelector();
+}
+
+/* The one place versions are assigned, so the two loaders below cannot
+   disagree about which programme they describe. */
+function setVersions(all) {
+    ALL_VERSIONS = all ?? [];
+
+    if (programScoped()) {
+        PROGRAM = pickProgram(PROGRAM_LIST, PROGRAM?.id ?? savedProgramId(), ALL_VERSIONS);
+    }
+    VERSIONS   = versionsFor(programScoped() ? PROGRAM : null, ALL_VERSIONS);
+    PROSPECTUS = VERSIONS.find(v => v.is_active) ?? null;
+
+    // Only ever set from a version that carries its programme join, or from
+    // the chosen programme. The versions list query has no join, so it must
+    // not reset the code to a default.
+    if (programScoped() && PROGRAM) PROGRAM_CODE = PROGRAM.code;
+    else {
+        const derived = PROSPECTUS?.program?.code || VERSIONS[0]?.program?.code;
+        if (derived) PROGRAM_CODE = derived;
+    }
+    renderProgramSelector();
+}
+
+function renderProgramSelector() {
+    const wrap = $('dept-program-wrap');
+    const sel  = $('dept-program');
+    if (!wrap || !sel) return;
+
+    wrap.hidden = !programScoped();
+    if (!programScoped() || !PROGRAM) return;
+
+    sel.innerHTML = PROGRAM_LIST.map(p =>
+        `<option value="${p.id}">${escapeHtml(p.code)} — ${escapeHtml(p.name)}</option>`).join('');
+    sel.value = String(PROGRAM.id);
+}
 
 /* What exists yet. Schedule and grade upload both write rows that
    reference subject.id, so neither can run against an empty curriculum —
@@ -531,32 +629,46 @@ async function loadCurriculum() {
     if (versionsError) {
         console.warn('version list failed:', versionsError.message);
     } else {
-        VERSIONS = allVersions ?? [];
+        setVersions(allVersions);
     }
 
-    const active = VERSIONS.find(v => v.is_active) ?? null;
-    PROSPECTUS = active;
+    const active = PROSPECTUS;
 
     /* If the join didn't come back with a code (RLS, missing program row,
        PostgREST version quirk), fall back to the first version's code, and
-       finally to BSIT. The dashboard has to render regardless. */
-    PROGRAM_CODE = active?.program?.code
-                || VERSIONS[0]?.program?.code
-                || 'BSIT';
+       finally to BSIT. The dashboard has to render regardless. With several
+       programmes the code comes from the chosen one instead (setVersions). */
+    if (!programScoped()) {
+        PROGRAM_CODE = active?.program?.code
+                    || VERSIONS[0]?.program?.code
+                    || 'BSIT';
+    }
 
     /* A draft can be edited without being active, so the curriculum view
        follows EDITING rather than assuming the active version. Defaulting
-       to active keeps the common case one click shorter. */
-    if (!EDITING) EDITING = active ?? VERSIONS[0] ?? null;
+       to active keeps the common case one click shorter. If the programme
+       has just changed, what was being edited belongs to the old one. */
+    if (!EDITING || (programScoped() && EDITING.program_id !== PROGRAM?.id)) {
+        EDITING = active ?? VERSIONS[0] ?? null;
+    }
     mountCurriculumBuilder();
 
     const pros = EDITING;
 
     if (!pros) {
+        // Nothing of a previously chosen programme may linger: with several
+        // programmes this is what a new one looks like before its first
+        // curriculum exists.
+        SUBJECTS = [];
+        RULES    = [];
+        const grid = $('cb-grid');
+        if (grid) grid.innerHTML = '';
+        afterLoad();
+
         $('prospectus-body').innerHTML = `
             <div class="empty">
                 <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
-                <h3>No active prospectus</h3>
+                <h3>No active prospectus${programScoped() && PROGRAM ? ' for ' + escapeHtml(PROGRAM.code) : ''}</h3>
                 <p>Create one before adding subjects.</p>
             </div>`;
         return;
@@ -573,9 +685,18 @@ async function loadCurriculum() {
         return;
     }
 
-    const { data: rules } = await supabase
+    // Every prerequisite in the database is fetched in the single-programme
+    // case, as it always was. With several programmes that would fold
+    // another programme's rules into this one's counts and integrity
+    // check, so only the rules of THIS curriculum's subjects are read.
+    let rulesQuery = supabase
         .from('prerequisite')
         .select('id, subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value');
+    if (programScoped()) {
+        const ids = (subs ?? []).map(s => s.id);
+        rulesQuery = ids.length ? rulesQuery.in('subject_id', ids) : null;
+    }
+    const { data: rules } = rulesQuery ? await rulesQuery : { data: [] };
 
     SUBJECTS = subs ?? [];
     RULES    = rules ?? [];
@@ -649,7 +770,8 @@ function renderProspectus() {
 
     body.innerHTML = `
         <dl>
-            <div class="detail"><dt>Programme</dt><dd>BS Information Technology</dd></div>
+            <div class="detail"><dt>Programme</dt><dd>${escapeHtml(
+                window.CurriculogicPrograms?.nameOf(PROSPECTUS.program_id, PREVIEW ? 'BS Information Technology' : '—') ?? '—')}</dd></div>
             <div class="detail"><dt>Effective year</dt><dd>${escapeHtml(PROSPECTUS.academic_year)}</dd></div>
             <div class="detail"><dt>Status</dt><dd>${PROSPECTUS.is_active
                 ? '<span class="pill ok">Active</span>'
@@ -1350,7 +1472,7 @@ async function loadProspectusList() {
         return;
     }
 
-    VERSIONS = data ?? [];
+    setVersions(data);
 
     /* Subject counts are fetched per version rather than joined — a
        version with no subjects is a draft nobody has filled in, and that
@@ -1529,7 +1651,9 @@ async function createVersion() {
         // hardcoded 1, which was only ever right because BSIT happened
         // to be the first row in a fresh database. After a reset the
         // sequence advances and that guess points at nothing.
-        let programId = VERSIONS[0]?.program_id;
+        // The programme being worked on, not whichever version is listed
+        // first: with two programmes that would file a BSN draft under BSIT.
+        let programId = (programScoped() ? PROGRAM?.id : null) ?? VERSIONS[0]?.program_id;
         if (!programId) {
             const { data: prog, error: progErr } = await supabase
                 .from('program')
@@ -1848,8 +1972,8 @@ async function loadReadiness() {
        An error is reported rather than silently treated as empty — "no
        students" and "cannot read students" need different responses. */
     const [students, offerings, gradeFiles] = await Promise.all([
-        supabase.from('university_student').select('id'),
-        supabase.from('subject_offering').select('id'),
+        supabase.from('university_student').select('id, program_id'),
+        supabase.from('subject_offering').select('id, section'),
         supabase.from('grade_file').select('id'),
     ]);
 
@@ -1863,8 +1987,13 @@ async function loadReadiness() {
         console.warn('grade file count failed:', gradeFiles.error.message);
     }
 
-    READY.students   = students.data?.length   ?? 0;
-    READY.offerings  = offerings.data?.length  ?? 0;
+    // With several programmes the setup counts describe the chosen one, so
+    // "3 offerings published" is not somebody else's schedule.
+    const mine = (rows, keep) => programScoped() && PROGRAM ? (rows ?? []).filter(keep) : (rows ?? []);
+    const prefix = `${PROGRAM_CODE}-`.toLowerCase();
+
+    READY.students   = mine(students.data, s => s.program_id === PROGRAM.id).length;
+    READY.offerings  = mine(offerings.data, o => String(o.section ?? '').toLowerCase().startsWith(prefix)).length;
     READY.gradeFiles = gradeFiles.data?.length ?? 0;
 }
 
@@ -1961,6 +2090,59 @@ function schedTerm() {
     return { year, term };
 }
 
+/* Why one bad row got in: a time typed as "1:00" with no AM/PM is stored
+   as 01:00, so NSTP 101 ended up running from 1 AM to 2 PM and passed the
+   "start before end" check. Classes run 6:00 AM to 10:00 PM. Times are
+   zero-padded 24-hour "HH:MM", so plain string comparison is correct.
+   Returns a sentence describing the problem, or null if the times are
+   fine (or not both set yet: missing times are reported separately). */
+const CLASS_DAY_START = '06:00';
+const CLASS_DAY_END   = '22:00';
+
+function scheduleTimeProblem(start, end) {
+    const s = String(start ?? '').slice(0, 5);
+    const e = String(end ?? '').slice(0, 5);
+    if (!s || !e) return null;
+    if (s >= e) return 'the start must be before the end.';
+    if (s < CLASS_DAY_START) {
+        return `starts at ${s}, before 6:00 AM. Check AM/PM (1:00 may mean 13:00).`;
+    }
+    if (e > CLASS_DAY_END) {
+        return `ends at ${e}, after 10:00 PM. Check AM/PM.`;
+    }
+    return null;
+}
+
+/* The term the system is currently on (set by the administrator). Kept so
+   the Schedule view can default to it and say when the operator is
+   working on a different one. Null until loaded, or if it failed. */
+let SYSTEM_TERM = null;
+
+function updateSchedTermNote() {
+    const note = $('sched-term-note');
+    if (!note) return;
+
+    const { year, term } = schedTerm();
+    if (!SYSTEM_TERM || !year || !term) {
+        note.className = 'review-hint';   // .msg.error would override [hidden]
+        note.hidden = true;
+        return;
+    }
+
+    const label = window.CurriculogicTerm.formatLabel(SYSTEM_TERM.term, SYSTEM_TERM.year);
+    if (year === SYSTEM_TERM.year && term === SYSTEM_TERM.term) {
+        note.hidden = false;
+        note.className = 'review-hint';
+        note.textContent = `This is the current term (${label}). Students see this schedule.`;
+    } else {
+        note.hidden = false;
+        note.className = 'msg error';
+        note.textContent =
+            `The system is on ${label}. Students only see offerings for that term, ` +
+            'so a schedule saved here will not show up for them until the term changes.';
+    }
+}
+
 /* The section the operator is working on, composed from the two
    dropdowns (Year + Section letter) and the program code. Returns null
    when either dropdown is unset, so callers that gate on "is a section
@@ -1997,7 +2179,7 @@ function shortYear(y) {
     return `${n}\u2013${String(n + 1).slice(-2)}`;
 }
 
-function initSchedule() {
+async function initSchedule() {
     if (READY.subjects === 0) {
         renderScheduleBlocked();
         return;
@@ -2006,11 +2188,25 @@ function initSchedule() {
     showScheduleForm(true);
 
     if (!scheduleReady) {
+        // The term the system is on comes from system_config; if it cannot
+        // be read the page still works, it just does not pre-select one.
+        try { SYSTEM_TERM = await window.CurriculogicTerm?.load() ?? null; }
+        catch (_) { SYSTEM_TERM = null; }
+
         renderYearOptions();
         renderSectionLetterOptions();
         bindScheduleTableInputs();
         scheduleReady = true;
+
+        // Start on the current term, so an operator who does nothing is
+        // scheduling the term students are looking at.
+        if (SYSTEM_TERM) {
+            const y = $('sched-year'), t = $('sched-term');
+            if (y) y.value = String(SYSTEM_TERM.year);
+            if (t) t.value = String(SYSTEM_TERM.term);
+        }
     }
+    updateSchedTermNote();
 
     // No forced load. Whether offerings load depends on whether the
     // operator has picked a term and section — the dropdown listeners
@@ -2047,7 +2243,14 @@ function renderYearOptions() {
     const sel = $('sched-year');
     if (!sel) return;
 
-    const years = [...new Set(VERSIONS.map(v => v.academic_year))].sort((a, b) => b - a);
+    // A curriculum written in 2023 keeps running: the schedule for AY 2026
+    // is filed under 2026, not under the year the prospectus was made. So
+    // the year the system is currently on is always offered too, even with
+    // no prospectus of that year; otherwise the current term could never
+    // be scheduled at all.
+    const yearSet = new Set(VERSIONS.map(v => v.academic_year));
+    if (SYSTEM_TERM?.year) yearSet.add(SYSTEM_TERM.year);
+    const years = [...yearSet].filter(Number.isInteger).sort((a, b) => b - a);
 
     sel.innerHTML = ['<option value="">Select year</option>']
         .concat(years.map(y => `<option value="${y}">${y}\u2013${y + 1}</option>`))
@@ -2153,12 +2356,19 @@ async function loadOfferings() {
         return renderOfferings();
     }
 
-    const { data, error } = await supabase
+    let offeringQuery = supabase
         .from('subject_offering')
         .select('id, edp_code, subject_id, meeting_type, section, schedule_days, start_time, end_time, room, instructor, capacity, is_open')
         .eq('academic_year', year)
         .eq('term', term)
         .order('section');
+
+    // Sections are named after their programme (BSN-1A), so with several
+    // programmes only this one's are listed; otherwise every programme's
+    // sections would appear as if they were its own.
+    if (programScoped()) offeringQuery = offeringQuery.ilike('section', `${PROGRAM_CODE}-%`);
+
+    const { data, error } = await offeringQuery;
 
     if (error) {
         console.warn('offering load failed:', error.message);
@@ -2257,6 +2467,19 @@ function timeRange(a, b) {
     if (!a && !b) return '—';
     const t = (x) => x ? x.slice(0, 5) : '';
     return `${t(a)}–${t(b)}`;
+}
+
+/* Re-fetches offerings for whatever the four dropdowns currently say
+   and rebuilds everything that depends on them. Same sequence the
+   year/term 'change' listeners already run -- this is what a caller
+   reaches for after setting the dropdowns some other way (a save that
+   needs a fresh read from the database, or the photo-scan mismatch
+   banner switching to the detected section programmatically). */
+async function reloadScheduleView() {
+    await loadOfferings();
+    renderTopSectionOptions();
+    refreshTemplateCount();
+    renderOfferings();
 }
 
 function renderOfferings() {
@@ -2484,9 +2707,8 @@ async function commitPending() {
         if (!r.subject_id)            problems.push('Every row needs a subject.');
         if (!r.schedule_days?.trim()) problems.push('Every row needs days.');
         if (!r.start_time || !r.end_time) problems.push('Every row needs start and end times.');
-        if (r.start_time && r.end_time && r.start_time >= r.end_time) {
-            problems.push(`Start must be before end on ${r.edp_code}.`);
-        }
+        const timeProblem = scheduleTimeProblem(r.start_time, r.end_time);
+        if (timeProblem) problems.push(`${r.edp_code}: ${timeProblem}`);
         if (!r.room?.trim())          problems.push('Every row needs a room.');
     }
 
@@ -2641,6 +2863,7 @@ function subjectOptionsFor(section, term, currentId) {
    otherwise loadOfferings() shows the waiting state. Year level only
    affects which section letters are offered. */
 $('sched-year')?.addEventListener('change', () => {
+    updateSchedTermNote();
     loadOfferings().then(() => {
         renderTopSectionOptions();
         refreshTemplateCount();
@@ -2649,6 +2872,7 @@ $('sched-year')?.addEventListener('change', () => {
 });
 
 $('sched-term')?.addEventListener('change', () => {
+    updateSchedTermNote();
     loadOfferings().then(() => {
         renderTopSectionOptions();
         refreshTemplateCount();
@@ -3342,6 +3566,12 @@ async function previewUpload(rows, warnings = [], detected = null) {
             continue;
         }
 
+        const timeProblem = scheduleTimeProblem(r.start_time, r.end_time);
+        if (timeProblem) {
+            bad.push({ kind: 'bad_time', line: r.__line, detail: `${subject.code}: ${timeProblem}` });
+            continue;
+        }
+
         seenEdps.add(edp);
         ok.push({ subject, row: { ...r, section: fileSection, type } });
     }
@@ -3473,6 +3703,8 @@ async function previewUpload(rows, warnings = [], detected = null) {
                 wrong_year:           { label: 'Wrong year level for this section', mode: 'lines' },
                 wrong_term:           { label: 'Scheduled for the wrong term',      mode: 'lines' },
                 missing_fields:       { label: 'Missing required fields',    mode: 'lines' },
+                bad_time:             { label: 'Implausible class time',     mode: 'lines',
+                                        hint: 'Classes run between 6:00 AM and 10:00 PM. A time typed as "1:00" with no AM/PM is read as 1 AM; write 1:00 PM or 13:00.' },
             };
 
             const groups = new Map();
@@ -3567,10 +3799,11 @@ async function previewUpload(rows, warnings = [], detected = null) {
     $('discard-upload')?.addEventListener('click', discardPreview);
 
     // The mismatch banner (when present) offers a second path: flip the
-    // dropdowns to match the photo, then apply.
-    $('[data-use-detected]')?.addEventListener('click', () => fillFromDetected(detected));
-    $('[data-switch-apply]')?.addEventListener('click', () => switchAndApply(detected));
-    $('[data-stay-apply]')?.addEventListener('click', applyUploadToPending);
+    // dropdowns to match the photo, then apply. $() only looks up by id
+    // -- these are attribute selectors, so they need querySelector.
+    document.querySelector('[data-use-detected]')?.addEventListener('click', () => fillFromDetected(detected, rows, warnings));
+    document.querySelector('[data-switch-apply]')?.addEventListener('click', () => switchAndApply(detected, rows, warnings));
+    document.querySelector('[data-stay-apply]')?.addEventListener('click', applyUploadToPending);
 }
 
 /* EDP codes already used by another offering in this term. Fetched
@@ -3710,15 +3943,21 @@ function discardPreview() {
 }
 
 /* Flips the four dropdowns to whatever the photo's header says, waits
-   for the reload, then applies the previewed rows into that section's
-   PENDING. Only reachable from the mismatch banner, where the operator
-   has already seen both labels and chosen to switch.
+   for the reload, then re-validates and applies the rows into that
+   section's PENDING. Only reachable from the mismatch banner, where
+   the operator has already seen both labels and chosen to switch.
 
-   Order matters. reloadScheduleView() re-fetches offerings and rebuilds
-   the section dropdowns; PENDING_ROWS is untouched across that, so the
-   scan result survives the switch. Only after everything has settled do
-   we call applyUploadToPending(). */
-async function switchAndApply(detected) {
+   rows arrived tagged with whatever section was selected BEFORE the
+   switch (previewUpload's caller stamps every photo-scanned row with
+   the page's section, since the photo itself has no section column --
+   see the "photo has no section column" comment near the fetch). That
+   tag doesn't update itself just because the dropdowns did, so PENDING_
+   ROWS from the first previewUpload() call is validated against the
+   OLD section and must not be reused: retag rows with the detected
+   section and run previewUpload() again once the switch has landed,
+   so "wrong year for this section" etc. gets judged against the
+   section the operator actually switched to. */
+async function switchAndApply(detected, rows, warnings) {
     if (!detected?.section || !detected.year || !detected.term) return;
 
     const m = String(detected.section).match(/^([A-Z]+)-(\d+)([A-Z]+)$/i);
@@ -3772,17 +4011,21 @@ async function switchAndApply(detected) {
     // the reload; the letter dropdown is rebuilt from the new OFFERINGS.
     setSel('sched-section-letter', letter);
 
+    for (const r of rows) r.section = detected.section;
+    await previewUpload(rows, warnings, detected);
     applyUploadToPending();
 }
 
-/* Populates all four dropdowns from the scan's header, then applies the
-   previewed rows. Used when nothing was selected before the scan — the
-   photo becomes the source of truth.
+/* Populates all four dropdowns from the scan's header, then re-validates
+   and applies the rows. Used when nothing was selected before the scan
+   — the photo becomes the source of truth.
 
-   Order: set four dropdowns → reload offerings → set letter → apply.
-   Same shape as switchAndApply, but there are no unsaved edits to lose
+   Order: set four dropdowns → reload offerings → set letter → retag
+   rows with the now-current section → re-run previewUpload() → apply.
+   Same shape as switchAndApply (see its comment for why the retag and
+   re-validate are necessary), but there are no unsaved edits to lose
    when nothing was selected, so no confirm. */
-async function fillFromDetected(detected) {
+async function fillFromDetected(detected, rows, warnings) {
     if (!detected?.section || !detected.year || !detected.term) {
         return showMsg('sched-msg', 'The scan did not report a full section.');
     }
@@ -3812,6 +4055,8 @@ async function fillFromDetected(detected) {
 
     setSel('sched-section-letter', letter);
 
+    for (const r of rows) r.section = detected.section;
+    await previewUpload(rows, warnings, detected);
     applyUploadToPending();
 }
 
@@ -3891,7 +4136,7 @@ async function loadStudentMap() {
     }
     const { data } = await supabase
         .from('university_student')
-        .select('id, student_id, first_name, last_name, prospectus_id')
+        .select('id, student_id, first_name, last_name, prospectus_id, program_id')
         .not('student_id', 'is', null);
     gradeState.studentMap = new Map((data ?? []).map(s => [padStudentId(s.student_id), s]));
     return gradeState.studentMap;
@@ -3902,15 +4147,19 @@ async function loadStudentMap() {
    engine matches academic_record.subject_id against their own prospectus,
    so a record pointing at a subject in another version never counts toward
    a prerequisite. A student with no prospectus_id is assessed against the
-   active version (see effectiveProspectusId in the student dashboard), so
-   the same fallback is used here.
+   active version FOR THEIR PROGRAMME (see effectiveProspectusId in the
+   student dashboard), so the same fallback is used here, through the
+   shared CurriculogicPrograms.fallbackProspectus rule.
 
-   Returns { activeId, byProspectus: Map<prospectusId, Map<code, subject>> }. */
+   Returns { actives, byProspectus: Map<prospectusId, Map<code, subject>> }.
+   `actives` is every active prospectus as { id, program_id }: with more
+   than one programme there is one each, so "the" active version does not
+   exist. */
 async function loadSubjectMap(students) {
     if (gradeState.subjectMap) return gradeState.subjectMap;
     if (PREVIEW) {
         gradeState.subjectMap = {
-            activeId: 'preview',
+            actives: [{ id: 'preview', program_id: null }],
             byProspectus: new Map([['preview', new Map([
                 ['CC-COMPROG12', { id: 'sub1', code: 'CC-COMPROG12', title: 'Computer Programming 2', units: 3 }],
                 ['SOCIO101', { id: 'sub2', code: 'SOCIO101', title: 'Sociology', units: 3 }],
@@ -3920,13 +4169,15 @@ async function loadSubjectMap(students) {
         return gradeState.subjectMap;
     }
 
-    const { data: active } = await supabase
+    const { data: activeRows } = await supabase
         .from('prospectus')
-        .select('id')
+        .select('id, program_id')
         .eq('is_active', true);
-    const activeId = active?.[0]?.id ?? PROSPECTUS?.id ?? null;
+    const actives = activeRows ?? [];
 
-    const ids = new Set([activeId]);
+    // Load the subjects of every prospectus a row could resolve to: each
+    // student's own, and every active one (a possible fallback).
+    const ids = new Set(actives.map(a => a.id));
     for (const s of students?.values?.() ?? []) ids.add(s.prospectus_id);
     ids.delete(null);
     ids.delete(undefined);
@@ -3944,7 +4195,7 @@ async function loadSubjectMap(students) {
         byProspectus.get(s.prospectus_id).set(normCode(s.code), s);
     }
 
-    gradeState.subjectMap = { activeId, byProspectus };
+    gradeState.subjectMap = { actives, byProspectus };
     return gradeState.subjectMap;
 }
 
@@ -4038,7 +4289,13 @@ async function validateGrades(rows, fileName) {
 
         if (!rawCode) { bad.push({ ...base, why: 'No subject code.' }); continue; }
         const cleanCode = normCode(rawCode);
-        const prospectusId = student.prospectus_id ?? subjects.activeId;
+        const prospectusId = student.prospectus_id
+            ?? window.CurriculogicPrograms.fallbackProspectus(student.program_id, subjects.actives)?.id
+            ?? null;
+        if (prospectusId === null) {
+            bad.push({ ...base, why: 'This student has no curriculum: their programme has none published, or no programme is set.' });
+            continue;
+        }
         const subject = subjects.byProspectus.get(prospectusId)?.get(cleanCode);
         if (!subject) {
             bad.push({ ...base, why: `"${rawCode}" not in this student's prospectus.` });
@@ -4501,6 +4758,38 @@ $('grade-template')?.addEventListener('click', () => {
     XLSX.writeFile(wb, 'grade-template.xlsx');
 });
 
+/* Switching the working programme. Everything the page holds belongs to the
+   programme it was loaded for (versions, subjects, rules, sections, an
+   upload waiting for confirmation), so all of it is dropped and reloaded
+   rather than patched, and the current view is drawn again. */
+$('dept-program')?.addEventListener('change', async (e) => {
+    const next = PROGRAM_LIST.find(p => p.id === Number(e.target.value));
+    if (!next || next.id === PROGRAM?.id) return;
+
+    if (DIRTY.size && !window.confirm(
+        'You have unsaved schedule changes for ' + (PROGRAM?.code ?? 'this programme') +
+        '. Switching programme discards them.\n\nSwitch anyway?')) {
+        e.target.value = String(PROGRAM.id);
+        return;
+    }
+
+    PROGRAM = next;
+    saveProgramId(next.id);
+
+    EDITING = null;
+    OFFERINGS = []; PENDING = []; DIRTY.clear();
+    PENDING_ROWS = [];
+    const preview = $('upload-preview');
+    if (preview) preview.innerHTML = '';
+    scheduleReady = false;        // year and section options are rebuilt
+    gradeState.ready = false;     // and the grade-term options
+
+    setVersions(ALL_VERSIONS);
+    await loadReadiness();
+    await loadCurriculum();
+    route();
+});
+
 /* boot */
 
 (async function init() {
@@ -4535,10 +4824,25 @@ $('grade-template')?.addEventListener('click', () => {
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 
-    if (error) console.warn('department staff load failed:', error.message);
+    if (error) {
+        // A failed lookup is not proof this is the wrong kind of account;
+        // do not bounce a real staff member because the network blinked.
+        console.warn('department staff load failed:', error.message);
+        setText('greeting', 'Could not load your account');
+        return;
+    }
 
     if (staff && staff.is_approved === false) {
         await supabase.auth.signOut();
+        window.location.href = LOGIN_PAGE;
+        return;
+    }
+
+    // A signed-in user with no department row (a student or faculty member
+    // who edited the URL) has no business here. Send them back instead of
+    // showing an empty shell. Not signed out: they are validly signed in,
+    // just somewhere else.
+    if (!staff) {
         window.location.href = LOGIN_PAGE;
         return;
     }
@@ -4550,6 +4854,16 @@ $('grade-template')?.addEventListener('click', () => {
     fillProfileForm(staff);
     renderNotice(staff);
 
+    // Programme names are looked up, not typed. The working programme has to
+    // be known before anything reads a version or counts a schedule.
+    await window.CurriculogicPrograms?.load(supabase);
+    initPrograms();
+
+    // Readiness (students, offerings, grade files) has to be in before the
+    // curriculum load renders the tiles and the setup badge. It only ran in
+    // preview, so a real login always showed 0 offerings and 0 uploads and
+    // a setup badge that could never complete.
+    await loadReadiness();
     await loadCurriculum();
     route();
 })();
