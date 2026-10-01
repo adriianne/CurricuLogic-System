@@ -67,7 +67,11 @@ let PROGRAM_LIST = [];   // every programme, by code
 let PROGRAM      = null; // the one being worked on: { id, code, name, college }
 const PROGRAM_KEY = 'cl.dept.program';
 
-const programScoped = () => PROGRAM_LIST.length > 1;
+/* A department account belongs to one programme (db/030), so its list is
+   narrowed to that one and the selector stays hidden. The page is still
+   programme-scoped in that case: new work is created under that programme. */
+let PINNED = false;
+const programScoped = () => PROGRAM_LIST.length > 1 || PINNED;
 
 /* Pure. Which programme to work on: the saved choice if it still exists,
    else the programme of the first active version, else the first
@@ -100,6 +104,15 @@ function saveProgramId(id) {
 /* Called once at boot, before anything reads the variables above. */
 function initPrograms() {
     PROGRAM_LIST = window.CurriculogicPrograms?.list() ?? [];
+    if (STAFF?.program_id) {
+        PROGRAM_LIST = PROGRAM_LIST.filter(p => p.id === STAFF.program_id);
+        PINNED = true;
+    } else if (!PREVIEW) {
+        // No programme assigned: there is nothing to work on, and the page
+        // must not fall back to some other programme's data.
+        PROGRAM_LIST = [];
+        PINNED = true;
+    }
     PROGRAM = pickProgram(PROGRAM_LIST, savedProgramId(), ALL_VERSIONS);
     renderProgramSelector();
 }
@@ -126,17 +139,15 @@ function setVersions(all) {
     renderProgramSelector();
 }
 
+/* The topbar shows the programme this account works on. It is a read-only
+   field, not a chooser: a department account belongs to exactly one
+   programme, and the field follows whichever programme that is. */
 function renderProgramSelector() {
-    const wrap = $('dept-program-wrap');
-    const sel  = $('dept-program');
-    if (!wrap || !sel) return;
+    const field = $('dept-program');
+    if (!field) return;
 
-    wrap.hidden = !programScoped();
-    if (!programScoped() || !PROGRAM) return;
-
-    sel.innerHTML = PROGRAM_LIST.map(p =>
-        `<option value="${p.id}">${escapeHtml(p.code)} — ${escapeHtml(p.name)}</option>`).join('');
-    sel.value = String(PROGRAM.id);
+    field.value = PROGRAM ? `${PROGRAM.code} — ${PROGRAM.name}` : 'No programme assigned';
+    field.title = field.value;
 }
 
 /* What exists yet. Schedule and grade upload both write rows that
@@ -172,7 +183,7 @@ const PREVIEW_SUBJECTS = [
 const PREVIEW_RULES = [
     { id: 1, subject_id: 3, prerequisite_subject_id: 2, requirement_type: 'prerequisite', rule_type: 'and', rule_group: 1, threshold_value: null },
     { id: 2, subject_id: 4, prerequisite_subject_id: 3, requirement_type: 'prerequisite', rule_type: 'and', rule_group: 1, threshold_value: null },
-    { id: 3, subject_id: 5, prerequisite_subject_id: null, requirement_type: 'standing',  rule_type: 'and', rule_group: 1, threshold_value: 3 },
+    { id: 3, subject_id: 5, prerequisite_subject_id: null, requirement_type: 'standing',  rule_type: 'and', rule_group: 1, threshold_value: 32 },
 ];
 
 const previewRequested = () =>
@@ -676,7 +687,7 @@ async function loadCurriculum() {
 
     const { data: subs, error: subErr } = await supabase
         .from('subject')
-        .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, is_active')
+        .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, elective_type, is_active')
         .eq('prospectus_id', EDITING.id)
         .order('year_level').order('term').order('code');
 
@@ -698,7 +709,9 @@ async function loadCurriculum() {
     }
     const { data: rules } = rulesQuery ? await rulesQuery : { data: [] };
 
-    SUBJECTS = subs ?? [];
+    // An elective type marks a slot even if is_elective was saved false.
+    SUBJECTS = (subs ?? []).map(s =>
+        ({ ...s, is_elective: s.is_elective === true || s.elective_type != null }));
     RULES    = rules ?? [];
     afterLoad();
 }
@@ -816,7 +829,10 @@ function renderIntegrity() {
         if (!r.prerequisite_subject_id) continue;
         const g = subjectById(r.subject_id);
         const q = subjectById(r.prerequisite_subject_id);
-        if (g && q && pos(q) >= pos(g)) {
+        // A "taken alongside" condition may share the same term; only a
+        // later one is an error.
+        const co = r.requirement_type === 'co_requisite';
+        if (g && q && (co ? pos(q) > pos(g) : pos(q) >= pos(g))) {
             issues.push(`${g.code} requires ${q.code}, which is scheduled at the same time or later.`);
         }
     }
@@ -824,6 +840,7 @@ function renderIntegrity() {
     const adj = new Map();
     for (const r of RULES) {
         if (!r.prerequisite_subject_id) continue;
+        if (r.requirement_type === 'co_requisite') continue;
         if (!adj.has(r.subject_id)) adj.set(r.subject_id, []);
         adj.get(r.subject_id).push(r.prerequisite_subject_id);
     }
@@ -871,7 +888,9 @@ function renderIntegrity() {
         if (!g || !q) continue;
 
         const pos = (s) => s.year_level * 10 + s.term;
-        const sameOrLater = pos(q) >= pos(g);
+        const sameOrLater = r.requirement_type === 'co_requisite'
+            ? pos(q) > pos(g)
+            : pos(q) >= pos(g);
         const self = r.subject_id === r.prerequisite_subject_id;
 
         if (!sameOrLater && !self) continue;
@@ -1325,8 +1344,11 @@ function renderRules() {
 
 function describeRule(r) {
     if (r.requirement_type === 'standing') {
-        const y = Number(r.threshold_value);
-        return `Must have completed all subjects through ${ordinal(y).toLowerCase()}`;
+        // threshold_value is a position (22 = 2nd year, 2nd sem); the engine
+        // reads it the same way, so the text and the check cannot disagree.
+        const E = window.CurricuLogicEngine;
+        const pos = E.standingPosition(r.threshold_value);
+        return `Must have completed all subjects through ${E.describePosition(pos)}`;
     }
     const s = subjectById(r.prerequisite_subject_id);
     const label = s ? `<strong>${escapeHtml(s.code)}</strong> ${escapeHtml(s.title)}` : 'unknown subject';
@@ -1989,10 +2011,18 @@ async function loadReadiness() {
 
     // With several programmes the setup counts describe the chosen one, so
     // "3 offerings published" is not somebody else's schedule.
-    const mine = (rows, keep) => programScoped() && PROGRAM ? (rows ?? []).filter(keep) : (rows ?? []);
-    const prefix = `${PROGRAM_CODE}-`.toLowerCase();
+    // This runs BEFORE the curriculum loads, so PROGRAM and PROGRAM_CODE are not
+    // set yet: PROGRAM_CODE still holds its built-in default ('BSIT'). Counting
+    // sections by that prefix is right for a BSIT department by accident, and
+    // always 0 for BSN or BSCRIM. The account's own programme is already known
+    // here (STAFF.program_id), so it is used instead.
+    const myProgramId = STAFF?.program_id ?? PROGRAM?.id ?? null;
+    const myCode = window.CurriculogicPrograms?.codeOf(myProgramId, '') || PROGRAM?.code || PROGRAM_CODE;
+    const scoped = programScoped() && myProgramId != null;
+    const mine = (rows, keep) => scoped ? (rows ?? []).filter(keep) : (rows ?? []);
+    const prefix = `${myCode}-`.toLowerCase();
 
-    READY.students   = mine(students.data, s => s.program_id === PROGRAM.id).length;
+    READY.students   = mine(students.data, s => s.program_id === myProgramId).length;
     READY.offerings  = mine(offerings.data, o => String(o.section ?? '').toLowerCase().startsWith(prefix)).length;
     READY.gradeFiles = gradeFiles.data?.length ?? 0;
 }
@@ -4068,8 +4098,58 @@ let gradeState = {
     ready: false,
     rows: [],
     studentMap: null,
-    subjectMap: null
+    subjectMap: null,
+    subjectChoices: null,   // the programme's subjects, for the picker
+    lastFile: null,         // the chosen file; kept until it is removed or saved
+    busy: false,            // a check or a save is running
 };
+
+/* ---- the status bar ----
+   state: 'working' | 'done' | 'wait' | 'error' | null (hide). The percentage is
+   measured, not estimated: see shared/js/uploadprogress.js. */
+function gradeStatus(state, text, percent = null) {
+    const box = $('grade-status');
+    if (!box) return;
+    if (!state) { box.hidden = true; return; }
+    box.hidden = false;
+    box.className = 'gu-status' + (state === 'working' ? '' : ' is-' + state);
+    setText('grade-status-text', text);
+    const pct = percent == null ? null : Math.max(0, Math.min(100, Math.round(percent)));
+    setText('grade-status-pct', pct == null ? '' : pct + '%');
+    const fill = $('grade-status-fill');
+    if (fill) fill.style.width = (pct ?? 0) + '%';
+}
+const gradeProgress = (u) => gradeStatus('working', u.detail ? `${u.label}: ${u.detail}` : u.label, u.percent);
+const yieldToUi = () => new Promise(r => setTimeout(r, 0));
+const chunksOf = (list, n) => { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; };
+
+function termChosen() {
+    const [y, t] = String($('g-period')?.value || '').split('-').map(Number);
+    return Number.isInteger(y) && y >= 2000 && y <= 2100 && [1, 2, 3].includes(t);
+}
+const previewShowing = () => $('grade-preview-card') && !$('grade-preview-card').hidden;
+
+/* The chosen file, and the button that checks it. The button waits for a term:
+   without one, nothing could be checked, and the reason is said where the eye is. */
+function renderGradeFileCard() {
+    const file = gradeState.lastFile;
+    const card = $('grade-file-card'), btn = $('grade-check'), term = $('g-period');
+    if (card) card.hidden = !file;
+    if (btn) btn.hidden = !file;
+    if (!file) { term?.classList.remove('is-attn'); return; }
+
+    setText('grade-file-name', file.name);
+    setText('grade-file-size', file.size < 1048576 ? (file.size / 1024).toFixed(1) + ' KB' : (file.size / 1048576).toFixed(1) + ' MB');
+
+    const ready = termChosen();
+    if (btn) btn.disabled = !ready || gradeState.busy;
+    term?.classList.toggle('is-attn', !ready);
+    if (!ready && !gradeState.busy) {
+        gradeStatus('wait', 'Choose a term above first. Your file is kept; press Check file once a term is chosen.', 0);
+    } else if (ready && !gradeState.busy && !previewShowing()) {
+        gradeStatus(null);
+    }
+}
 
 /* Term options — only years that have a prospectus version in the
    database. A term with no curriculum behind it can't validate a
@@ -4109,6 +4189,7 @@ function initGrades() {
         // must choose a term deliberately, same reason a blank year
         // field is better than a wrong default.
         renderPeriodOptions();
+        renderSubjectOptions();
         gradeState.ready = true;
     }
     loadGradeHistory();
@@ -4121,8 +4202,9 @@ function padStudentId(v) {
     return raw.toUpperCase();
 }
 
+/* Spaces, case and dash variants ignored — see shared/js/gradefile.js. */
 function normCode(v) {
-    return String(v ?? '').trim().replace(/\s/g, '').toUpperCase();
+    return window.GradeFile.normCode(v);
 }
 
 async function loadStudentMap() {
@@ -4190,16 +4272,24 @@ async function loadSubjectMap(students) {
         : { data: [] };
 
     const byProspectus = new Map();
+    // Separator-free fallback index ("CRIM-111" finds "CRIM 111"). A key two
+    // subjects share is stored as null, so it never guesses between them.
+    const loose = new Map();
     for (const s of data ?? []) {
         if (!byProspectus.has(s.prospectus_id)) byProspectus.set(s.prospectus_id, new Map());
         byProspectus.get(s.prospectus_id).set(normCode(s.code), s);
+
+        if (!loose.has(s.prospectus_id)) loose.set(s.prospectus_id, new Map());
+        const lk = window.GradeFile.looseCode(s.code);
+        const bucket = loose.get(s.prospectus_id);
+        bucket.set(lk, bucket.has(lk) ? null : s);
     }
 
-    gradeState.subjectMap = { actives, byProspectus };
+    gradeState.subjectMap = { actives, byProspectus, loose };
     return gradeState.subjectMap;
 }
 
-async function readGradeFile(file) {
+async function readGradeFile(file, options = {}) {
     if (typeof XLSX === 'undefined') {
         await new Promise((resolve, reject) => {
             const s = document.createElement('script');
@@ -4211,38 +4301,206 @@ async function readGradeFile(file) {
     }
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array', raw: false, cellDates: false });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    if (!ws) throw new Error('File has no readable sheet.');
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false, header: 1 });
-    if (rows.length < 2) throw new Error('File is empty.');
-    const headers = rows[0].map(h => String(h ?? '').trim().toLowerCase().replace(/\s+/g, '_'));
-    const required = ['student_id', 'subject_code'];
-    const missing = required.filter(r => !headers.includes(r));
-    if (missing.length) throw new Error(`Missing columns: ${missing.join(', ')}`);
-    return rows.slice(1)
-        .filter(row => row.some(c => String(c ?? '').trim() !== ''))
-        .map((row, i) => {
-            const obj = { __line: i + 2 };
-            headers.forEach((h, j) => { obj[h] = String(row[j] ?? '').trim(); });
-            return obj;
-        });
+    if (!wb.SheetNames.length) throw new Error('File has no readable sheet.');
+
+    // The sheet, the header row and the column names are worked out from
+    // the data (shared/js/gradefile.js), not assumed to be sheet 1 / row 1.
+    const sheets = wb.SheetNames.map(name => ({
+        name,
+        aoa: XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '', raw: false, header: 1 }),
+    }));
+    if (sheets.every(s => s.aoa.length < 2)) throw new Error('File is empty.');
+
+    const picked = window.GradeFile.pickSheet(sheets, options);
+    if (!picked) throw new Error(`Could not find the grade table. ${window.GradeFile.ACCEPTED_HEADERS_HELP}`);
+    if (!picked.dataRows) throw new Error('The header was found but there are no grade rows under it.');
+    return window.GradeFile.readRows(picked);
 }
 
-$('grade-file')?.addEventListener('change', async (e) => {
+async function processGradeFile(file) {
+    if (gradeState.busy || !file) return;
+    if (!termChosen()) return renderGradeFileCard();
+
+    gradeState.busy = true;
+    renderGradeFileCard();
+    showMsg('grade-msg', '');
+
+    const t = window.UploadProgress.tracker([
+        { id: 'read',     weight: 5,  label: 'Reading the file' },
+        { id: 'students', weight: 15, label: 'Loading students' },
+        { id: 'subjects', weight: 15, label: 'Loading the curriculum' },
+        { id: 'rows',     weight: 35, label: 'Checking rows' },
+        { id: 'compare',  weight: 30, label: 'Comparing with saved records' },
+    ]);
+    const report = (id, f, detail) => gradeProgress(t.update(id, f, detail));
+
+    try {
+        report('read', 0);
+        const rows = await readGradeFile(file, { subjectChosen: !!$('g-subject')?.value });
+        report('read', 1, `${rows.length} row${rows.length === 1 ? '' : 's'}`);
+        await validateGrades(rows, file.name, report);
+        t.finish();
+        gradeStatus('done', `Checked ${rows.length} row${rows.length === 1 ? '' : 's'}. Review the preview below; nothing is saved yet.`, 100);
+    } catch (err) {
+        gradeStatus('error', err.message, t.percent);
+        showMsg('grade-msg', err.message);
+    } finally {
+        gradeState.busy = false;
+        renderGradeFileCard();
+    }
+}
+
+// Choosing a file shows it and waits for the Check button; nothing runs by itself.
+$('grade-file')?.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    gradeState.lastFile = file;
+    gradeState.rows = [];
+    const card = $('grade-preview-card');
+    if (card) card.hidden = true;
+    if ($('grade-preview')) $('grade-preview').innerHTML = '';
+    gradeStatus(null);
+    renderGradeFileCard();
+});
+
+$('grade-check')?.addEventListener('click', () => processGradeFile(gradeState.lastFile));
+
+$('grade-file-clear')?.addEventListener('click', () => {
+    if (gradeState.busy) return;
+    gradeState.lastFile = null;
+    gradeState.rows = [];
+    $('grade-file').value = '';
+    const card = $('grade-preview-card');
+    if (card) card.hidden = true;
+    if ($('grade-preview')) $('grade-preview').innerHTML = '';
+    gradeStatus(null);
+    renderGradeFileCard();
+});
+
+// A term is needed before a file can be checked, and the result depends on it.
+$('g-period')?.addEventListener('change', () => {
+    renderGradeFileCard();
+    if (gradeState.lastFile && previewShowing()) processGradeFile(gradeState.lastFile);
+});
+
+/* ---- Subject picker and class list ---- */
+
+async function renderSubjectOptions() {
+    const sel = $('g-subject');
+    if (!sel) return;
+
+    let list = [];
+    if (PREVIEW) {
+        list = [
+            { id: 'sub1', code: 'CC-COMPROG12', title: 'Computer Programming 2' },
+            { id: 'sub2', code: 'SOCIO101',     title: 'Sociology' },
+            { id: 'sub3', code: 'RIZAL101',     title: 'Rizal Course' },
+        ];
+    } else {
+        // The department sees only its own programme's curriculum, so this is
+        // the list of subjects it can actually grade.
+        const { data: actives } = await supabase.from('prospectus').select('id').eq('is_active', true);
+        const ids = (actives ?? []).map(a => a.id);
+        if (ids.length) {
+            const { data } = await supabase
+                .from('subject')
+                .select('id, code, title, year_level, term')
+                .in('prospectus_id', ids)
+                .order('year_level', { ascending: true, nullsFirst: false })
+                .order('term', { ascending: true })
+                .order('code', { ascending: true });
+            list = data ?? [];
+        }
+    }
+
+    gradeState.subjectChoices = list;
+    sel.innerHTML = '<option value="">Not needed: my file has a subject column</option>' +
+        list.map(s => `<option value="${escapeHtml(s.code)}">${escapeHtml(s.code)} \u2014 ${escapeHtml(s.title ?? '')}</option>`).join('');
+}
+
+$('g-subject')?.addEventListener('change', () => {
+    const chosen = !!$('g-subject').value;
+    const btn = $('grade-classlist');
+    if (btn) btn.disabled = !chosen;
+    // The same file may now read differently (a class list needs a subject),
+    // so a file already checked is checked again with the new choice.
+    renderGradeFileCard();
+    if (gradeState.lastFile && previewShowing()) processGradeFile(gradeState.lastFile);
+});
+
+/* The students whose enrollment in this subject, for this term, was approved
+   by the adviser. This is a lookup, not a guess: the approved requests are
+   the system's record of who is taking what. */
+async function fetchClassList(subject, year, term) {
+    if (PREVIEW) {
+        return [
+            { student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva' },
+            { student_id: '2401188', first_name: 'Marco',  last_name: 'Deveza' },
+        ];
+    }
+    // Matched on the subject's CODE, not its row id: a curriculum has a new set
+    // of subject rows for every version, and a student enrolled under the
+    // previous version still holds the older row's id.
+    const { data, error } = await supabase
+        .from('request_item')
+        .select('subject:subject_id!inner(code), request!inner(status, registrar_status, requested_year, requested_term, student:student_id(student_id, first_name, last_name))')
+        .eq('subject.code', subject.code)
+        .neq('status', 'rejected')
+        .in('request.status', ['approved', 'partially_approved'])
+        .eq('request.requested_year', year)
+        .eq('request.requested_term', term);
+    if (error) throw new Error('Could not read the enrollment list. ' + error.message);
+    // Approved by the adviser, which is final; an old plan the Registrar once
+    // sent back stays closed (shared/js/requeststatus.js).
+    return (data ?? [])
+        .filter(row => window.CurriculogicRequestStatus.finalApproved(row.request))
+        .map(row => row.request?.student)
+        .filter(Boolean);
+}
+
+$('grade-classlist')?.addEventListener('click', async () => {
+    if (typeof XLSX === 'undefined') {
+        return showMsg('grade-msg', 'The spreadsheet library did not load. Check your connection.');
+    }
+    const code = $('g-subject')?.value;
+    const subject = (gradeState.subjectChoices ?? []).find(s => s.code === code);
+    if (!subject) return showMsg('grade-msg', 'Choose a subject first.');
+
+    const [yearStr, termStr] = String($('g-period')?.value || '').split('-');
+    const year = Number(yearStr), term = Number(termStr);
+    if (!Number.isInteger(year) || ![1, 2, 3].includes(term)) {
+        return showMsg('grade-msg', 'Choose a term first: the class list is for one term.');
+    }
+
     showMsg('grade-msg', '');
     try {
-        const rows = await readGradeFile(file);
-        await validateGrades(rows, file.name);
+        const people = await fetchClassList(subject, year, term);
+        const aoa = window.GradeFile.classListRows(subject, people);
+
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = [{ wch: 12 }, { wch: 28 }, { wch: 18 }, { wch: 8 }, { wch: 10 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Class list');
+        XLSX.writeFile(wb, `class-list-${subject.code}-${year}-${term}.xlsx`.replace(/\s+/g, ''));
+
+        const n = aoa.length - 1;
+        showMsg('grade-msg', n
+            ? `Class list downloaded: ${n} student${n === 1 ? '' : 's'} with an approved enrollment in ${subject.code}. Fill in the grades and upload it here.`
+            : `No approved enrollments were found for ${subject.code} in that term, so the sheet has only the headings. ` +
+              'If students are enrolled, the Registrar may not have approved their requests yet.',
+            n ? 'success' : 'error');
     } catch (err) {
         showMsg('grade-msg', err.message);
     }
 });
 
-async function validateGrades(rows, fileName) {
+async function validateGrades(rows, fileName, report = () => {}) {
+    report('students', 0);
     const students = await loadStudentMap();
+    report('students', 1, `${students.size} students`);
+    report('subjects', 0);
     const subjects = await loadSubjectMap(students);
+    report('subjects', 1);
 
     // 3.0 is UC's passing mark. It is not configurable — a program
     // setting a tighter threshold would fail students who passed under
@@ -4263,12 +4521,30 @@ async function validateGrades(rows, fileName) {
     }
 
     const ok = [], bad = [], skipped = [];
+    // A subject chosen on the page applies to the whole file (see the Subject card).
+    const chosenSubject = $('g-subject')?.value || '';
+    const seenAttempts = new Map();   // student+subject+term -> first line, to catch a repeat in one file
+    let checked = 0;
 
     for (const r of rows) {
+        // Let the bar repaint every few rows, so the percentage moves with the work.
+        if (checked > 0 && checked % 25 === 0) {
+            report('rows', checked / rows.length, `${checked} of ${rows.length}`);
+            await yieldToUi();
+        }
+        checked++;
         const rawId = r.student_id;
-        const rawCode = r.subject_code;
+        let rawCode = r.subject_code;
         const rawGrade = r.grade;
-        const rawStatus = (r.status || '').toUpperCase();
+        let wrongSubject = null;
+        if (chosenSubject) {
+            if (!rawCode) rawCode = chosenSubject;
+            else if (window.GradeFile.looseCode(rawCode) !== window.GradeFile.looseCode(chosenSubject)) {
+                wrongSubject = `This row is for ${rawCode}, but you selected ${chosenSubject}. ` +
+                    'Change the subject above, or correct the row.';
+            }
+        }
+        const rawStatus = window.GradeFile.normStatus(r.status);
 
         const base = {
             line: r.__line,
@@ -4278,6 +4554,7 @@ async function validateGrades(rows, fileName) {
             raw_grade: rawGrade,
         };
 
+        if (wrongSubject) { bad.push({ ...base, why: wrongSubject }); continue; }
         if (!rawId) { bad.push({ ...base, why: 'No student ID.' }); continue; }
         const cleanId = padStudentId(rawId);
         if (/^\d+$/.test(cleanId) && cleanId.length !== 7) {
@@ -4296,23 +4573,21 @@ async function validateGrades(rows, fileName) {
             bad.push({ ...base, why: 'This student has no curriculum: their programme has none published, or no programme is set.' });
             continue;
         }
-        const subject = subjects.byProspectus.get(prospectusId)?.get(cleanCode);
+        const subject = subjects.byProspectus.get(prospectusId)?.get(cleanCode)
+            ?? subjects.loose?.get(prospectusId)?.get(window.GradeFile.looseCode(rawCode))
+            ?? null;
         if (!subject) {
             bad.push({ ...base, why: `"${rawCode}" not in this student's prospectus.` });
             continue;
         }
 
-        let points = null;
-        let status = rawStatus;
+        const parsed = window.GradeFile.parseGrade(rawGrade);
+        if (parsed.error) { bad.push({ ...base, why: parsed.error }); continue; }
+        const points = parsed.points;
 
-        if (rawGrade !== '' && rawGrade !== '-') {
-            points = parseFloat(rawGrade);
-            if (!Number.isFinite(points) || points < 1 || points > 5) {
-                bad.push({ ...base, why: `Grade "${rawGrade}" must be 1.0–5.0.` });
-                continue;
-            }
-            points = Math.round(points * 100) / 100;
-        }
+        // An explicit status column wins; otherwise a grade cell that said
+        // "DRP" or the like sets it.
+        let status = rawStatus || parsed.status || '';
 
         if (!status) {
             if (points === null) status = 'ENROLLED';
@@ -4324,8 +4599,8 @@ async function validateGrades(rows, fileName) {
             continue;
         }
 
-        const parsedTerm = parseInt(r.term || term);
-        const parsedYear = parseInt(r.academic_year || year);
+        const parsedTerm = window.GradeFile.parseTerm(r.term, term);
+        const parsedYear = window.GradeFile.parseYear(r.academic_year, year);
         if (isNaN(parsedTerm) || parsedTerm < 1 || parsedTerm > 3) {
             bad.push({ ...base, why: `Term "${r.term}" must be 1, 2, or 3.` });
             continue;
@@ -4335,12 +4610,19 @@ async function validateGrades(rows, fileName) {
             continue;
         }
 
-        const expected = `${student.first_name} ${student.last_name}`.toLowerCase();
-        const provided = base.raw_student_name.toLowerCase();
         let nameWarn = null;
-        if (provided && !expected.includes(provided) && !provided.includes(expected)) {
+        if (!window.GradeFile.nameMatches(base.raw_student_name, student.first_name, student.last_name)) {
             nameWarn = `Name mismatch: "${base.raw_student_name}" vs ${student.first_name} ${student.last_name}`;
         }
+
+        // The same student and subject twice for one term in one file would make
+        // the save fail halfway (the database refuses a row twice in one batch).
+        const attempt = window.GradeFile.attemptKey(student.id, subject.id, parsedTerm, parsedYear);
+        if (seenAttempts.has(attempt)) {
+            bad.push({ ...base, why: `Appears twice in this file: line ${seenAttempts.get(attempt)} already has this student and subject for this term.` });
+            continue;
+        }
+        seenAttempts.set(attempt, r.__line);
 
         ok.push({
             ...base,
@@ -4354,8 +4636,33 @@ async function validateGrades(rows, fileName) {
         });
     }
 
-    gradeState.rows = ok;
-    renderGradePreview(ok, bad, fileName, passing);
+    // Say which rows are already recorded, which would replace a grade, and which are new.
+    report('rows', 1, `${rows.length} of ${rows.length}`);
+    const existing = await loadExistingRecords(ok, report);
+    const compared = window.GradeFile.flagRepeats(window.GradeFile.compareWithRecords(ok, existing), existing);
+    gradeState.rows = compared;
+    renderGradePreview(compared, bad, fileName, passing);
+}
+
+/* The records already saved for the students in this file. Fails closed: if
+   they cannot be read, the upload stops with a message rather than calling
+   every row "new". */
+async function loadExistingRecords(rows, report = () => {}) {
+    if (PREVIEW || !rows.length) { report('compare', 1); return []; }
+    const ids = [...new Set(rows.map(r => r.student.id))];
+    const found = [];
+    const batches = chunksOf(ids, 200);
+    for (let i = 0; i < batches.length; i++) {
+        report('compare', i / batches.length, `${Math.min(i * 200, ids.length)} of ${ids.length} students`);
+        const { data, error } = await supabase
+            .from('academic_record')
+            .select('student_id, subject_id, taken_term, taken_year, grade_points, status')
+            .in('student_id', batches[i]);
+        if (error) throw new Error('Could not check the file against the records already saved. ' + error.message);
+        found.push(...(data ?? []));
+    }
+    report('compare', 1);
+    return found;
 }
 
 function renderGradePreview(ok, bad, fileName, passing) {
@@ -4368,6 +4675,9 @@ function renderGradePreview(ok, bad, fileName, passing) {
     if (note) note.textContent = fileName;
 
     const warned = ok.filter(r => r.name_warning);
+    const changes = window.GradeFile.summarizeChanges(ok);
+    const repeats = ok.filter(r => r.repeat);
+    const termName = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
 
     // Outcome breakdown — the strip's four values.
     const statusCount = (s) => ok.filter(r => r.status === s).length;
@@ -4419,6 +4729,39 @@ function renderGradePreview(ok, bad, fileName, passing) {
         </div>
     `;
 
+    if (ok.length) {
+        const parts = [];
+        if (changes.new)       parts.push(`${changes.new} new`);
+        if (changes.changed)   parts.push(`${changes.changed} correction${changes.changed === 1 ? '' : 's'}`);
+        if (changes.unchanged) parts.push(`${changes.unchanged} already recorded`);
+        const nothing = changes.toSave === 0;
+        html += `
+            <div class="notice ${nothing || changes.changed ? 'pending' : 'info'}">
+                <i class="fa-solid ${nothing ? 'fa-circle-exclamation' : 'fa-clock-rotate-left'}" aria-hidden="true"></i>
+                <div>
+                    <strong>${parts.join(' · ')}</strong>
+                    ${nothing
+                        ? '<span class="dim">Every row is already recorded exactly as it is in this file, so there is nothing to save. This looks like a file that was uploaded before.</span>'
+                        : `<span class="dim">${changes.changed ? 'A correction replaces the grade already on record for that student, subject and term. ' : ''}${changes.unchanged ? 'Rows already recorded as they are will be skipped.' : ''}</span>`}
+                </div>
+            </div>`;
+    }
+
+    if (repeats.length) {
+        html += `
+            <div class="notice pending">
+                <i class="fa-solid fa-rotate" aria-hidden="true"></i>
+                <div>
+                    <strong>${repeats.length} grade${repeats.length > 1 ? 's are' : ' is'} for a subject the student already passed</strong>
+                    ${repeats.slice(0, 5).map(r =>
+                        `<span class="dim">Line ${r.line}: ${escapeHtml(r.student.first_name)} ${escapeHtml(r.student.last_name)}, ${escapeHtml(r.subject.code)}, passed in ${r.repeat.year} ${termName[r.repeat.term] ?? ''}${r.repeat.grade_points == null ? '' : ' (' + Number(r.repeat.grade_points).toFixed(2) + ')'}</span>`
+                    ).join('<br>')}
+                    ${repeats.length > 5 ? `<span class="dim">and ${repeats.length - 5} more</span>` : ''}
+                    <span class="dim">A retake of a failed subject is normal, but this often means the file was uploaded under the wrong term. Check the term above. These rows are still accepted if you submit.</span>
+                </div>
+            </div>`;
+    }
+
     if (warned.length) {
         html += `
             <div class="notice pending">
@@ -4456,10 +4799,10 @@ function renderGradePreview(ok, bad, fileName, passing) {
 
     if (ok.length) {
         html += `
-            <h3 class="group-head">Ready to submit (${ok.length})</h3>
+            <h3 class="group-head">${changes.toSave ? 'Rows in this file' : 'Rows in this file (nothing to save)'} (${ok.length})</h3>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>ID</th><th>Name</th><th>Subject</th><th class="num">Grade</th><th>Status</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Name</th><th>Subject</th><th class="num">Grade</th><th>Status</th><th>Record</th></tr></thead>
                     <tbody>${ok.slice(0, 15).map(r => `
                         <tr>
                             <td class="mono">${escapeHtml(r.student.student_id)}</td>
@@ -4467,6 +4810,13 @@ function renderGradePreview(ok, bad, fileName, passing) {
                             <td class="mono">${escapeHtml(r.subject.code)}</td>
                             <td class="num">${r.grade_points == null ? '—' : r.grade_points.toFixed(2)}</td>
                             <td><span class="pill ${r.status === 'PASSED' ? 'ok' : r.status === 'FAILED' ? 'bad' : r.status === 'DROPPED' ? 'waiting' : 'info'}">${r.status}</span></td>
+                            <td>${r.change === 'unchanged'
+                                ? '<span class="pill waiting">Already recorded</span>'
+                                : r.change === 'changed'
+                                    ? `<span class="pill bad">Correction</span> <span class="dim">was ${r.prev?.grade_points == null ? '\u2014' : Number(r.prev.grade_points).toFixed(2)} ${escapeHtml(r.prev?.status ?? '')}</span>`
+                                    : '<span class="pill info">New</span>' + (r.repeat
+                                        ? ` <span class="pill waiting" title="Already passed in ${r.repeat.year} ${termName[r.repeat.term] ?? ''}">Already passed ${r.repeat.year}</span>`
+                                        : '')}</td>
                         </tr>
                     `).join('')}</tbody>
                 </table>
@@ -4474,10 +4824,11 @@ function renderGradePreview(ok, bad, fileName, passing) {
             </div>
 
             <div class="preview-actions">
+                ${changes.toSave ? `
                 <button class="btn-accent" id="commit-grades">
                     <i class="fa-solid fa-check" aria-hidden="true"></i>
-                    <span>Submit ${ok.length} Grades</span>
-                </button>
+                    <span>Submit ${changes.toSave} Grade${changes.toSave === 1 ? '' : 's'}</span>
+                </button>` : ''}
                 <button class="btn-secondary" id="discard-grades">
                     Discard upload
                 </button>
@@ -4520,11 +4871,29 @@ async function commitGrades(fileName, bad, passing) {
         return showMsg('grade-msg', 'No valid rows to save.');
     }
 
+    // Rows already recorded exactly as in the file are not written again.
+    const toWrite = gradeState.rows.filter(r => r.change !== 'unchanged');
+    const alreadyRecorded = gradeState.rows.length - toWrite.length;
+    if (toWrite.length === 0) {
+        return showMsg('grade-msg', 'Nothing to save: every row is already recorded exactly as in this file.');
+    }
+
     const btn = $('commit-grades');
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
     }
+
+    const save = window.UploadProgress.tracker([
+        { id: 'audit',   weight: 5,  label: 'Recording the upload' },
+        { id: 'log',     weight: 20, label: 'Saving the row log' },
+        { id: 'records', weight: 65, label: 'Saving grades' },
+        { id: 'finish',  weight: 10, label: 'Finishing' },
+    ]);
+    const saveReport = (id, f, detail) => gradeProgress(save.update(id, f, detail));
+    gradeState.busy = true;
+    saveReport('audit', 0);
+    let savedSoFar = 0;
 
     const period = String($('g-period')?.value || '');
     const [yearStr, termStr] = period.split('-');
@@ -4536,13 +4905,14 @@ async function commitGrades(fileName, bad, passing) {
         const previewCard = $('grade-preview-card');
         if (previewCard) previewCard.hidden = true;
         $('grade-file').value = '';
-        showMsg('grade-msg', `${gradeState.rows.length} grades submitted (preview).`, 'success');
+        showMsg('grade-msg', `${toWrite.length} grades submitted (preview).`, 'success');
 
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-check"></i> Save records';
         }
         gradeState.rows = [];
+        gradeState.busy = false;
         return;
     }
 
@@ -4554,7 +4924,7 @@ async function commitGrades(fileName, bad, passing) {
                 file_name: fileName,
                 status: 'processing',
                 row_count: gradeState.rows.length + bad.length,
-                matched_count: gradeState.rows.length,
+                matched_count: toWrite.length,
                 error_count: bad.length,
                 passing_grade: passing,
                 term: term,
@@ -4566,7 +4936,7 @@ async function commitGrades(fileName, bad, passing) {
         if (fe) throw new Error('Audit failed: ' + fe.message);
 
         const rowPayload = [
-            ...gradeState.rows.map(r => ({
+            ...toWrite.map(r => ({
                 grade_file_id: file.id,
                 row_number: r.line,
                 raw_student_id: r.raw_student_id,
@@ -4594,9 +4964,18 @@ async function commitGrades(fileName, bad, passing) {
             })),
         ];
 
-        await supabase.from('grade_file_row').insert(rowPayload);
+        // The row log is audit detail: in batches, so the bar moves, and a failure
+        // here is reported in the console without stopping the grades being saved.
+        saveReport('audit', 1);
+        const logBatches = chunksOf(rowPayload, 100);
+        for (let i = 0; i < logBatches.length; i++) {
+            saveReport('log', i / logBatches.length, `${Math.min(i * 100, rowPayload.length)} of ${rowPayload.length} rows`);
+            const { error: le } = await supabase.from('grade_file_row').insert(logBatches[i]);
+            if (le) console.warn('row log batch failed:', le.message);
+        }
+        saveReport('log', 1);
 
-        const records = gradeState.rows.map(r => ({
+        const records = toWrite.map(r => ({
             student_id: r.student.id,
             subject_id: r.subject.id,
             grade: r.raw_grade || null,
@@ -4606,15 +4985,26 @@ async function commitGrades(fileName, bad, passing) {
             taken_year: r.academic_year,
         }));
 
-        const { error: re } = await supabase
-            .from('academic_record')
-            // Keyed on the attempt, not the subject. Re-uploading a
-            // corrected grade for the same term updates that attempt; a
-            // retake in a later term becomes a new row, so the earlier
-            // failure stays on the transcript.
-            .upsert(records, { onConflict: 'student_id,subject_id,taken_term,taken_year' });
-
-        if (re) throw new Error('Record save failed: ' + re.message);
+        // Keyed on the attempt, not the subject. Re-uploading a corrected grade
+        // for the same term updates that attempt; a retake in a later term becomes
+        // a new row, so the earlier failure stays on the transcript.
+        // Saved in batches so the percentage is the share really saved. If a batch
+        // fails, the earlier ones are kept, and running the same file again
+        // finishes the job: the rows already saved show as "already recorded".
+        const batches = chunksOf(records, 100);
+        for (let i = 0; i < batches.length; i++) {
+            saveReport('records', savedSoFar / records.length, `${savedSoFar} of ${records.length} grades`);
+            const { error: re } = await supabase
+                .from('academic_record')
+                .upsert(batches[i], { onConflict: 'student_id,subject_id,taken_term,taken_year' });
+            if (re) {
+                throw new Error(`Record save failed after ${savedSoFar} of ${records.length} grades: ${re.message}. ` +
+                    'Check the same file again to finish: grades already saved will show as already recorded.');
+            }
+            savedSoFar += batches[i].length;
+        }
+        saveReport('records', 1, `${records.length} of ${records.length} grades`);
+        saveReport('finish', 0);
 
         await supabase
             .from('grade_file')
@@ -4632,19 +5022,30 @@ async function commitGrades(fileName, bad, passing) {
         const previewCard = $('grade-preview-card');
         if (previewCard) previewCard.hidden = true;
         $('grade-file').value = '';
+        gradeState.lastFile = null;
+        renderGradeFileCard();
 
         await loadGradeHistory();
 
-        let msg = `${records.length} grade${records.length === 1 ? '' : 's'} submitted.`;
+        const corrected = toWrite.filter(r => r.change === 'changed').length;
+        let msg = `${records.length} grade${records.length === 1 ? '' : 's'} saved` +
+            (corrected ? ` (${corrected} replaced an earlier grade)` : '') + '.';
+        if (alreadyRecorded > 0) {
+            msg += ` ${alreadyRecorded} already recorded and skipped.`;
+        }
         if (bad.length > 0) {
             msg += ` ${bad.length} row${bad.length === 1 ? '' : 's'} rejected.`;
         }
+        save.finish();
+        gradeStatus('done', msg, 100);
         showMsg('grade-msg', msg, 'success');
 
     } catch (err) {
         console.error('commit failed:', err);
+        gradeStatus('error', err.message || 'An error occurred while saving.', save.percent);
         showMsg('grade-msg', err.message || 'An error occurred while saving.');
     } finally {
+        gradeState.busy = false;
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-check"></i> Save records';
@@ -4758,38 +5159,6 @@ $('grade-template')?.addEventListener('click', () => {
     XLSX.writeFile(wb, 'grade-template.xlsx');
 });
 
-/* Switching the working programme. Everything the page holds belongs to the
-   programme it was loaded for (versions, subjects, rules, sections, an
-   upload waiting for confirmation), so all of it is dropped and reloaded
-   rather than patched, and the current view is drawn again. */
-$('dept-program')?.addEventListener('change', async (e) => {
-    const next = PROGRAM_LIST.find(p => p.id === Number(e.target.value));
-    if (!next || next.id === PROGRAM?.id) return;
-
-    if (DIRTY.size && !window.confirm(
-        'You have unsaved schedule changes for ' + (PROGRAM?.code ?? 'this programme') +
-        '. Switching programme discards them.\n\nSwitch anyway?')) {
-        e.target.value = String(PROGRAM.id);
-        return;
-    }
-
-    PROGRAM = next;
-    saveProgramId(next.id);
-
-    EDITING = null;
-    OFFERINGS = []; PENDING = []; DIRTY.clear();
-    PENDING_ROWS = [];
-    const preview = $('upload-preview');
-    if (preview) preview.innerHTML = '';
-    scheduleReady = false;        // year and section options are rebuilt
-    gradeState.ready = false;     // and the grade-term options
-
-    setVersions(ALL_VERSIONS);
-    await loadReadiness();
-    await loadCurriculum();
-    route();
-});
-
 /* boot */
 
 (async function init() {
@@ -4820,7 +5189,7 @@ $('dept-program')?.addEventListener('change', async (e) => {
 
     const { data: staff, error } = await supabase
         .from('department_staff')
-        .select('id, user_id, first_name, last_name, employee_id, email, department, is_approved, avatar_url, created_at')
+        .select('id, user_id, first_name, last_name, employee_id, email, department, program_id, is_approved, avatar_url, created_at')
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 

@@ -71,10 +71,13 @@
             <span class="topbar-title" id="topbar-title">Dashboard</span>
             <span class="topbar-term" id="topbar-term">1st Sem · AY 2023–2024</span>
 
-            <!-- Shown only when the university has more than one programme. -->
-            <label class="topbar-program" id="dept-program-wrap" hidden>
+            <!-- The programme this department account belongs to. Read-only:
+                 one account, one programme (db/030). Filled in by
+                 renderProgramSelector() in departmentdashboard.js. -->
+            <label class="topbar-program" id="dept-program-wrap">
                 <span class="topbar-program-label">Programme</span>
-                <select id="dept-program" aria-label="Programme you are working on"></select>
+                <input type="text" id="dept-program" class="topbar-program-field" value="—"
+                       readonly tabindex="-1" aria-label="Programme this account belongs to">
             </label>
 
             <div class="topbar-user">
@@ -415,11 +418,15 @@
                                 <select id="r-subject"></select>
                             </div>
                             <div class="field field-sm" id="field-threshold" hidden>
-                                <label for="r-threshold">Years completed</label>
+                                <label for="r-threshold">Completed through</label>
                                 <select id="r-threshold">
-                                    <option value="1">Through 1st year</option>
-                                    <option value="2">Through 2nd year</option>
-                                    <option value="3">Through 3rd year</option>
+                                    <option value="11">1st year, 1st sem</option>
+                                    <option value="12">1st year</option>
+                                    <option value="21">2nd year, 1st sem</option>
+                                    <option value="22">2nd year</option>
+                                    <option value="31">3rd year, 1st sem</option>
+                                    <option value="32">3rd year</option>
+                                    <option value="41">4th year, 1st sem</option>
                                 </select>
                             </div>
                             <div class="field field-sm">
@@ -603,7 +610,41 @@
     </div>
 </section>
 
+    <!-- Subject: only for a class list, whose rows carry no subject -->
+    <section class="card">
+        <div class="card-head">
+            <span class="card-title">Subject</span>
+            <span class="card-note">Optional</span>
+        </div>
+        <div class="card-body">
+            <div class="form-grid">
+                <div class="field">
+                    <label for="g-subject">Subject for this file</label>
+                    <select id="g-subject">
+                        <option value="">Not needed: my file has a subject column</option>
+                    </select>
+                </div>
+                <div class="field field-sm">
+                    <label>&nbsp;</label>
+                    <button class="btn-small" id="grade-classlist" disabled>
+                        <i class="fa-solid fa-list-check" aria-hidden="true"></i>
+                        <span>Download class list</span>
+                    </button>
+                </div>
+            </div>
+            <p class="hint">
+                Most class records name the subject once at the top and then list the students.
+                Choose that subject here and upload the list as it is, without a subject column.
+                Every row is then graded for this subject, and a row that names a different
+                subject is rejected. <strong>Download class list</strong> gives a sheet for the
+                chosen subject and term, already filled with the students whose enrollment was
+                approved, so only the grades are left to type.
+            </p>
+        </div>
+    </section>
+
     <!-- Source: template + file -->
+    <section class="card">
     <div class="card-head">
         <span class="card-title">Upload a grade file</span>
     </div>
@@ -644,8 +685,35 @@
                         <span class="upload-pick-hint">.csv, .xlsx, .xls</span>
                         <input type="file" id="grade-file" accept=".csv,.xlsx,.xls">
                     </label>
+
+                    <!-- The chosen file, and the button that checks it -->
+                    <div class="gu-file" id="grade-file-card" hidden>
+                        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+                        <div class="gu-file-meta">
+                            <p class="gu-file-name" id="grade-file-name"></p>
+                            <p class="gu-file-size" id="grade-file-size"></p>
+                        </div>
+                        <button class="gu-icon-btn" id="grade-file-clear" type="button" aria-label="Remove file">
+                            <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                    <button class="btn-accent gu-check" id="grade-check" type="button" disabled hidden>
+                        <i class="fa-solid fa-magnifying-glass-chart" aria-hidden="true"></i>
+                        <span>Check file</span>
+                    </button>
                 </div>
 
+            </div>
+
+            <!-- What the upload is doing, with a percentage that measures real work -->
+            <div class="gu-status" id="grade-status" role="status" aria-live="polite" hidden>
+                <div class="gu-status-row">
+                    <span class="gu-status-text" id="grade-status-text"></span>
+                    <span class="gu-status-pct" id="grade-status-pct"></span>
+                </div>
+                <div class="gu-status-track">
+                    <div class="gu-status-fill" id="grade-status-fill" style="width:0%"></div>
+                </div>
             </div>
 
         </div>
@@ -892,7 +960,13 @@
 <script src="../../shared/js/config.js"></script>
 <script src="../../shared/js/systemconfig.js"></script>
 <script src="../../shared/js/programs.js"></script>
+<script src="../../shared/js/requeststatus.js"></script>
+<script src="../../shared/js/gradefile.js"></script>
+<script src="../../shared/js/uploadprogress.js"></script>
+<script src="../../shared/engine/engine.js"></script>
 <script src="../../shared/js/prospectusgrid.js"></script>
+<script src="../../shared/js/electives.js"></script>
+<script src="../../shared/js/footnotes.js"></script>
 <script src="../curriculum/curriculum_builder.js"></script>
 <script src="departmentdashboard.js"></script>
 </body>
