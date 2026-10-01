@@ -1,7 +1,8 @@
 // prospectusgrid.js — renders a prospectus as the printed curriculum grid.
 // Load after config.js and before departmentdashboard.js.
 //
-// Exposes window.ProspectusGrid.render(supabase, prospectusId, mountEl, statuses, offline).
+// Exposes window.ProspectusGrid.render(supabase, prospectusId, mountEl, statuses, offline)
+// and window.ProspectusGrid.mountVersions(supabase, { select, body, title }).
 // No Supabase writes. Read-only, so every actor can reuse it — Faculty
 // and Student get the same grid with a status map layered on later.
 //
@@ -23,7 +24,7 @@ const CATEGORIES = [
     ['GE',               'General Education Courses'],
     ['COMMON_COMPUTING', 'Common Computing Courses'],
     ['PROFESSIONAL_IT',  'Professional IT Courses'],
-    ['ELECTIVE',         'IT Electives / Free Electives'],
+    ['ELECTIVE',         'Programme Electives / Free Electives'],
     ['OTHER',            'Other Courses (PE & NSTP)'],
 ];
 
@@ -76,7 +77,10 @@ function describeStanding(pos) {
    the same shape the live query branch below produces after its own
    join. Used by the offline (preview) path. */
 function buildFromOffline(offline) {
-    const subjects = offline.subjects ?? [];
+    // An elective type marks a slot even when is_elective was saved false
+    // (see shared/js/electives.js), so the grid and the engine agree.
+    const subjects = (offline.subjects ?? []).map(s =>
+        ({ ...s, is_elective: s.is_elective === true || s.elective_type != null }));
     const byId = new Map(subjects.map(s => [s.id, s]));
 
     const rules = new Map();
@@ -179,12 +183,16 @@ function panel(label, rows, rules, showSplit) {
         // picks from. This does not enforce the choice -- the engine has
         // no concept of "this slot is filled" -- it only tells the
         // student honestly that a choice exists and where to make it.
-        const isFreeSlot = s.is_elective && /^IT-FRE/.test(s.code);
+        const isFreeSlot = s.is_elective && s.elective_type === 'FREE';
         const catalogueId = 'pg-catalogue-' + (isFreeSlot ? 'freeelectivecourses' : 'itelectivecourses');
-        const titleCell = s.is_elective
-            ? `<span class="pg-slot-hint" data-jump-catalogue="${catalogueId}">`
-              + `Choose 1 — see ${isFreeSlot ? 'Free' : 'IT'} Elective Courses</span>`
-            : esc(s.title);
+        // A slot the student has already filled names the subject that filled it.
+        const filledBy = s.is_elective ? STATUS?.get(s.id)?.filledBy : null;
+        const titleCell = filledBy
+            ? `${esc(filledBy.code)} — ${esc(filledBy.title)}`
+            : s.is_elective
+                ? `<span class="pg-slot-hint" data-jump-catalogue="${catalogueId}">`
+                  + `Choose 1 — see ${isFreeSlot ? 'Free' : 'IT'} Elective Courses</span>`
+                : esc(s.title);
 
         return `<tr class="${cls}" id="${slug(s.code)}">
             <td class="pg-code">${esc(s.code)}</td>
@@ -396,14 +404,34 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
     const frEl  = cat.filter(s => s.elective_type === 'FREE');
     const itEl  = cat.filter(s => s.elective_type !== 'FREE');
 
+    /* Elective boxes are shown only for programmes that have them: either
+       catalogue entries, or placeholder slots sitting in a semester. A
+       programme with neither (e.g. Criminology) gets no box and no legend
+       line. The "Choose N · U units" note is read from the slots rather
+       than fixed at the BSIT figure. */
+    const slots   = subjects.filter(s => s.year_level != null && s.is_elective);
+    const frSlots = slots.filter(s => s.elective_type === 'FREE');
+    const itSlots = slots.filter(s => s.elective_type !== 'FREE');
+    const hasIt   = itEl.length > 0 || itSlots.length > 0;
+    const hasFree = frEl.length > 0 || frSlots.length > 0;
+
+    const WORDS = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+    const slotNote = (list) => {
+        if (!list.length) return '';
+        const units = list.reduce((sum, s) => sum + Number(s.units || 0), 0);
+        return `Choose ${WORDS[list.length] ?? list.length} · ${units} units`;
+    };
+
+    const panels = [
+        hasIt   ? electivePanel('Programme Elective Courses', slotNote(itSlots), itEl, rules) : '',
+        hasFree ? electivePanel('Free Elective Courses', slotNote(frSlots), frEl, rules) : '',
+    ].join('');
+
     MOUNT.innerHTML = `
         <div class="pg-tabs">${tabs}</div>
         <div class="pg-stage">${stage}</div>
 
-        <div class="pg-pair">
-            ${electivePanel('IT Elective Courses', 'Choose four · 12 units', itEl, rules)}
-            ${electivePanel('Free Elective Courses', 'Choose four · 12 units', frEl, rules)}
-        </div>
+        ${panels ? `<div class="pg-pair">${panels}</div>` : ''}
 
         <div class="pg-pair">
             <div class="pg-panel">
@@ -415,8 +443,8 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
                 <div class="pg-legend">
                     <div><span class="m">**</span><span class="t">Must finish all 1st year to 2nd year courses</span></div>
                     <div><span class="m">***</span><span class="t">Must finish all 1st year to 3rd year courses</span></div>
-                    <div><span class="m">●</span><span class="t">Choose from the IT elective courses</span></div>
-                    <div><span class="m">●●</span><span class="t">Choose from the free elective courses</span></div>
+                    ${hasIt ? '<div><span class="m">●</span><span class="t">Choose from the programme elective courses</span></div>' : ''}
+                    ${hasFree ? '<div><span class="m">●●</span><span class="t">Choose from the free elective courses</span></div>' : ''}
                 </div>
             </div>
         </div>`;
@@ -444,6 +472,73 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
     window.addEventListener('resize', sizeStage);
 }
 
-window.ProspectusGrid = { render };
+/* A read-only browser of a programme's curriculum versions, for the roles that
+   guide students but do not author the curriculum (faculty, Registrar).
+
+   It lists every PUBLISHED version the signed-in role may read: the active one
+   and the older ones that were published before it. Students are often still on
+   an older curriculum, so an adviser needs those to advise them. A draft (never
+   published) is the department's work in progress and is not even requested.
+
+     await ProspectusGrid.mountVersions(supabase, {
+         select,   // <select> for the curriculum year
+         body,     // where the grid is drawn
+         title,    // optional: an element that names the programme
+     });
+
+   Safe to call every time the page is opened: the list is built once, and the
+   grid is drawn again. */
+const mounted = new WeakSet();
+
+async function mountVersions(supabase, { select, body, title }) {
+    if (!select || !body) return;
+    const empty = (heading, text = '') => {
+        body.innerHTML = `<div class="empty"><h3>${heading}</h3>${text ? `<p>${text}</p>` : ''}</div>`;
+    };
+
+    if (!supabase) return empty('Preview mode', 'The curriculum is not loaded in preview.');
+
+    if (!mounted.has(select)) {
+        const { data, error } = await supabase
+            .from('prospectus')
+            .select('id, academic_year, is_active, published_at, program_id')
+            .or('is_active.eq.true,published_at.not.is.null')
+            .order('academic_year', { ascending: false });
+
+        if (error) {
+            console.warn('prospectus versions failed:', error.message);
+            return empty('Could not load the curriculum versions');
+        }
+
+        const versions = data ?? [];
+        if (!versions.length) {
+            return empty('No curriculum published', 'The department has not published a prospectus yet.');
+        }
+
+        const label = (v) => `${v.academic_year}\u2013${v.academic_year + 1} \u00b7 ${v.is_active ? 'Active' : 'Older version'}`;
+        select.innerHTML = versions.map(v => `<option value="${v.id}">${label(v)}</option>`).join('');
+        select.value = String((versions.find(v => v.is_active) ?? versions[0]).id);
+
+        const paintTitle = () => {
+            if (!title) return;
+            const v = versions.find(x => x.id === Number(select.value));
+            title.textContent = v
+                ? (window.CurriculogicPrograms?.nameOf(v.program_id, 'Prospectus') ?? 'Prospectus')
+                : 'Prospectus';
+        };
+
+        // onchange, not addEventListener: nothing stacks if this is ever re-run.
+        select.onchange = () => {
+            paintTitle();
+            return render(supabase, Number(select.value), body);
+        };
+        paintTitle();
+        mounted.add(select);
+    }
+
+    await render(supabase, Number(select.value), body);
+}
+
+window.ProspectusGrid = { render, mountVersions };
 
 })();
