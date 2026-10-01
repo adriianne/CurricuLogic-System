@@ -71,7 +71,7 @@ function previewRequested() {
 const VIEWS = {
     dashboard: 'Dashboard',
     accounts:  'Create account',
-    bulk:      'Bulk upload',
+    bulk:      'Create account',   // the same page as #accounts, in its file mode
     staff:     'Staff management',
     programs:  'Programs',
     students:  'Students',
@@ -92,7 +92,9 @@ function showView(name) {
     });
 
     document.querySelectorAll('.side-nav a').forEach((link) => {
-        link.classList.toggle('active', link.dataset.view === name);
+        // Bulk upload is the second mode of Create account, not a page of its own.
+        const owner = name === 'bulk' ? 'accounts' : name;
+        link.classList.toggle('active', link.dataset.view === owner);
     });
 
     const title = $('topbar-title');
@@ -252,7 +254,7 @@ async function loadStaff(force = false) {
             .select('id, first_name, last_name, email, employee_id, department, program_id, is_approved, created_at'),
         supabase.from('department_staff')
             .select('id, first_name, last_name, email, employee_id, department, program_id, is_approved, created_at'),
-        supabase.from('program').select('id, code, name, college').order('code'),
+        supabase.from('program').select('id, code, name, college, max_units, max_units_graduating, target_units').order('code'),
     ]);
 
     if (faculty.error)  console.warn('faculty load failed:', faculty.error.message);
@@ -868,6 +870,8 @@ let PENDING_BULK = [];
 let PENDING_BULK_BAD = [];       // rejected rows from the last validation, kept so
                                   // re-filtering (role/program) doesn't lose them
 let PENDING_BULK_FILE = '';
+let PENDING_BULK_RAW = [];       // the file's rows as read, so choosing another
+                                 // programme can re-check them without a re-upload
 let BULK_HISTORY = [];
 let bulkInitialized = false;
 
@@ -894,8 +898,13 @@ function initBulkUpload() {
             renderBulkPreview(PENDING_BULK, PENDING_BULK_BAD, PENDING_BULK_FILE);
         }
     };
-    $('bulk-role-filter')?.addEventListener('change', rerenderOnFilterChange);
-    $('bulk-program-filter')?.addEventListener('change', rerenderOnFilterChange);
+    // Role and programme decide which rows are acceptable, not only which
+    // are shown, so choosing another one checks the loaded file again.
+    const recheck = () => {
+        if (PENDING_BULK_RAW.length > 0) validateBulkRows(PENDING_BULK_RAW, PENDING_BULK_FILE);
+    };
+    $('bulk-role-filter')?.addEventListener('change', recheck);
+    $('bulk-program-filter')?.addEventListener('change', recheck);
 
     // Programme options mirror the Role dropdown: every programme that
     // currently exists, available as soon as the page loads -- not only
@@ -921,14 +930,24 @@ function downloadBulkTemplate() {
     // that is only right for one of them. program_code is required for
     // every role below except admin (db/030 -- each row's programme is
     // what that role's per-programme account cap is checked against).
-    const sampleProgram = PROGRAMS[0]?.code ?? '';
-    const sampleCollege = PROGRAMS[0]?.college ?? knownColleges()[0] ?? '';
-    const rows = [
-        { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: 'EMP-00101', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
-        { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: 'EMP-00102', student_id: '', program_code: sampleProgram, department: 'Office of the Registrar', year_level: '', password: '', username: '' },
-        { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: 'EMP-00103', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
-        { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '2401187', program_code: sampleProgram, department: '', year_level: '2', password: '', username: '' },
-    ];
+    // The programme chosen above the upload is the one the sample rows
+    // carry; with "All programmes" it is the first that exists.
+    const selected = $('bulk-program-filter')?.value || 'all';
+    const sample = CurriculogicBulkAccounts.templateProgram(PROGRAMS, selected);
+    const sampleProgram = sample?.code ?? '';
+    const sampleCollege = sample?.college ?? knownColleges()[0] ?? '';
+    // The Role chosen above the upload keeps only that role's sample row.
+    // An admin sample appears only when admin is chosen on purpose.
+    const selectedRole = $('bulk-role-filter')?.value || 'all';
+    const SAMPLE_ROWS = {
+        faculty:    { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: 'EMP-00101', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
+        registrar:  { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: 'EMP-00102', student_id: '', program_code: sampleProgram, department: 'Office of the Registrar', year_level: '', password: '', username: '' },
+        department: { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: 'EMP-00103', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
+        student:    { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '2401187', program_code: sampleProgram, department: '', year_level: '2', password: '', username: '' },
+        // An admin belongs to no programme, whatever is chosen above.
+        admin:      { first_name: 'Alex', last_name: 'Rivera', email: 'alex.rivera@uc.edu.ph', role: 'admin', employee_id: 'EMP-00001', student_id: '', program_code: '', department: '', year_level: '', password: '', username: 'alex.rivera' },
+    };
+    const rows = CurriculogicBulkAccounts.sampleRoles(selectedRole).map(role => SAMPLE_ROWS[role]);
 
     // Create worksheet with proper headers
     const ws = XLSX.utils.json_to_sheet(rows, { header: BULK_HEADERS });
@@ -953,7 +972,7 @@ function downloadBulkTemplate() {
     XLSX.utils.book_append_sheet(wb, ws, 'Accounts');
     
     // Download as Excel file
-    XLSX.writeFile(wb, 'accounts-template.xlsx');
+    XLSX.writeFile(wb, CurriculogicBulkAccounts.templateFileName(selected, selectedRole));
 }
 
 async function handleBulkFile(e) {
@@ -1002,6 +1021,9 @@ async function readBulkFile(file) {
 }
 
 function validateBulkRows(rows, fileName) {
+    PENDING_BULK_RAW = rows;
+    const selectedProgram = $('bulk-program-filter')?.value || 'all';
+    const selectedRole = $('bulk-role-filter')?.value || 'all';
     const ok = [];
     const bad = [];
     const seenEmails = new Set();
@@ -1028,6 +1050,16 @@ function validateBulkRows(rows, fileName) {
         if (!email) { bad.push({ ...base, why: 'Missing email.' }); continue; }
         if (!EMAIL_RE.test(email)) { bad.push({ ...base, why: `"${email}" is not a valid email.` }); continue; }
         if (!VALID_ROLES.includes(role)) { bad.push({ ...base, why: `"${role}" is not a valid role.` }); continue; }
+
+        // With a programme chosen above the upload, a row for any other
+        // programme is rejected here, with the reason, rather than skipped
+        // later without a word. A row that leaves its programme blank takes
+        // the chosen one.
+        const roleCheck = CurriculogicBulkAccounts.roleGate(selectedRole, role);
+        if (roleCheck.error) { bad.push({ ...base, why: roleCheck.error }); continue; }
+
+        const gate = CurriculogicBulkAccounts.programmeGate(selectedProgram, role, r.program_code);
+        if (gate.error) { bad.push({ ...base, programCode: String(r.program_code || '').trim().toUpperCase(), why: gate.error }); continue; }
         if (password.length < 8) { bad.push({ ...base, why: 'Password must be at least 8 characters.' }); continue; }
 
         // Role-specific validation
@@ -1042,7 +1074,7 @@ function validateBulkRows(rows, fileName) {
         // role's is what that programme's per-role account cap
         // (_provision_account) is checked against.
         if (role !== 'admin') {
-            const pc = resolveProgramCode(r.program_code || '');
+            const pc = resolveProgramCode(gate.value ?? (r.program_code || ''));
             if (pc.error) { bad.push({ ...base, why: pc.error }); continue; }
             base.programCode = pc.value;
         }
@@ -1472,7 +1504,7 @@ async function loadPrograms() {
     }
 
     const [progs, faculty, registrar, department, studs, actives] = await Promise.all([
-        supabase.from('program').select('id, code, name, college').order('code'),
+        supabase.from('program').select('id, code, name, college, max_units, max_units_graduating, target_units').order('code'),
         supabase.from('faculty_staff').select('program_id'),
         supabase.from('registrar_staff').select('program_id'),
         supabase.from('department_staff').select('program_id'),
@@ -1528,6 +1560,7 @@ function renderPrograms() {
                 <thead>
                     <tr>
                         <th>Code</th><th>Name</th><th>College</th>
+                        <th title="Per-term cap · cap when graduating · expected total units">Unit limits</th>
                         <th class="prog-num">Faculty</th>
                         <th class="prog-num">Registrar</th>
                         <th class="prog-num">Department</th>
@@ -1554,6 +1587,11 @@ function renderPrograms() {
                             <td>${editing
                                 ? `<input class="prog-edit-college" list="college-list" value="${escapeHtml(p.college ?? '')}" aria-label="College">`
                                 : (p.college ? escapeHtml(p.college) : '<span class="pill waiting">not set</span>')}</td>
+                            <td>${editing
+                                ? `<input class="prog-edit-max" type="number" min="1" max="60" value="${p.max_units ?? 24}" aria-label="Units per term" style="width:4.2em">
+                                   <input class="prog-edit-grad" type="number" min="1" max="60" value="${p.max_units_graduating ?? 27}" aria-label="Units per term when graduating" style="width:4.2em">
+                                   <input class="prog-edit-target" type="number" min="1" max="400" value="${p.target_units ?? 176}" aria-label="Expected total units" style="width:4.8em">`
+                                : `${p.max_units ?? 24} · ${p.max_units_graduating ?? 27} · ${p.target_units ?? 176}`}</td>
                             <td class="prog-num">${capCell(st.faculty, ROLE_LIMIT.faculty)}</td>
                             <td class="prog-num">${capCell(st.registrar, ROLE_LIMIT.registrar)}</td>
                             <td class="prog-num">${capCell(st.department, ROLE_LIMIT.department)}</td>
@@ -1650,9 +1688,22 @@ $('programs-body')?.addEventListener('click', async (e) => {
     const college = row.querySelector('.prog-edit-college')?.value.trim() ?? '';
     const before = PROGRAMS.find(p => p.id === id);
 
+    const max_units            = Number(row.querySelector('.prog-edit-max')?.value);
+    const max_units_graduating = Number(row.querySelector('.prog-edit-grad')?.value);
+    const target_units         = Number(row.querySelector('.prog-edit-target')?.value);
+
     if (name.length < 3) return showMsg('programs-msg', 'Enter the programme name.');
     if (!college) return showMsg('programs-msg', 'Enter the college.');
-    if (before && before.name === name && (before.college ?? '') === college) {
+    if (![max_units, max_units_graduating, target_units].every(n => Number.isInteger(n) && n > 0)) {
+        return showMsg('programs-msg', 'Unit limits must be whole numbers above zero.');
+    }
+    if (max_units_graduating < max_units) {
+        return showMsg('programs-msg', 'The graduating cap cannot be lower than the normal per-term cap.');
+    }
+    if (before && before.name === name && (before.college ?? '') === college
+        && before.max_units === max_units
+        && before.max_units_graduating === max_units_graduating
+        && before.target_units === target_units) {
         EDITING_PROGRAM = null;
         return renderPrograms();
     }
@@ -1660,7 +1711,7 @@ $('programs-body')?.addEventListener('click', async (e) => {
     save.disabled = true;
 
     if (PREVIEW || !supabase) {
-        Object.assign(before, { name, college });
+        Object.assign(before, { name, college, max_units, max_units_graduating, target_units });
         EDITING_PROGRAM = null;
         renderPrograms();
         return showMsg('programs-msg', 'Programme updated (preview only, not saved).', 'success');
@@ -1668,7 +1719,7 @@ $('programs-body')?.addEventListener('click', async (e) => {
 
     const { error } = await supabase
         .from('program')
-        .update({ name, college, updated_at: new Date().toISOString() })
+        .update({ name, college, max_units, max_units_graduating, target_units, updated_at: new Date().toISOString() })
         .eq('id', id);
 
     if (error) {
@@ -1678,7 +1729,7 @@ $('programs-body')?.addEventListener('click', async (e) => {
     }
 
     const collegeChanged = (before?.college ?? '') !== college;
-    Object.assign(before, { name, college });
+    Object.assign(before, { name, college, max_units, max_units_graduating, target_units });
     EDITING_PROGRAM = null;
     refreshColleges();
     renderProgramPicker();

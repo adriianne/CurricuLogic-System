@@ -35,9 +35,6 @@
             <a href="#accounts" data-view="accounts">
                 <i class="fa-solid fa-user-plus" aria-hidden="true"></i> Create account
             </a>
-            <a href="#bulk" data-view="bulk">
-                <i class="fa-solid fa-users-gear" aria-hidden="true"></i> Bulk upload
-            </a>
             <a href="#staff" data-view="staff">
                 <i class="fa-solid fa-users" aria-hidden="true"></i> Staff management
             </a>
@@ -188,12 +185,22 @@
             <section class="view" id="view-accounts" hidden>
 
                 <div class="page-head">
-                    <h1 class="page-title">Create staff account</h1>
+                    <h1 class="page-title">Create account</h1>
                     <p class="page-sub">
-                        Provision a single account for faculty, registrar, or department staff.
+                        Create one account for a student, faculty, registrar, or department staff member.
                         Accounts created here are pre-approved and can sign in immediately.
                     </p>
                 </div>
+
+                <nav class="mode-switch" aria-label="How many accounts to create">
+                    <a href="#accounts" class="mode-opt on" aria-current="page">
+                        <i class="fa-solid fa-user-plus" aria-hidden="true"></i> One account
+                    </a>
+                    <a href="#bulk" class="mode-opt">
+                        <i class="fa-solid fa-users-gear" aria-hidden="true"></i> Many at once (file)
+                    </a>
+                </nav>
+
 
                 <div id="create-msg" class="msg" role="status"></div>
 
@@ -311,6 +318,16 @@
                     </p>
                 </div>
 
+                <nav class="mode-switch" aria-label="How many accounts to create">
+                    <a href="#accounts" class="mode-opt">
+                        <i class="fa-solid fa-user-plus" aria-hidden="true"></i> One account
+                    </a>
+                    <a href="#bulk" class="mode-opt on" aria-current="page">
+                        <i class="fa-solid fa-users-gear" aria-hidden="true"></i> Many at once (file)
+                    </a>
+                </nav>
+
+
                 <div id="bulk-msg" class="msg" role="status"></div>
 
                 <div class="notice info">
@@ -346,13 +363,19 @@
                                 </select>
                             </div>
                             <div class="field field-sm" style="margin-bottom:0;">
-                                <label for="bulk-program-filter">Program</label>
+                                <label for="bulk-program-filter">Programme</label>
                                 <select id="bulk-program-filter" style="height:2.6rem; padding:0 0.8rem; border:1.5px solid var(--line); border-radius:8px; font-family:inherit; font-size:0.88rem;">
                                     <option value="all">All programmes</option>
                                 </select>
                             </div>
                         </div>
                     </div>
+                    <p class="dim" style="margin-top:0.85rem; font-size:0.84rem;">
+                        Choose a role and a programme and the template is filled in for them. A file you
+                        upload is then accepted only for that role and programme: any row that belongs to
+                        another one is rejected with the reason. Leave "All roles" and "All programmes"
+                        to upload a mixed file.
+                    </p>
                 </section>
 
                 <section class="card">
@@ -608,6 +631,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../../shared/js/config.js"></script>
 <script src="../../shared/js/systemconfig.js"></script>
+<script src="../../shared/js/bulkaccounts.js"></script>
 <script src="admindashboard.js"></script>
 </body>
 </html>
