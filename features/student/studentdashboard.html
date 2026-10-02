@@ -54,7 +54,7 @@
             </nav>
 
             <p class="side-foot">
-                University of Cebu<br>College of Computer Studies
+                University of Cebu
             </p>
 
         </aside>
@@ -129,6 +129,7 @@
                                     <span class="card-note" id="elig-note"></span>
                                     <a href="#plan" class="dash-cta">Build your plan &rarr;</a>
                                 </div>
+                                <div class="pref-bar" id="pref-bar" hidden></div>
                                 <div class="card-body" id="elig-body">
                                     <div class="empty">
                                         <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
@@ -184,14 +185,14 @@
                     <div class="page-head">
                         <h1 class="page-title">My prospectus</h1>
                         <p class="page-sub">
-                            Every subject in the BSIT curriculum, grouped by year and term,
-                            with your status against each one.
+                            Every subject in your programme's curriculum, grouped by year
+                            and term, with your status against each one.
                         </p>
                     </div>
 
                     <section class="card">
                         <div class="card-head">
-                            <span class="card-title">BS Information Technology</span>
+                            <span class="card-title" id="pros-program">Your programme</span>
                             <span class="card-note" id="prospectus-note"></span>
                         </div>
                         <div class="card-body" id="prospectus-body">
@@ -290,8 +291,8 @@
                     <div class="page-head">
                         <h1 class="page-title">My requests</h1>
                         <p class="page-sub">
-                            Every advising request you've submitted, from Faculty review
-                            through the Registrar's final decision.
+                            Every advising request you've submitted, and where it stands: with your
+                            adviser, or approved for enrollment.
                         </p>
                     </div>
 
@@ -313,10 +314,10 @@
                         <h1 class="page-title">Cura</h1>
                         <p class="page-sub">
                             Your CurricuLogic assistant. Ask about your recommended
-                            subjects or why something is locked. Answers are based
-                            only on your actual academic record -- Cura does not
-                            have your class schedule and cannot override any
-                            requirement.
+                            subjects, their section schedules, or why something is
+                            locked. Answers are based only on your actual academic
+                            record and the sections actually being offered --
+                            Cura cannot override any requirement.
                         </p>
                     </div>
 
@@ -459,9 +460,13 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="../../shared/js/config.js"></script>
 <script src="../../shared/js/systemconfig.js"></script>
+<script src="../../shared/js/programs.js"></script>
+<script src="../../shared/js/requeststatus.js"></script>
+    <script src="../../shared/js/scheduleconflicts.js"></script>
     <script src="../../ai-assist/eligibility-explanation.js"></script>
     <script src="../../ai-assist/eligibility-chat.js"></script>
     <script src="../../shared/engine/engine.js"></script>
+    <script src="../../shared/engine/preferences.js"></script>
     <script src="../../shared/js/prospectusgrid.js"></script>
     <script src="studentpreview.js"></script>
     <script src="studentdashboard.js"></script>

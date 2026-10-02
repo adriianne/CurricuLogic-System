@@ -13,10 +13,15 @@
 (function () {
 'use strict';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC ?? {};
 
+// Bucketed storage key (see config.js) -- keeps a student session in
+// this tab from colliding with a different role signed in in another
+// tab.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { storageKey: authStorageKey?.(['university_student']) },
+    })
     : null;
 
 const $ = (id) => document.getElementById(id);
@@ -34,6 +39,12 @@ let PREVIEW  = false;
 let KB     = null;
 let RESULT = null;
 
+/* The student's own preferences (time of day, load). They never change what
+   the engine says a student MAY take; shared/engine/preferences.js applies
+   them on top, as a visible step, to pick sections and trim the load. */
+let PREFS        = { timeOfDay: null, load: null };
+let PREF_STORAGE = 'browser';   // 'account' once student_preference is reachable
+
 /* Set students curriculum to default prospectus if not set */
 let ACTIVE_PROSPECTUS_ID = null;
 
@@ -44,7 +55,13 @@ let ACTIVE_PROSPECTUS_ID = null;
    sync with each other or with the actual scheduled term. */
 let CURRENT_TERM   = 1;
 let CURRENT_YEAR   = 2023;
-const MAX_UNITS    = 24;
+const MAX_UNITS    = 24;   // fallback only; per-programme limits come from unitLimits()
+
+/* The student's programme decides the caps (program.max_units etc.). */
+function unitLimits(student) {
+    return window.CurriculogicPrograms?.limitsOf(student?.program_id)
+        ?? { maxUnits: MAX_UNITS, maxUnitsGraduating: 27, targetUnits: 176 };
+}
 
 /* Reads the live term/year once, at boot, before loadKB() or
    submitAdvisingRequest() ever consult CURRENT_TERM/CURRENT_YEAR.
@@ -204,6 +221,21 @@ function showMsg(id, text, type = 'error') {
     box.className = text ? 'msg ' + type : 'msg';
 }
 
+/* The student's degree, looked up from their program_id. A student with no
+   programme set reads "—", never somebody else's degree. Preview has no
+   database, so it shows the sample programme its fixtures describe. */
+const PREVIEW_PROGRAM = 'BS Information Technology';
+
+function programName(student) {
+    return window.CurriculogicPrograms?.nameOf(student?.program_id, PREVIEW ? PREVIEW_PROGRAM : '—')
+        ?? '—';
+}
+
+function programCode(student) {
+    return window.CurriculogicPrograms?.codeOf(student?.program_id, PREVIEW ? 'BSIT' : '')
+        ?? '';
+}
+
 /* profile + dashboard render */
 
 function renderProfile(student, authEmail) {
@@ -222,7 +254,8 @@ function renderProfile(student, authEmail) {
     setText('d-sid',   student?.student_id || 'Not yet assigned', 'mono');
     setText('d-email', email, 'mono');
     setText('d-year',  ordinal(student?.year_level) || 'Pending verification');
-    setText('d-program', 'BS Information Technology');
+    setText('d-program', programName(student));
+    setText('pros-program', programName(student));
 
     $('d-status').innerHTML = student?.is_approved
         ? '<span class="pill ok"><i class="fa-solid fa-check"></i> Approved</span>'
@@ -235,7 +268,7 @@ function renderProfile(student, authEmail) {
     // Profile header: the same facts again, given a face.
     setText('prof-avatar', initials(first, last, email));
     setText('prof-name', full || email);
-    setText('prof-sub', [student?.student_id, 'BS Information Technology', ordinal(student?.year_level)]
+    setText('prof-sub', [student?.student_id, programName(student), ordinal(student?.year_level)]
         .filter(Boolean).join(' · '));
 }
 
@@ -258,10 +291,12 @@ async function renderProfileExtras() {
                 .eq('id', pid)
                 .maybeSingle();
             if (data?.academic_year) {
-                CURRICULUM_LABEL = `BSIT prospectus, AY ${data.academic_year}–${data.academic_year + 1}`;
+                const code = programCode(STUDENT);
+                CURRICULUM_LABEL =
+                    `${code ? code + ' prospectus' : 'Prospectus'}, AY ${data.academic_year}–${data.academic_year + 1}`;
             }
         } else if (PREVIEW) {
-            CURRICULUM_LABEL = 'BSIT prospectus, AY 2023–2024';
+            CURRICULUM_LABEL = `${programCode(STUDENT)} prospectus, AY 2023–2024`;
         }
     }
     setText('d-curriculum', CURRICULUM_LABEL);
@@ -422,7 +457,13 @@ function statusMap(result, records) {
         if (r.status === 'PASSED' && r.subject_id) graded.set(r.subject_id, r.grade);
     }
 
-    for (const s of result.completed)  map.set(s.id, { state: 'passed', detail: graded.get(s.id) ? `Grade ${graded.get(s.id)}` : 'Passed' });
+    for (const s of result.completed) {
+        // An elective slot filled by a catalogue subject: say which one.
+        map.set(s.id, s.filledBy
+            ? { state: 'passed', detail: `Filled by ${s.filledBy.code}`,
+                filledBy: { code: s.filledBy.code, title: s.filledBy.title } }
+            : { state: 'passed', detail: graded.get(s.id) ? `Grade ${graded.get(s.id)}` : 'Passed' });
+    }
     for (const s of result.inProgress) map.set(s.id, { state: 'enrolled', detail: 'Currently enrolled' });
 
     for (const e of result.eligible) {
@@ -446,7 +487,7 @@ function statusMap(result, records) {
         const cur = map.get(id);
         if (!cur || (cur.state !== 'eligible' && cur.state !== 'retake')) continue;
         map.set(id, {
-            state: lock.registrarStatus === 'approved' ? 'approved' : 'pending',
+            state: lock.itemStatus === 'approved' ? 'approved' : 'pending',
             detail: requestChipFor(id)?.label ?? 'In a request',
         });
     }
@@ -472,7 +513,7 @@ async function loadKnowledgeBase(student) {
 
     const [subs, rules, offerings] = await Promise.all([
         supabase.from('subject')
-            .select('id, code, title, units, year_level, term, is_elective')
+            .select('id, code, title, units, year_level, term, is_elective, elective_type, is_active')
             .eq('prospectus_id', effectiveProspectusId(student)),
         supabase.from('prerequisite')
             .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
@@ -524,16 +565,138 @@ async function runAssessment(student) {
         { id: STUDENT_ROW_ID, year_level: student.year_level },
         RECORDS,
         kb,
-        { maxUnits: MAX_UNITS, term: CURRENT_TERM, respectOfferings: kb.offerings.length > 0 },
+        { maxUnits: unitLimits(student).maxUnits, maxUnitsGraduating: unitLimits(student).maxUnitsGraduating, term: CURRENT_TERM, respectOfferings: kb.offerings.length > 0 },
     );
+}
+
+/* ---- preferences ---- */
+
+const prefKey = () => `cl-pref-${STUDENT_ROW_ID ?? 'guest'}`;
+
+function readLocalPrefs() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(prefKey()) || 'null');
+        return window.CurricuLogicPreferences.clean(raw);
+    } catch { return window.CurricuLogicPreferences.clean(null); }
+}
+
+function writeLocalPrefs() {
+    try { localStorage.setItem(prefKey(), JSON.stringify(PREFS)); } catch { /* private mode */ }
+}
+
+/* Account storage (db/037) when it exists, this browser otherwise. Either
+   way the page works; the bar says which one it is. */
+async function loadPreferences() {
+    PREFS = readLocalPrefs();
+    if (!supabase || !STUDENT_ROW_ID || PREVIEW) return;
+
+    const { data, error } = await supabase
+        .from('student_preference')
+        .select('time_of_day, load')
+        .eq('student_id', STUDENT_ROW_ID)
+        .maybeSingle();
+
+    if (error) {
+        console.warn('preferences: account storage unavailable, using this browser:', error.message);
+        PREF_STORAGE = 'browser';
+        return;
+    }
+    PREF_STORAGE = 'account';
+    if (data) {
+        PREFS = window.CurricuLogicPreferences.clean({ timeOfDay: data.time_of_day, load: data.load });
+        writeLocalPrefs();
+    }
+}
+
+async function savePreferences() {
+    writeLocalPrefs();
+    if (PREF_STORAGE !== 'account' || !supabase || !STUDENT_ROW_ID) return;
+
+    const { error } = await supabase.from('student_preference').upsert({
+        student_id:  STUDENT_ROW_ID,
+        time_of_day: PREFS.timeOfDay,
+        load:        PREFS.load,
+        updated_at:  new Date().toISOString(),
+    }, { onConflict: 'student_id' });
+
+    if (error) {
+        console.warn('preferences: could not save to the account, kept in this browser:', error.message);
+        PREF_STORAGE = 'browser';
+    }
+}
+
+/* The engine's verdict with the student's preferences applied. Falls back
+   to the plain verdict if the preference module is not there. */
+function personalised() {
+    if (!RESULT) return RESULT;
+    return window.CurricuLogicPreferences
+        ? window.CurricuLogicPreferences.apply(RESULT, PREFS)
+        : RESULT;
+}
+
+function renderPrefBar(plan) {
+    const bar = $('pref-bar');
+    if (!bar) return;
+    bar.hidden = false;
+
+    const cap = Number(RESULT.maxUnits) || 24;
+    const L = window.CurricuLogicPreferences.LOAD_UNITS;
+    const pressed = (kind, value) => (PREFS[kind] ?? (kind === 'load' ? 'full' : '')) === value;
+    const choice = (kind, value, label) => `
+        <button type="button" class="pref-choice" data-pref="${kind}" data-value="${value}"
+                aria-pressed="${pressed(kind, value)}">${label}</button>`;
+
+    const notes = (plan.preference?.notes ?? []);
+
+    bar.innerHTML = `
+        <div class="pref-row">
+            <span class="pref-label">Class time</span>
+            <div class="pref-choices" role="group" aria-label="Preferred class time">
+                ${choice('timeOfDay', '', 'Any time')}
+                ${choice('timeOfDay', 'morning', 'Morning')}
+                ${choice('timeOfDay', 'afternoon', 'Afternoon')}
+                ${choice('timeOfDay', 'evening', 'Evening')}
+            </div>
+        </div>
+        <div class="pref-row">
+            <span class="pref-label">Load</span>
+            <div class="pref-choices" role="group" aria-label="Preferred load">
+                ${choice('load', 'full', `Full · up to ${cap} units`)}
+                ${choice('load', 'regular', `Regular · up to ${Math.min(cap, L.regular)}`)}
+                ${choice('load', 'light', `Light · up to ${Math.min(cap, L.light)}`)}
+            </div>
+        </div>
+        ${notes.length ? `<ul class="pref-notes">${notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : ''}
+        <span class="pref-hint">
+            Preferences only choose between sections and how much to take.
+            They never unlock a subject you are not eligible for.
+            ${PREF_STORAGE === 'account' ? 'Saved to your account.' : 'Saved on this device only.'}
+        </span>`;
+
+    bar.querySelectorAll('[data-pref]').forEach(b => b.addEventListener('click', async () => {
+        const kind = b.dataset.pref;
+        PREFS = { ...PREFS, [kind]: b.dataset.value === '' ? null : b.dataset.value };
+        await savePreferences();
+        renderEligibility(STUDENT);
+
+        // If Cura is already open, give it the new picture (keeping the
+        // conversation) so its next answer matches what the page now shows.
+        if (chatInitialized) {
+            const summary = summarizeForExplanation(personalised(), STUDENT?.first_name);
+            window.EligibilityChat?.updateSummary(summary);
+            renderChatContext(summary);
+        }
+    }));
 }
 
 function renderEligibility(student) {
     const body = $('elig-body');
     const note = $('elig-note');
     const laterCard = $('elig-later-card');
+    const prefBar = $('pref-bar');
     if (!body) return;
     if (laterCard) laterCard.hidden = true;
+    if (prefBar) prefBar.hidden = true;
 
     if (!student || !student.record_verified) {
         if (note) note.textContent = '';
@@ -564,11 +727,14 @@ function renderEligibility(student) {
         return;
     }
 
-    const { recommended, eligible, locked, recommendedUnits, maxUnits } = RESULT;
+    const plan = personalised();
+    const { recommended, recommendedUnits, maxUnits } = plan;
+    const { eligible, locked } = RESULT;
     const alsoEligible = eligible.filter(e => !recommended.some(r => r.subject.id === e.subject.id));
 
     if (note) note.textContent = `${recommendedUnits} of ${maxUnits} units`;
 
+    if (window.CurricuLogicPreferences) renderPrefBar(plan);
     body.innerHTML = renderRecommended(recommended, recommendedUnits, maxUnits);
 
     // What is not for this term lives in its own card below, folded.
@@ -591,11 +757,9 @@ function requestChipFor(subjectId) {
     const lock = SUBJECT_LOCKS.locked.get(subjectId);
     if (!lock) return null;
 
-    if (lock.registrarStatus === 'approved') {
-        return { chip: 'ok', label: 'Approved for enrollment' };
-    }
+    // The adviser's approval is final (shared/js/requeststatus.js).
     if (lock.itemStatus === 'approved') {
-        return { chip: 'info', label: 'Approved by adviser · awaiting Registrar' };
+        return { chip: 'ok', label: 'Approved for enrollment' };
     }
     return { chip: 'open', label: 'In review with your adviser' };
 }
@@ -616,7 +780,26 @@ function termRow(e) {
     const chip = inRequest
         ? `<span class="pg-chip ${inRequest.chip}">${escapeHtml(inRequest.label)}</span>`
         : (e.retake ? '<span class="pg-chip danger">Retake</span>' : '');
-    const when = scheduleLine(e.sections);
+    // With a preference applied the section shown is the one it picked, and
+    // the reason is stated; otherwise the first section, as before.
+    const chosen = e.chosenSection
+        ? fmtSection({ section: e.chosenSection.section, meetings: e.chosenSection.meetings })
+        : '';
+    const extraSections = e.chosenSection
+        ? Math.max(0, groupSections(e.sections).length - 1)
+        : 0;
+    const when = chosen
+        ? chosen + (extraSections ? ` · +${extraSections} more section${extraSections > 1 ? 's' : ''}` : '')
+        : scheduleLine(e.sections);
+    const prefReason = (PREFS.timeOfDay && e.preferenceReason) ? e.preferenceReason : '';
+    // An open elective slot lists what it can be filled with.
+    const opts = e.slotOptions ?? [];
+    const optionsLine = opts.length
+        ? `Options: ${opts.slice(0, 4).map(o => o.code).join(', ')}${opts.length > 4 ? ` +${opts.length - 4} more` : ''}`
+        : '';
+    // Recommended from the curriculum because nothing in this semester has
+    // been scheduled yet: say so rather than imply a section exists.
+    const pending = e.scheduleState === 'pending' && !when;
 
     return `
         <article class="term-row">
@@ -625,6 +808,9 @@ function termRow(e) {
                 <span class="term-title">${escapeHtml(e.subject.title)}</span>
                 <span class="term-why">${escapeHtml(e.reason)}</span>
                 ${when ? `<span class="term-when"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${escapeHtml(when)}</span>` : ''}
+                ${pending ? `<span class="term-when"><i class="fa-regular fa-clock" aria-hidden="true"></i> Schedule not published yet</span>` : ''}
+                ${prefReason && !pending ? `<span class="term-pref">${escapeHtml(prefReason)}</span>` : ''}
+                ${optionsLine ? `<span class="term-pref">${escapeHtml(optionsLine)}</span>` : ''}
             </div>
             <div class="term-side">
                 <span class="term-units">${escapeHtml(e.subject.units)} units</span>
@@ -646,17 +832,30 @@ function renderRecommended(list, units, maxUnits) {
             </div>`;
     }
 
-    const pct = maxUnits > 0 ? Math.min(100, Math.round((units / maxUnits) * 100)) : 0;
-    const planned = list.filter(e => requestChipFor(e.subject.id)).length;
+    // Subjects already in a request are part of the plan, not something
+    // left to decide, so the load is split: units already in the plan, and
+    // units still to plan. Counting them all as "suggested" made a plan
+    // that was already approved look like unfinished work.
+    const inPlan       = list.filter(e => requestChipFor(e.subject.id));
+    const plannedUnits = inPlan.reduce((t, e) => t + (Number(e.subject.units) || 0), 0);
+    const toPlanUnits  = Math.max(0, units - plannedUnits);
+    const pctOf = (n) => maxUnits > 0 ? Math.min(100, Math.round((n / maxUnits) * 100)) : 0;
+
+    const headline = inPlan.length
+        ? `<strong>${plannedUnits}</strong> units in your plan${toPlanUnits ? ` · <strong>${toPlanUnits}</strong> still to plan` : ''}
+           <span class="dim">(limit ${maxUnits})</span>`
+        : `<strong>${units}</strong> of ${maxUnits} units suggested`;
 
     return `
         <div class="term-load">
             <div class="term-load-head">
-                <span><strong>${units}</strong> of ${maxUnits} units suggested</span>
-                ${planned ? `<span class="dim">${planned} of ${list.length} already in your plan</span>` : ''}
+                <span>${headline}</span>
+                ${inPlan.length ? `<span class="dim">${inPlan.length} of ${list.length} subjects already in your plan</span>` : ''}
             </div>
-            <div class="unit-meter" role="img" aria-label="${units} of ${maxUnits} units">
-                <div class="unit-meter-fill" style="width:${pct}%"></div>
+            <div class="unit-meter is-split" role="img"
+                 aria-label="${plannedUnits} units in your plan, ${toPlanUnits} still to plan, of ${maxUnits}">
+                <div class="unit-meter-fill is-planned" style="width:${pctOf(plannedUnits)}%"></div>
+                <div class="unit-meter-fill" style="width:${pctOf(toPlanUnits)}%"></div>
             </div>
         </div>
         <div class="term-list">${list.map(termRow).join('')}</div>`;
@@ -670,7 +869,8 @@ function renderAlsoEligible(list) {
             <summary>Also open to you <span class="fold-n">${list.length}</span></summary>
             <p class="prose">
                 You meet the requirements for these, but they did not fit within the
-                unit limit or are not scheduled this term.
+                unit limit or your load preference, are not being run this term, or
+                have no schedule published yet.
             </p>
             <div class="table-wrap">
                 <table class="data-table">
@@ -681,9 +881,11 @@ function renderAlsoEligible(list) {
                             <td class="mono">${escapeHtml(e.subject.code)}</td>
                             <td>${escapeHtml(e.subject.title)}</td>
                             <td class="num">${escapeHtml(e.subject.units)}</td>
-                            <td>${e.offered
+                            <td>${e.scheduleState === 'offered'
                                 ? '<span class="pill ok">Offered</span>'
-                                : '<span class="pill waiting">Not this term</span>'}</td>
+                                : e.scheduleState === 'not-run'
+                                    ? '<span class="pill waiting">Not this term</span>'
+                                    : '<span class="pill waiting">Schedule pending</span>'}</td>
                         </tr>`).join('')}
                     </tbody>
                 </table>
@@ -763,26 +965,7 @@ function renderSections(sections) {
    first meeting (lecture preferred) as the offering, since the request
    carries a single offeringId per subject. */
 
-const MEETING_ORDER = { LEC: 0, LAB: 1 };
-
-function groupSections(meetings) {
-    const bySection = new Map();
-    for (const m of meetings ?? []) {
-        if (!bySection.has(m.section)) bySection.set(m.section, []);
-        bySection.get(m.section).push(m);
-    }
-    return [...bySection].map(([section, rows]) => {
-        rows.sort((a, b) =>
-            (MEETING_ORDER[a.meeting_type] ?? 9) - (MEETING_ORDER[b.meeting_type] ?? 9));
-        return { section, meetings: rows, offeringId: rows[0].id ?? null };
-    });
-}
-
-function fmtClock(t) {
-    if (!t) return '';
-    const [h, m] = t.split(':').map(Number);
-    return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-}
+const { groupSections, parseDays, minutesOf, meetingsClash, formatClock: fmtClock } = window.ScheduleConflicts;
 
 function fmtMeeting(m) {
     const kind = m.meeting_type && m.meeting_type !== 'LEC' ? `${m.meeting_type} ` : '';
@@ -792,25 +975,6 @@ function fmtMeeting(m) {
 
 function fmtSection(g) {
     return `${g.section} · ${g.meetings.map(fmtMeeting).join(' + ')}`;
-}
-
-/* 'MW' -> ['M','W'], 'TTH' -> ['T','TH']. TH must be read before T. */
-function parseDays(s) {
-    return String(s ?? '').toUpperCase().match(/SU|TH|M|T|W|F|S/g) ?? [];
-}
-
-function minutes(t) {
-    const [h, m] = String(t ?? '').split(':').map(Number);
-    return Number.isFinite(h) ? h * 60 + (m || 0) : null;
-}
-
-function meetingsClash(a, b) {
-    const shared = parseDays(a.schedule_days).some(d => parseDays(b.schedule_days).includes(d));
-    if (!shared) return false;
-    const [a1, a2, b1, b2] = [minutes(a.start_time), minutes(a.end_time),
-                              minutes(b.start_time), minutes(b.end_time)];
-    if ([a1, a2, b1, b2].some(v => v === null)) return false;
-    return a1 < b2 && b1 < a2;
 }
 
 function bindWhyToggles(scope) {
@@ -1121,20 +1285,34 @@ function renderProspectusEmpty() {
 
 let chatInitialized = false;
 
-function initChatIfNeeded() {
+async function initChatIfNeeded() {
     if (chatInitialized) return;
     if (!RESULT || typeof window.EligibilityChat === 'undefined') return;
+    chatInitialized = true;
 
     // Uses the exact same RESULT the rest of the dashboard already
     // computed -- never a second, separate call to the engine. The
     // chat can only ever discuss what the real assessment already
     // decided.
-    const summary = summarizeForExplanation(RESULT, STUDENT?.first_name);
+    const summary = summarizeForExplanation(personalised(), STUDENT?.first_name);
     window.EligibilityChat.initEligibilityChat(summary);
-    chatInitialized = true;
 
     renderChatContext(summary);
-    renderChatSuggestions(summary);
+
+    const priorMessages = (supabase && STUDENT_ROW_ID)
+        ? await window.EligibilityChat.loadChatHistory(supabase, STUDENT_ROW_ID)
+        : [];
+
+    if (priorMessages.length) {
+        // Any table shown is rebuilt from the current summary, same as a
+        // live reply -- it reflects what's recommended now, not a snapshot
+        // frozen at send time.
+        for (const m of priorMessages) {
+            appendChatMessage(m.role, m.text, m.show_recommended_table ? (summary.recommended ?? []) : null);
+        }
+    } else {
+        renderChatSuggestions(summary);
+    }
 }
 
 /* A line saying what Cura is looking at. Every number comes from the same
@@ -1165,6 +1343,9 @@ function renderChatSuggestions(summary) {
         'What should I take next semester?',
         'How many units can I take?',
     ];
+    if (summary.recommended?.some(r => r.sections?.length)) {
+        questions.push('Which of my recommended subjects have morning sections?');
+    }
     const nearest = summary.locked?.[0];
     if (nearest) questions.push(`Why is ${nearest.code} locked?`);
 
@@ -1335,9 +1516,9 @@ async function fetchMyRequests() {
    resubmitted and is once again mid-flight.
 
    A subject lands in exactly one of two buckets:
-     - locked: still awaiting Faculty, or Faculty-approved and awaiting
-       Registrar, or fully Registrar-approved (done). None of these are
-       pickable again right now -- hidden from Build Your Plan entirely.
+     - locked: still awaiting the adviser, or approved by them (done: the
+       adviser's approval is final). Neither is pickable again right now --
+       hidden from Build Your Plan entirely.
      - resubmittable: Faculty rejected this specific subject, OR the
        Registrar sent the whole plan back (regardless of what this
        item's own status was) -- shown in the picker again, flagged
@@ -1553,7 +1734,7 @@ function updateRequestCount() {
 
     // The engine works out the cap for this student (24, or 27 in the
     // final stretch) net of units already being carried.
-    const cap = RESULT?.availableUnits ?? MAX_UNITS;
+    const cap = RESULT?.availableUnits ?? unitLimits(STUDENT).maxUnits;
     const overCap = units > cap;
 
     if (label) {
@@ -1702,30 +1883,12 @@ async function submitAdvisingRequest() {
     }
 }
 
-/* Two-stage status: Faculty reviews per-subject first; once every item
-   has a decision the whole request moves to approved/partially_approved
-   /rejected. Only a request that clears Faculty (approved or partially
-   approved -- Faculty rejecting everything is terminal and never
-   reaches Registrar) goes on to the Registrar's whole-plan gate.
-   registrar_status stays null while it's waiting there. */
+/* One-stage status: the adviser reviews per subject, and once every item has a
+   decision the whole request is approved, partly approved or rejected. That
+   is final: the Registrar is not a second approval (shared/js/requeststatus.js).
+   An old plan the Registrar once sent back keeps a second, red chip. */
 function requestStages(r) {
-    const faculty = {
-        submitted:          { label: 'Awaiting Faculty',              chip: 'info'   },
-        rejected:           { label: 'Rejected by Faculty',           chip: 'danger' },
-        approved:           { label: 'Faculty-approved',              chip: 'ok'     },
-        partially_approved: { label: 'Partially approved by Faculty', chip: 'ok'     },
-    }[r.status] ?? { label: r.status, chip: 'info' };
-
-    let registrar = null;
-    if (r.status === 'approved' || r.status === 'partially_approved') {
-        registrar = r.registrar_status === 'approved'
-            ? { label: 'Approved for enrollment', chip: 'ok' }
-            : r.registrar_status === 'rejected'
-                ? { label: 'Sent back by Registrar', chip: 'danger' }
-                : { label: 'Awaiting Registrar', chip: 'info' };
-    }
-
-    return { faculty, registrar };
+    return window.CurriculogicRequestStatus.stages(r);
 }
 
 // request_item.status is 'valid'/'flagged' from the engine's own
@@ -1844,10 +2007,7 @@ async function loadDashboardRequestSummary() {
     // means.
     const latest = requests[0];
     const { faculty, registrar } = requestStages(latest);
-    const pending = requests.filter(r =>
-        r.status === 'submitted' ||
-        ((r.status === 'approved' || r.status === 'partially_approved') && !r.registrar_status)
-    ).length;
+    const pending = requests.filter(r => window.CurriculogicRequestStatus.waiting(r)).length;
 
     body.innerHTML = `
         <div class="req-history-entry">
@@ -1994,7 +2154,7 @@ function render(student, email) {
 
     const { data: student, error } = await supabase
         .from('university_student')
-        .select('id, user_id, student_id, first_name, last_name, email, year_level, is_approved, record_verified, prospectus_id')
+        .select('id, user_id, student_id, first_name, last_name, email, year_level, is_approved, record_verified, prospectus_id, program_id')
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 
@@ -2008,18 +2168,29 @@ function render(student, email) {
 
     STUDENT = student;
     STUDENT_ROW_ID = student?.id ?? null;
+
+    // Programme names are looked up, not typed: the page must say the
+    // student's own degree, whatever it is.
+    await window.CurriculogicPrograms?.load(supabase);
     render(student, session.user.email);
 
         // Resolve the active prospectus once. Used as a fallback for any
     // student whose own prospectus_id is null — which happens when
     // they were registered before the first curriculum was activated.
     if (supabase) {
-        const { data: active } = await supabase
+        // Every active prospectus, not "the" active one: with more than one
+        // programme there is one per programme, and asking for a single row
+        // errors as soon as a second programme is published. The student
+        // falls back to the one for THEIR programme (or the only one, if no
+        // programme is set and there is just one).
+        const { data: actives, error: activeError } = await supabase
             .from('prospectus')
-            .select('id')
-            .eq('is_active', true)
-            .maybeSingle();
-        ACTIVE_PROSPECTUS_ID = active?.id ?? null;
+            .select('id, program_id')
+            .eq('is_active', true);
+        if (activeError) console.warn('active prospectus lookup failed:', activeError.message);
+
+        ACTIVE_PROSPECTUS_ID =
+            window.CurriculogicPrograms.fallbackProspectus(student?.program_id, actives)?.id ?? null;
     }
 
     // The record loads at boot regardless of the active view — the stat
@@ -2027,6 +2198,7 @@ function render(student, email) {
     await loadRecords();
 
     RESULT = await runAssessment(student);
+    await loadPreferences();
 
     renderStats();
     renderEligibility(student);
