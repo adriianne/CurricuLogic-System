@@ -918,6 +918,39 @@ ul { list-style: none; }
 
 .review-actions { display: flex; gap: 0.5rem; }
 
+.review-id-field {
+    margin-bottom: var(--s2);
+}
+.review-id-field label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 0.3rem;
+}
+.review-id-field input {
+    width: 100%;
+    max-width: 14rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font: inherit;
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 0.88rem;
+}
+.review-id-field input:focus-visible {
+    outline: none;
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+.review-id-hint {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    color: var(--slate);
+}
+
 
 /* Danger + small buttons */
 
@@ -2278,3 +2311,231 @@ input[type="password"]::-ms-clear {
 @media (max-width: 640px) {
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+
+/* Admin: faculty programs cell in the Staff table. */
+.prog-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; }
+.prog-opt { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; cursor: pointer; }
+.prog-opt input { accent-color: var(--indigo); }
+.prog-actions { display: inline-flex; gap: 0.6rem; }
+
+/* Admin: academic term control. */
+.term-lead { margin: 0 0 var(--s2); font-size: 0.9rem; color: var(--slate); }
+.term-lead strong { color: var(--ink); }
+.term-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s2); }
+.term-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.term-field label { font-size: 0.8rem; font-weight: 600; color: var(--ink); }
+.term-field input, .term-field select {
+    min-width: 9rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    font: inherit;
+    font-size: 0.9rem;
+}
+.term-field input:focus-visible, .term-field select:focus-visible {
+    outline: none;
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+.term-hint { min-height: 1em; font-size: 0.75rem; color: var(--slate); }
+.term-confirm {
+    margin-top: var(--s2);
+    padding: var(--s2) var(--s3);
+    border: 1px solid #fde68a;
+    border-left: 3px solid #f59e0b;
+    border-radius: 8px;
+    background: #fffbeb;
+    font-size: 0.88rem;
+}
+.term-confirm[hidden] { display: none; }
+.term-confirm p { margin: 0 0 var(--s2); }
+.term-confirm-actions { display: flex; align-items: center; gap: var(--s3); }
+.term-warn { color: #b91c1c; font-weight: 600; }
+
+/* Keep the year, term and button on one line despite the hint under the year. */
+.term-form { align-items: flex-start; }
+.term-form .btn-primary { margin-top: 1.45rem; }
+
+/* Two-part meter: units already in the plan (green), units still to plan. */
+.unit-meter.is-split { display: flex; }
+.unit-meter.is-split .unit-meter-fill { border-radius: 0; flex: 0 0 auto; }
+.unit-meter-fill.is-planned { background: var(--green); }
+
+/* Admin: programmes page. */
+.prog-form { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--s2); }
+.prog-form .prog-wide { flex: 1 1 16rem; }
+.prog-form .term-field input { width: 100%; }
+.prog-form .btn-primary { margin-top: 1.45rem; }
+.prog-edit-name, .prog-edit-college {
+    width: 100%;
+    min-width: 10rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: inherit;
+    font-size: 0.86rem;
+}
+.prog-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Department: which programme the whole page is working on. It stays
+   visible on phones (unlike the term chip) because it changes what every
+   view shows. */
+.topbar-program {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--slate);
+}
+.topbar-program[hidden] { display: none; }
+.topbar-program-label { font-weight: 600; }
+/* Read-only: reads as a fixed label, not a control. */
+.topbar-program-field {
+    width: 16rem;
+    max-width: 16rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--line, #e2e8f0);
+    border-radius: 6px;
+    background: #f8fafc;
+    color: inherit;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: default;
+    text-overflow: ellipsis;
+}
+.topbar-program-field:focus { outline: none; }
+.topbar-program select {
+    max-width: 16rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--indigo);
+    border-radius: 6px;
+    background: #fff;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--indigo-dark);
+    cursor: pointer;
+}
+.topbar-program select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+@media (max-width: 900px) {
+    .topbar-program-label { display: none; }
+    .topbar-program select { max-width: 9rem; }
+    .topbar-program-field { width: 9rem; max-width: 9rem; }
+}
+
+
+/* ---- student preferences (time of day, load) ---- */
+
+.pref-bar {
+    display: grid;
+    gap: var(--s2);
+    padding: var(--s2) var(--s3);
+    background: var(--canvas);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+}
+.pref-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+}
+.pref-label {
+    min-width: 6.5rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--slate);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.pref-choices { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.pref-choice {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.82rem;
+    border-radius: 999px;
+    cursor: pointer;
+}
+.pref-choice[aria-pressed="true"] {
+    background: var(--indigo);
+    border-color: var(--indigo);
+    color: #fff;
+}
+.pref-choice[aria-pressed="true"]:hover { background: var(--indigo-dark); }
+.pref-hint { font-size: 0.78rem; color: var(--slate); }
+.pref-notes {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.8rem;
+    color: var(--ink);
+}
+.pref-notes li + li { margin-top: 0.15rem; }
+.term-pref { font-size: 0.78rem; color: var(--slate); }
+
+
+/* ---- two-way switch at the top of a page (e.g. one account / many at once) ----
+   Links, not buttons: each mode has its own address, so the browser's back
+   button and a bookmark both land on the mode the person was using. */
+.mode-switch {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    margin-bottom: var(--s3);
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+.mode-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.95rem;
+    border-radius: 8px;
+    font-size: 0.86rem;
+    font-weight: 500;
+    color: var(--slate);
+    text-decoration: none;
+}
+.mode-opt:hover { color: var(--ink); }
+.mode-opt.on {
+    background: #fff;
+    color: var(--indigo);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+
+/* ---- grade upload: the chosen file, and a status bar with a real percentage ---- */
+.gu-file {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin-top: 0.75rem; padding: 0.7rem 0.85rem;
+    background: var(--canvas); border: 1px solid var(--line); border-radius: 10px;
+}
+.gu-file[hidden], .gu-status[hidden], .gu-check[hidden] { display: none; }
+.gu-file > i { font-size: 1.25rem; color: var(--indigo); }
+.gu-file-meta { flex: 1; min-width: 0; }
+.gu-file-name { font-size: 0.86rem; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gu-file-size { font-size: 0.75rem; color: var(--slate); margin-top: 2px; }
+.gu-icon-btn { padding: 0.45rem 0.6rem; border: none; background: transparent; color: var(--slate); }
+.gu-icon-btn:hover { color: #b91c1c; background: #fef2f2; }
+.gu-check { margin-top: 0.75rem; width: 100%; }
+.gu-check:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.gu-status {
+    margin-top: var(--s3); padding: 0.85rem 1rem;
+    border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px;
+    background: #fff; border-left-color: var(--indigo);
+}
+.gu-status-row { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; margin-bottom: 0.5rem; }
+.gu-status-text { font-size: 0.86rem; color: var(--ink); }
+.gu-status-pct { font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--indigo); }
+.gu-status-track { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+.gu-status-fill { height: 100%; width: 0; background: var(--indigo); border-radius: 999px; transition: width 0.25s linear; max-width: 100%; }
+.gu-status.is-done  { border-left-color: #059669; } .gu-status.is-done  .gu-status-fill { background: #059669; } .gu-status.is-done  .gu-status-pct { color: #059669; }
+.gu-status.is-wait  { border-left-color: #d97706; } .gu-status.is-wait  .gu-status-fill { background: #d97706; } .gu-status.is-wait  .gu-status-pct { color: #d97706; }
+.gu-status.is-error { border-left-color: #dc2626; background: #fef2f2; } .gu-status.is-error .gu-status-fill { background: #dc2626; } .gu-status.is-error .gu-status-pct { color: #dc2626; }
+.is-attn { outline: 2px solid #f59e0b; outline-offset: 2px; border-radius: 6px; }
