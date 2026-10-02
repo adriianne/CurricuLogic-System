@@ -40,26 +40,54 @@ const CODE_OK  = /^[A-Z][A-Z0-9 \-_]*$/;
    and rejecting control characters is the useful check. */
 const TITLE_OK = /^[^\x00-\x1f]*[A-Za-z][^\x00-\x1f]*$/;
 
-/* Practicum is 9 lecture units, so 3 is too low a ceiling. 9 keeps every
-   value a single digit and still admits everything real. */
-/* Lecture units in this curriculum are 2 or 3, and nothing else — a
-   3-unit subject is either 3 lecture, or 2 lecture with 1 laboratory.
-   The one exception is CC-PRACT40, a 9-unit practicum.
-
+/* An exact whitelist of "allowed" lec/lab values only works for one
+   programme's own conventions -- BSIT is almost all 2-or-3 lecture with
+   a 0-or-1 lab, but that is BSIT's convention, not a rule. Cross-checked
+   against real prospectus PDFs from four colleges (BSIT, BSN, BSCRIM,
+   BSBA-OM): lecture units alone range from 1 (a 1-lec/1-lab elective) to
+   10 (BSCRIM's Criminology Enhancement Course), and laboratory units run
+   as high as 8 (BSN's RLE-heavy clinical courses, e.g. a single subject
+   at 8 lec / 6 lab). A practicum-style course isn't one fixed shape
+   either: BSIT's records its units entirely under laboratory (6 or 9,
+   lecture 0), BSBA's the opposite way (6 lecture, lab 0), and BSCRIM's
+   OJT is just an ordinary 3-lecture course with no special-casing at
+   all. A bounded range is the check that survives all of that: it still
+   catches a fat-fingered "30" typed for "3", without rejecting a real
+   subject just because no one told this file that other colleges exist.
    PE is 2 lecture with no laboratory, which is why the lab auto-fill is
    a suggestion the operator can clear rather than a rule. */
-const LEC_OK   = [2, 3, 9];
-const LAB_MAX  = 1;
+const LEC_MAX = 12;
+const LAB_MAX = 10;
 
-/* A semester beyond this is almost certainly a mistake — the heaviest in
-   BSIT is 26. Adding rows stops here rather than letting a term grow
-   without limit. */
-const MAX_TERM_UNITS = 30;
+/* A semester beyond this is almost certainly a mistake -- but real
+   heavy terms run higher than BSIT's own 26: BSCRIM's 2nd-year 1st
+   semester is 33 units. Adding rows stops here rather than letting a
+   term grow without limit. */
+const MAX_TERM_UNITS = 40;
 
 const STANDING = [
     { key: 'STAND2', label: 'Must finish all 1st to 2nd year courses', threshold: 2 },
     { key: 'STAND3', label: 'Must finish all 1st to 3rd year courses', threshold: 3 },
 ];
+
+/* The prerequisite table stores a standing threshold as a position,
+   Y*10+T (22 = through 2nd year, 2nd sem) -- the form the engine reads.
+   This builder only offers whole years, so in memory `standing` is a year
+   (2 -> **, 3 -> ***). A stored position it does not model (11, 21, 31...)
+   keeps its exact value in `pos`, so opening and re-saving a prospectus
+   does not turn it into something else. A bare 1-9 from an older writer
+   is a year. */
+function standingFromDb(value) {
+    const n = Number(value) || 0;
+    if (n >= 10) return { standing: Math.floor(n / 10), pos: n };
+    return { standing: n || 2 };
+}
+const standingToDb = (p) => p.pos ?? p.standing * 10 + 2;
+
+/* ---- elective slots ----
+   Decided from a row's data, not from one programme's naming: see
+   shared/js/electives.js (loaded before this file). */
+const { placeholderOf, electiveTypeOf, isElectiveRow } = window.CurriculogicElectives;
 
 let SB    = null;
 let OPTS  = {};
@@ -180,24 +208,25 @@ function validate() {
             r.errors.push('Title must contain at least one letter.');
         }
 
-        if (r.lec !== null && !LEC_OK.includes(r.lec)) {
-            r.errors.push('Lecture units must be 2 or 3 (9 for practicum).');
+        if (r.lec !== null && (r.lec < 0 || r.lec > LEC_MAX)) {
+            r.errors.push(`Lecture units must be 0–${LEC_MAX}.`);
         }
-        if (r.lab !== null && r.lab > LAB_MAX) {
-            r.errors.push('Laboratory units are 1, or blank for none.');
+        if (r.lab !== null && (r.lab < 0 || r.lab > LAB_MAX)) {
+            r.errors.push(`Laboratory units must be 0–${LAB_MAX}.`);
         }
 
         if (unitsOf(r) <= 0) r.errors.push('Units must be more than zero.');
 
 if (code) {
-    /* Un-numbered IT-EL / IT-FRE placeholders are exempt from the
-       duplicate check. Several slots share the same base code by
-       design — that is the whole point of a placeholder — and
+    /* Un-numbered elective placeholders (IT-EL, BSN-ELEC, FREE...) are
+       exempt from the duplicate check. Several slots share the same base
+       code by design — that is the whole point of a placeholder — and
        normalizeElectiveCodes() gives each its own numbered code
        before the payload reaches the database. Without this exemption
        the Create button stays disabled by its own validation, and the
        numbering routine that would resolve the clash never runs. */
-    const isPlaceholder = /^IT-(EL|FRE)$/.test(code);
+    const ph = placeholderOf(code);
+    const isPlaceholder = ph !== null && ph.num === null;
 
     if (!isPlaceholder) {
         if (seen.has(code)) r.errors.push('This code is already used.');
@@ -672,7 +701,7 @@ function paneHtml(tab) {
        and are chosen from separately — four of each. Keeping them in one
        tab meant the type had to be inferred from the code afterwards,
        and that inference was wrong for the IT-FRE slots. */
-    if (tab === 'it')   return tableHtml('IT elective courses', catalog('IT'), null, null);
+    if (tab === 'it')   return tableHtml('Programme elective courses', catalog('IT'), null, null);
     if (tab === 'free') return tableHtml('Free elective courses', catalog('FREE'), null, null);
 
     let html = `<div class="cb-sems">
@@ -834,7 +863,7 @@ function render() {
         </button>`;
     }).join('')
         + `<button class="cb-tab${TAB === 'it' ? ' on' : ''}" data-tab="it">
-            IT electives${catalog('IT').length
+            Programme electives${catalog('IT').length
                 ? ` <span class="cb-n">${catalog('IT').length}</span>` : ''}
         </button>`
         + `<button class="cb-tab${TAB === 'free' ? ' on' : ''}" data-tab="free">
@@ -895,7 +924,10 @@ function refreshVersionStatus() {
    would be wrong, because a department may deliberately build one year at
    a time, and not every programme runs a summer term. */
 
-const TARGET_UNITS = 176;   // BSIT. Advisory only — other programmes differ.
+/* Advisory only. Read from the programme (program.target_units); 176 is the
+   BSIT figure, used when the programme is unknown. */
+const targetUnits = () =>
+    window.CurriculogicPrograms?.limitsOf(OPTS.programId).targetUnits ?? 176;
 
 /* Codes already in the chosen curriculum year. The database has a unique
    constraint on (prospectus_id, code), so a collision fails the whole
@@ -953,7 +985,11 @@ function preflight(taken) {
     if (taken === null) {
         warnings.push('Could not check for codes already in this curriculum year.');
     } else if (taken?.size) {
-        const clash = rows.filter(r => taken.has(r.code.trim().toUpperCase()))
+        // A row with a dbId already IS the saved record `taken` found --
+        // that is not a collision, it is the same row. Only a genuinely
+        // new row (no dbId yet) whose code matches something already
+        // saved is a real clash.
+        const clash = rows.filter(r => !r.dbId && taken.has(r.code.trim().toUpperCase()))
                           .map(r => r.code.trim().toUpperCase());
         if (clash.length) {
             blockers.push(
@@ -989,8 +1025,8 @@ function preflight(taken) {
 
     const total = scheduled().filter(r => r.code.trim())
                              .reduce((a, r) => a + unitsOf(r), 0);
-    if (Math.abs(total - TARGET_UNITS) > 20) {
-        warnings.push(`${total} units total, against ${TARGET_UNITS} for a full BSIT curriculum.`);
+    if (Math.abs(total - targetUnits()) > 20) {
+        warnings.push(`${total} units total, against the ${targetUnits()} expected for this programme's full curriculum.`);
     }
 
     for (const [type, label] of [['IT', 'IT'], ['FREE', 'free']]) {
@@ -1227,24 +1263,40 @@ async function analyzeDocument(file) {
             if (item.elective_type === 'IT' || item.elective_type === 'FREE') {
                 electiveType = item.elective_type;
             } else {
-                // Fall back to code prefix if the AI didn't return a type.
-                // This prospectus uses EL* for IT electives and FRE* for
-                // free electives; adjust the patterns if your naming differs.
+                // Fall back to the code if the AI didn't return a type: FRE*
+                // is a free elective, EL* a programme elective, with or
+                // without a programme prefix (IT-EL1, BSN-FRE).
                 const code = String(item.code ?? '').toUpperCase();
-                if (/^IT-FRE|^FRE/.test(code))      electiveType = 'FREE';
-                else if (/^IT-EL|^EL/.test(code))   electiveType = 'IT';
+                if (/^(?:[A-Z0-9]+-)?FRE/.test(code))      electiveType = 'FREE';
+                else if (/^(?:[A-Z0-9]+-)?EL/.test(code))  electiveType = 'IT';
             }
         }
 
         const row = blank(year, term, electiveType);
-        row.code  = String(item.code ?? '').trim().toUpperCase();
+        // Word-authored prospectus PDFs (BSN's is one) autocorrect a typed
+        // "-" into an en dash (–) or em dash (—) in codes like
+        // "HUM – REP 101". Gemini reads the document as an image and
+        // can carry that character through verbatim, which CODE_OK below
+        // would then reject as punctuation it doesn't recognize -- so it
+        // is normalized back to a plain hyphen here, the one place raw
+        // AI-extracted text enters ROWS.
+        row.code  = String(item.code ?? '').trim().toUpperCase().replace(/[–—]/g, '-');
         row.title = String(item.title ?? '').trim();
         row.lec   = Number.isFinite(item.lecture_units) ? item.lecture_units : null;
         row.lab   = Number.isFinite(item.laboratory_units) ? item.laboratory_units : null;
         row._aiPrereqCodes = Array.isArray(item.prerequisites) ? item.prerequisites : [];
+        row._aiNotes  = Array.isArray(item.prerequisite_notes) ? item.prerequisite_notes : [];
+        row._aiMarker = item.footnote_marker ?? null;
         ROWS.push(row);
         if (row.code) byCode.set(row.code, row);
     }
+
+    const FN = window.CurriculogicFootnotes;
+    const footnotes = Array.isArray(data.footnotes) ? data.footnotes : [];
+    const looseIndex = new Map(ROWS.filter(r => r.code).map(r => [FN.looseKey(r.code), r]));
+    const followUps = [];      // what a person still has to add by hand
+    const interpreted = [];    // wording the builder turned into a rule
+    let gatesAdded = 0;
 
     for (const row of ROWS) {
         for (const prereqCode of row._aiPrereqCodes) {
@@ -1253,9 +1305,58 @@ async function analyzeDocument(file) {
             // extracted subject is dropped rather than guessed at -- the
             // reviewer sees the row with that prerequisite simply absent
             // and can add it manually via the existing picker if needed.
+            // It is now listed below so it is not lost without a word.
             if (target) row.prereqs.push({ uid: target.uid });
+            else followUps.push(`${row.code}: prerequisite "${prereqCode}" is not a subject in this document`);
         }
+
+        // Prerequisite text the AI kept apart from the codes. A code it put
+        // there by mistake (wrapped across lines, or printed without a
+        // space: "LEA111") is resolved to its subject; what is left is real
+        // non-code text ("All prof courses", "GEC") that has no rule form.
+        const { matched, leftover } = FN.resolveNotes(row._aiNotes, looseIndex);
+        for (const target of matched) {
+            if (target !== row && !row.prereqs.some(p => p.uid === target.uid)) {
+                row.prereqs.push({ uid: target.uid });
+            }
+        }
+        // Wording such as "All CLJ/CDI Subjects" or "Finished Third Year
+        // Subjects" is turned into a rule the engine understands. The result
+        // is listed for review; text with no defined meaning ("GEC") is left
+        // for a person, as before.
+        for (const text of leftover) {
+            const rule = FN.interpretNote(text, row, ROWS);
+            if (rule?.kind === 'subjects') {
+                for (const target of rule.targets) {
+                    if (!row.prereqs.some(p => p.uid === target.uid)) row.prereqs.push({ uid: target.uid });
+                }
+                interpreted.push(`${row.code}: "${text}" → ${rule.targets.length} prerequisite${rule.targets.length === 1 ? '' : 's'} (${rule.label})`);
+            } else if (rule?.kind === 'standing') {
+                if (!row.prereqs.some(p => p.standing && (p.pos ?? p.standing * 10 + 2) === rule.position)) {
+                    row.prereqs.push({ standing: Math.floor(rule.position / 10), pos: rule.position });
+                }
+                interpreted.push(`${row.code}: "${text}" → year-standing gate (${rule.label})`);
+            } else {
+                followUps.push(`${row.code}: "${text}"`);
+            }
+        }
+
+        // A footnote mark meaning "finish years 1 to N" is a year-standing
+        // gate. It is held to before the subject's own semester so a
+        // subject can never be asked to pass itself first.
+        if (row._aiMarker && row.year !== null) {
+            const y = FN.throughYear(row._aiMarker, footnotes);
+            if (y) {
+                const pos = FN.standingPositionFor(y, row.year, row.term);
+                if (pos) { row.prereqs.push({ standing: Math.floor(pos / 10), pos }); gatesAdded++; }
+            } else if (footnotes.some(f => String(f?.marker ?? '').trim() === String(row._aiMarker).trim())) {
+                followUps.push(`${row.code}: "${row._aiMarker}"`);
+            }
+        }
+
         delete row._aiPrereqCodes;
+        delete row._aiNotes;
+        delete row._aiMarker;
     }
 
     TAB = ROWS.find(r => r.year)?.year ?? 1;
@@ -1277,18 +1378,43 @@ async function analyzeDocument(file) {
         // point it was already detached from the DOM -- the message was
         // written into nothing.
         showAiStatus(
-            `Extracted ${extracted.length} subject${extracted.length === 1 ? '' : 's'}. `
-            + 'Review every row below, then press Create to save \u2014 nothing has been saved yet.',
+            `Extracted ${extracted.length} subject${extracted.length === 1 ? '' : 's'}`
+            + (gatesAdded ? `, with ${gatesAdded} year-standing gate${gatesAdded === 1 ? '' : 's'} from the document's footnotes` : '')
+            + '. Review every row below, then press Create to save \u2014 nothing has been saved yet.',
             'success',
+            (followUps.length || interpreted.length)
+                ? {
+                    title: followUps.length
+                        ? 'Check these \u2014 the document states them in words. Those marked \u2192 were turned into rules; the others must be added by hand:'
+                        : 'Check these \u2014 the document states them in words, and the system turned each into a rule:',
+                    items: [...interpreted, ...followUps],
+                }
+                : null,
         );
     }, 500);
 }
 
-function showAiStatus(msg, cls) {
+function showAiStatus(msg, cls, details) {
     const el = document.getElementById('ai-analyze-status');
     if (!el) return;
     el.textContent = msg;
     el.className = 'msg' + (cls ? ' ' + cls : '');
+
+    if (details?.items?.length) {
+        const box = document.createElement('div');
+        const head = document.createElement('strong');
+        head.textContent = details.title;
+        const ul = document.createElement('ul');
+        ul.style.margin = '0.35rem 0 0 1.1rem';
+        for (const t of details.items) {
+            const li = document.createElement('li');
+            li.textContent = t;
+            ul.appendChild(li);
+        }
+        box.style.marginTop = '0.5rem';
+        box.append(head, ul);
+        el.appendChild(box);
+    }
 }
 
 function clearAiFile() {
@@ -1569,20 +1695,17 @@ function normalizeElectiveCodes() {
     // start above them and never collide.
     for (const r of ROWS) {
         if (r.year === null) continue;   // catalogue entries untouched
-        const raw = r.code.trim().toUpperCase();
-        const m = raw.match(/^(IT-EL|IT-FRE)(\d+)$/);
-        if (m) counters[m[1]] = Math.max(counters[m[1]] || 0, Number(m[2]));
+        const ph = placeholderOf(r.code);
+        if (ph && ph.num !== null) counters[ph.base] = Math.max(counters[ph.base] || 0, ph.num);
     }
 
     // Pass 2: assign numbers to unnumbered placeholders.
     for (const r of ROWS) {
         if (r.year === null) continue;
-        const raw = r.code.trim().toUpperCase();
-        const m = raw.match(/^(IT-EL|IT-FRE)$/);
-        if (!m) continue;
-        const base = m[1];
-        counters[base] = (counters[base] || 0) + 1;
-        r.code = `${base}${counters[base]}`;
+        const ph = placeholderOf(r.code);
+        if (!ph || ph.num !== null) continue;
+        counters[ph.base] = (counters[ph.base] || 0) + 1;
+        r.code = `${ph.base}${counters[ph.base]}`;
     }
 }
 
@@ -1603,11 +1726,8 @@ function toSubjectRows() {
         lab_units:     r.lab ?? 0,
         year_level:    r.year,
         term:          r.term,
-        is_elective:   r.year === null || /^IT-EL|^IT-FRE/.test(r.code.trim().toUpperCase()),
-        elective_type: r.electiveType
-            ?? (/^IT-FRE/.test(r.code.trim().toUpperCase()) ? 'FREE'
-              : /^IT-EL/.test(r.code.trim().toUpperCase())  ? 'IT'
-              : null),
+        is_elective:   isElectiveRow(r),
+        elective_type: electiveTypeOf(r),
     }));
 }
 
@@ -1617,6 +1737,12 @@ async function saveDraft() {
     if (!rowsToSave.length) {
         return OPTS.onError?.('Nothing to save yet — add a subject first.');
     }
+
+    // Prerequisites refer to rows by uid. Creating the curriculum year in
+    // step 1 makes the host remount the builder, which replaces ROWS, so
+    // a lookup against ROWS in step 6 found nothing and every prerequisite
+    // was silently dropped. Resolve them against this snapshot instead.
+    const rowByUid = new Map(rowsToSave.map(r => [r.uid, r]));
 
     // ──────────────────────────────────────────────────────────────
     // STEP 1: Ensure we have a prospectus_id
@@ -1736,12 +1862,9 @@ if (freshVersion) {
         lab_units: r.lab || 0,
         year_level: r.year,
         term: r.term,
-        is_elective: r.year === null,
+        is_elective: isElectiveRow(r),
         is_active: true,
-        elective_type: r.electiveType 
-            || (/^IT-FRE/.test(r.code.trim().toUpperCase()) ? 'FREE'
-                : /^IT-EL/.test(r.code.trim().toUpperCase()) ? 'IT'
-                : null),
+        elective_type: electiveTypeOf(r),
     }));
 
     const { data: inserted, error: subjectError } = await SB
@@ -1796,16 +1919,16 @@ if (freshVersion) {
                     requirement_type: 'standing',
                     rule_type: 'and',
                     rule_group: i + 1,
-                    threshold_value: p.standing,
+                    threshold_value: standingToDb(p),
                     created_by: OPTS.staffId,
                 });
             } else {
                 // Find the target subject
-                const target = ROWS.find(x => x.uid === p.uid);
+                const target = rowByUid.get(p.uid);
                 if (target) {
                     const targetCode = target.code.trim().toUpperCase();
                     const targetId = byCode.get(targetCode);
-                    
+
                     // ⭐ This will now work for BOTH new AND existing subjects
                     if (targetId) {
                         ruleRows.push({
@@ -1939,7 +2062,7 @@ function applyExisting(data) {
         if (!owner) continue;
 
         if (rule.requirement_type === 'standing') {
-            owner.prereqs.push({ standing: Number(rule.threshold_value) || 2 });
+            owner.prereqs.push(standingFromDb(rule.threshold_value));
         } else {
             const target = byId.get(rule.prerequisite_subject_id);
             if (target) owner.prereqs.push({ uid: target.uid });
@@ -2002,7 +2125,7 @@ function applyDraft(draft) {
         if (!owner) continue;
 
         if (rule.requirement_type === 'standing') {
-            owner.prereqs.push({ standing: Number(rule.threshold_value) || 2 });
+            owner.prereqs.push(standingFromDb(rule.threshold_value));
         } else {
             const target = byCode.get(String(rule.prerequisite_code ?? '').toUpperCase());
             if (target) owner.prereqs.push({ uid: target.uid });
@@ -2094,11 +2217,22 @@ async function commit() {
         return OPTS.onError?.(msg);
     }
 
-    // Rules second — they need the ids the insert just returned.
+    // Rules second — they need the ids the insert just returned. Also
+    // resolve targets against subjects saved earlier (a prior Save
+    // (unpublished), or an already-loaded draft, both of which mark a row
+    // with dbId) -- without this, a brand-new subject's prerequisite on
+    // one of those already-saved subjects can't find its id in `data`
+    // (which only holds rows inserted *this* call) and silently drops.
     const byCode = new Map(data.map(s => [s.code, s.id]));
+    for (const r of filled()) {
+        if (r.dbId) byCode.set(r.code.trim().toUpperCase(), r.dbId);
+    }
     const rules  = [];
 
-    for (const r of filled()) {
+    // Only rows inserted just now need their rules built here -- an
+    // already-saved subject's rules were written when IT was saved;
+    // rebuilding them again would insert duplicates alongside them.
+    for (const r of filled().filter(row => !row.dbId)) {
         const id = byCode.get(r.code.trim().toUpperCase());
         if (!id) continue;
 
@@ -2114,7 +2248,7 @@ async function commit() {
                 // Every condition shown on one row is required, so each
                 // gets its own group. Groups are ANDed.
                 rule_group:       i + 1,
-                threshold_value:  p.standing ?? null,
+                threshold_value:  p.standing ? standingToDb(p) : null,
                 created_by:       OPTS.staffId,
             });
         });
