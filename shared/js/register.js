@@ -8,10 +8,14 @@
 
 console.log('register.js loaded');
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC ?? {};
 
+// Bucketed the same way auth.js's client is -- see config.js. This page
+// only ever registers a student, so the bucket is always 'student'.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { storageKey: authStorageKey?.(['university_student']) },
+    })
     : null;
 
 if (!supabase) console.error('register.js: Supabase client not created. Is config.js loaded?');
@@ -147,7 +151,8 @@ function validate() {
     // would leave a sign-in with no student record behind it.
     if (PROGRAMS_LOADED && !$('program').value) return mark('program', 'Choose your degree program.');
 
-    if ($('password').value.length < 8)             return mark('password', 'Password must be at least 8 characters.');
+    const pwProblem = CurriculogicPasswordRules.problem($('password').value);
+    if (pwProblem)                                  return mark('password', pwProblem);
     if ($('password').value !== $('confirm').value) return mark('confirm', 'The two passwords do not match.');
     if (!$('consent').checked) return 'Please confirm your details and accept the data privacy notice.';
 
@@ -220,7 +225,8 @@ async function handleRegister() {
         if (path === 'new') {
             row.first_name = $('first-name').value.trim();
             row.last_name  = $('last-name').value.trim();
-            row.student_id = $('student-id-new').value.trim() || null;
+            // No student ID is sent: the database issues one when the
+            // Registrar approves the request (db/045).
         } else {
             row.student_id = $('student-id').value.trim();
         }

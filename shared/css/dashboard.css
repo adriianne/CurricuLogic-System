@@ -916,6 +916,25 @@ ul { list-style: none; }
     margin-bottom: var(--s2);
 }
 
+.review-matches {
+    font-size: 0.83rem;
+    line-height: 1.6;
+    color: var(--ink);
+    padding: 0.55rem 0.75rem;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 7px;
+    margin-bottom: var(--s2);
+}
+.review-matches.none {
+    background: var(--canvas);
+    border-left-color: #c7d2fe;
+    color: var(--slate);
+}
+.review-matches p { margin: 0 0 0.25rem; }
+.review-matches ul { margin: 0; padding-left: 1.1rem; }
+.review-matches .mono { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-weight: 600; }
+
 .review-actions { display: flex; gap: 0.5rem; }
 
 .review-id-field {

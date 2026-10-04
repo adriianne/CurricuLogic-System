@@ -25,6 +25,12 @@
 // each dashboard's own IIFE and is not reachable from here. The anon
 // key is public by design (same one every dashboard already ships to
 // the browser), so a second client built from it has no security effect.
+//
+// This client never needs to be signed in -- it only ever reads the one
+// public system_config row -- so its session does not persist and does
+// not auto-refresh. Loaded on every dashboard regardless of role, it
+// would otherwise be a second, anonymous GoTrueClient writing to
+// whichever role's storage key happened to be active on that page.
 
 (function () {
 'use strict';
@@ -32,7 +38,9 @@
 const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
 
 const client = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+    })
     : null;
 
 const TERM_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };

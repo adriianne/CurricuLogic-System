@@ -50,12 +50,20 @@ const STANDING     = 'standing';
 const DEFAULTS = {
     maxUnits: 24,
     maxUnitsGraduating: 27,
+    /* First year level held back by the year gate (see assess). */
+    gateFromYear: 3,
     /* Guard only. With an acyclic graph the fixpoint is reached in far
        fewer passes; this stops a cycle that slipped past the integrity
        checks from spinning forever. */
     maxIterations: 20,
 };
 
+
+/* An elective slot, however it was stored. Some rows carry an elective_type
+   with is_elective left false (an older save path did that), and treating
+   those as required subjects would hold up year-standing checks and inflate
+   what the student "owes". Either field marks a slot. */
+const isElective = (s) => s.is_elective === true || s.elective_type != null;
 
 /* ---- working memory ---- */
 
@@ -94,6 +102,7 @@ function buildFacts(student, records, subjects) {
         passed, failed, enrolled,
         unitsEarned,
         completedThroughPosition: highestCompletedPosition(passed, subjects),
+        firstIncompletePosition: firstIncompletePosition(passed, subjects),
     };
 }
 
@@ -105,14 +114,14 @@ function buildFacts(student, records, subjects) {
 function highestCompletedPosition(passed, subjects) {
     const positions = [...new Set(
         subjects
-            .filter(s => !s.is_elective && s.year_level != null && s.term != null)
+            .filter(s => !isElective(s) && s.year_level != null && s.term != null)
             .map(s => s.year_level * 10 + s.term)
     )].sort((a, b) => a - b);
 
     let highest = 0;
     for (const pos of positions) {
         const upto = subjects.filter(s =>
-            !s.is_elective &&
+            !isElective(s) &&
             s.year_level != null && s.term != null &&
             s.year_level * 10 + s.term <= pos
         );
@@ -120,6 +129,34 @@ function highestCompletedPosition(passed, subjects) {
         else break;
     }
     return highest;
+}
+
+/* The earliest position still holding a required subject the student has
+   not passed (Infinity when there is none). A standing rule "through
+   position N" is met when that is later than N. Asking it this way, rather
+   than comparing against the highest position with subjects in it, means a
+   semester that holds no subjects (no summer term, or a term emptied by an
+   inactive subject) can never leave a gate permanently closed. */
+function firstIncompletePosition(passed, subjects) {
+    let first = Infinity;
+    for (const s of subjects) {
+        if (isElective(s) || s.year_level == null || s.term == null) continue;
+        if (passed.has(s.id)) continue;
+        first = Math.min(first, s.year_level * 10 + s.term);
+    }
+    return first;
+}
+
+/* A standing rule's threshold_value is a position (see above): 22 means
+   "through 2nd year, 2nd semester". Some writers stored a bare year (1-9)
+   instead, and read against completedThroughPosition that would be met as
+   soon as the student finished one semester. A bare year is read as
+   "through the end of that year" (2 -> 22), so a rule written either way
+   means what its author intended. */
+function standingPosition(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n < 10 ? n * 10 + 2 : n;
 }
 
 /* Human-readable label for a position, used in the student-facing
@@ -164,7 +201,7 @@ function evaluateSubject(subject, rules, facts, byId) {
     let satisfied = true;
 
     for (const [groupId, conditions] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
-        const results = conditions.map(c => evaluateCondition(c, facts, byId));
+        const results = conditions.map(c => evaluateCondition(c, facts, byId, subject));
         const met = results.some(r => r.met);
 
         if (!met) satisfied = false;
@@ -183,13 +220,23 @@ function evaluateSubject(subject, rules, facts, byId) {
     return { satisfied, trace };
 }
 
-function evaluateCondition(rule, facts, byId) {
+function evaluateCondition(rule, facts, byId, subject) {
     const type = rule.requirement_type;
 
     if (type === STANDING) {
-        const need = Number(rule.threshold_value);
+        /* A subject cannot require its own semester or a later one: it would
+           have to pass itself first and could never open. Such a rule is a
+           data mistake (a footnote read as "through 4th year" on a 4th-year
+           subject), so it is held to the semester just before the subject. */
+        let need = standingPosition(rule.threshold_value);
+        if (subject && subject.year_level != null) {
+            const own = subject.year_level * 10 + (Number(subject.term) || 1);
+            if (need >= own) need = own - 1;
+        }
         const have = facts.completedThroughPosition;
-        const met  = have >= need;
+        const met  = facts.firstIncompletePosition !== undefined
+            ? facts.firstIncompletePosition > need
+            : have >= need;
         return {
             type, met,
             threshold: need,
@@ -263,6 +310,7 @@ function chainForward(facts, kb, assumePassed = []) {
 
     const working = { ...facts, passed };
     working.completedThroughPosition = highestCompletedPosition(passed, kb.subjects);
+    working.firstIncompletePosition = firstIncompletePosition(passed, kb.subjects);
 
     const depth = new Map();
     let iteration = 0;
@@ -292,6 +340,7 @@ function chainForward(facts, kb, assumePassed = []) {
            that is what makes the next depth level meaningful. */
         for (const id of newlyPassed) working.passed.add(id);
         working.completedThroughPosition = highestCompletedPosition(working.passed, kb.subjects);
+        working.firstIncompletePosition = firstIncompletePosition(working.passed, kb.subjects);
 
     } while (derivedThisPass > 0 && iteration < DEFAULTS.maxIterations);
 
@@ -350,10 +399,24 @@ function unlockImpact(subjectId, facts, kb) {
  *   student  - university_student row
  *   records  - academic_record rows, one per attempt
  *   kb       - { subjects, rules, offerings }
- *   options  - { maxUnits, term, respectOfferings }
+ *   options  - { maxUnits, maxUnitsGraduating, term, respectOfferings,
+ *                yearGate (false turns the year gate off), gateFromYear }
+ *
+ * totalUnits is the degree's own units: subjects placed in a semester
+ * (elective slots included), not the optional catalogue entries, and not
+ * subjects set inactive that the student never took.
  */
 function assess(student, records, knowledgeBase, options = {}) {
-    const subjects  = knowledgeBase.subjects  ?? [];
+    /* A subject the department has set inactive is out of the curriculum:
+       it is not offered, not counted, and must not hold up a year-standing
+       check. One the student already passed or is taking stays, so their
+       record and units still make sense. Filtering here means everything
+       below sees the curriculum as it stands. */
+    const kept = new Set(records
+        .filter(r => r.status === PASSED || r.status === ENROLLED)
+        .map(r => r.subject_id));
+    const subjects  = (knowledgeBase.subjects ?? [])
+        .filter(s => s.is_active !== false || kept.has(s.id));
     const rules     = knowledgeBase.rules     ?? [];
     const offerings = knowledgeBase.offerings ?? [];
 
@@ -386,16 +449,117 @@ function assess(student, records, knowledgeBase, options = {}) {
         }
     }
 
+    /* The year-level gate. A curriculum is a chain: a 3rd-year subject is
+       not open to a student who has not finished 2nd year, whatever its own
+       prerequisites say. This is the system's default for a programme whose
+       prospectus states no gates of its own.
+
+       A prospectus that DOES state them (the printed ** / *** footnotes, or a
+       "Finished Third Year Subjects" prerequisite) is followed as written:
+       its gates apply to the subjects that carry them and nothing else is
+       gated. So the default switches off as soon as any subject of this
+       prospectus has a standing rule. options.yearGate === false switches it
+       off for everyone; gateFromYear moves where it starts. */
+    const documented = rules.some(r => r.requirement_type === STANDING && byId.has(r.subject_id));
+    const gateFrom = (options.yearGate === false || documented)
+        ? Infinity
+        : (Number(options.gateFromYear) || DEFAULTS.gateFromYear);
+
+    const gateFor = (id) => {
+        const s = byId.get(id);
+        const y = Number(s?.year_level);
+        if (!s || !Number.isFinite(y) || y < gateFrom) return null;
+        const own = rulesBySubject.get(id) ?? [];
+        if (own.some(r => r.requirement_type === STANDING)) return null;
+        return {
+            subject_id: id,
+            prerequisite_subject_id: null,
+            requirement_type: STANDING,
+            rule_type: 'and',
+            rule_group: 99,
+            threshold_value: (y - 1) * 10 + 2,   // through the end of the year before
+            implicit: true,
+        };
+    };
+
     const kb = {
         subjects, byId,
-        rulesFor: (id) => rulesBySubject.get(id) ?? [],
+        rulesFor: (id) => {
+            const own = rulesBySubject.get(id) ?? [];
+            const gate = gateFor(id);
+            return gate ? [...own, gate] : own;
+        },
         dependentsOf: (id) => dependents.get(id) ?? [],
     };
 
     const facts = buildFacts(student, records, subjects);
 
     const offeredIds = new Set(offerings.map(o => o.subject_id));
-    const respectOfferings = options.respectOfferings !== false && offerings.length > 0;
+    const useSchedule = options.respectOfferings !== false && offerings.length > 0;
+
+    /* A schedule is rarely published all at once: one section goes up
+       before the others. So availability is judged per year-and-semester
+       block of the curriculum, not for the whole degree:
+         offered   the subject has a section this term
+         not-run   its block IS being scheduled but this subject is not, so
+                   the department is not running it — not recommended
+         pending   nothing in its block is scheduled yet, so there is no
+                   evidence either way — recommended from the curriculum and
+                   labelled, instead of leaving the student an empty list
+         none      no schedule exists at all (or it is switched off)
+       Without this, publishing a single section emptied the list of every
+       other student. */
+    const blockOf = (s) => `${s.year_level ?? '-'}:${s.term ?? '-'}`;
+    const scheduledBlocks = new Set(
+        useSchedule ? subjects.filter(s => offeredIds.has(s.id)).map(blockOf) : []);
+    const scheduleStateOf = (s) => {
+        if (!useSchedule) return 'none';
+        if (offeredIds.has(s.id)) return 'offered';
+        return scheduledBlocks.has(blockOf(s)) ? 'not-run' : 'pending';
+    };
+
+    /* ---- elective slots ----
+       A slot sits in a semester ("IT Elective 1", year 3); the catalogue is
+       the list of real subjects a student picks from to fill one. Passing a
+       catalogue subject fills one open slot of its type, earliest semester
+       first. A slot can also be passed directly (a grade recorded against the
+       placeholder itself), which counts as filled too.
+         - a filled slot is done: it is not offered again
+         - catalogue subjects beyond the number of slots earn no degree units
+         - once every slot of a type is filled, that type's catalogue subjects
+           stop being offered: there is nothing left for them to fill
+       elective_type is 'IT' (a programme elective) or 'FREE'; none means 'IT'. */
+    const typeOf      = (s) => s.elective_type ?? 'IT';
+    const isSlot      = (s) => isElective(s) && s.year_level != null;
+    const isCatalogue = (s) => isElective(s) && s.year_level == null;
+    const positionOf  = (s) => s.year_level * 10 + (Number(s.term) || 0);
+
+    const slotFill = new Map();          // slot id -> the catalogue subject filling it
+    const electives = {};                // per type: { slots, filled, remaining, options }
+    let overflowUnits = 0;
+
+    for (const type of new Set(subjects.filter(isElective).map(typeOf))) {
+        const slots = subjects
+            .filter(s => isSlot(s) && typeOf(s) === type)
+            .sort((a, b) => positionOf(a) - positionOf(b) || a.code.localeCompare(b.code));
+        const direct = slots.filter(s => facts.passed.has(s.id));
+        const open   = slots.filter(s => !facts.passed.has(s.id) && !facts.enrolled.has(s.id));
+        const picked = subjects.filter(s => isCatalogue(s) && typeOf(s) === type && facts.passed.has(s.id));
+
+        picked.forEach((c, i) => {
+            if (i < open.length) slotFill.set(open[i].id, c);
+            else overflowUnits += Number(c.units) || 0;
+        });
+
+        const filled = direct.length + Math.min(open.length, picked.length);
+        electives[type] = {
+            slots: slots.length,
+            filled,
+            remaining: Math.max(0, open.length - picked.length),
+            options: 0,
+        };
+    }
+    const unitsEarned = Math.max(0, facts.unitsEarned - overflowUnits);
 
     const eligible = [];
     const locked   = [];
@@ -406,15 +570,27 @@ function assess(student, records, knowledgeBase, options = {}) {
         if (facts.passed.has(subject.id))   { completed.push(subject);  continue; }
         if (facts.enrolled.has(subject.id)) { inProgress.push(subject); continue; }
 
+        if (slotFill.has(subject.id)) {
+            completed.push({ ...subject, filledBy: slotFill.get(subject.id) });
+            continue;
+        }
+        if (isCatalogue(subject)) {
+            const t = electives[typeOf(subject)];
+            if (t.slots > 0 && t.remaining === 0) continue;   // every slot of its type is filled
+        }
+
         const subjectRules = kb.rulesFor(subject.id);
         const { satisfied, trace } = evaluateSubject(subject, subjectRules, facts, byId);
 
-        const offered = !respectOfferings || offeredIds.has(subject.id);
+        const scheduleState = scheduleStateOf(subject);
 
         const entry = {
             subject,
             trace,
-            offered,
+            /* True when a student could enrol now as far as the schedule
+               goes: it has a section, or there is no schedule to judge by. */
+            offered: scheduleState === 'offered' || scheduleState === 'none',
+            scheduleState,
             sections: offerings.filter(o => o.subject_id === subject.id),
             retake: facts.failed.has(subject.id),
         };
@@ -429,6 +605,19 @@ function assess(student, records, knowledgeBase, options = {}) {
         }
     }
 
+    /* Each open slot carries the catalogue options the student can fill it
+       with, so a client can say "choose one of N" and list them. */
+    for (const type of Object.keys(electives)) {
+        electives[type].options = eligible
+            .filter(e => isCatalogue(e.subject) && typeOf(e.subject) === type).length;
+    }
+    for (const e of eligible) {
+        if (!isSlot(e.subject)) continue;
+        e.slotOptions = eligible
+            .filter(o => isCatalogue(o.subject) && typeOf(o.subject) === typeOf(e.subject))
+            .map(o => ({ code: o.subject.code, title: o.subject.title, units: o.subject.units }));
+    }
+
     /* Ranking, then the unit cap. */
 
     for (const e of eligible) {
@@ -439,7 +628,7 @@ function assess(student, records, knowledgeBase, options = {}) {
     eligible.sort((a, b) =>
         b.priority - a.priority ||
         b.unlocks - a.unlocks ||
-        a.subject.year_level - b.subject.year_level ||
+        (a.subject.year_level ?? 9) - (b.subject.year_level ?? 9) ||
         a.subject.code.localeCompare(b.subject.code));
 
     /* Units already being carried count against the load. A student is
@@ -447,12 +636,19 @@ function assess(student, records, knowledgeBase, options = {}) {
        graduating cap, which is the only case the higher cap applies to. */
     const enrolledUnits = inProgress
         .reduce((t, s) => t + (Number(s.units) || 0), 0);
-    const totalUnits = subjects.reduce((t, s) => t + Number(s.units || 0), 0);
-    const remainingUnits = totalUnits - facts.unitsEarned - enrolledUnits;
-    const graduating = remainingUnits > 0 && remainingUnits <= DEFAULTS.maxUnitsGraduating;
+    /* The degree is the subjects placed in a semester, elective slots
+       included. Catalogue entries (no year) are the options a student picks
+       to fill those slots, so counting them as well would add every option
+       on the list to what is "still to do". */
+    const totalUnits = subjects
+        .filter(s => s.year_level != null)
+        .reduce((t, s) => t + Number(s.units || 0), 0);
+    const remainingUnits = Math.max(0, totalUnits - unitsEarned - enrolledUnits);
+    const gradCap = Number(options.maxUnitsGraduating) || DEFAULTS.maxUnitsGraduating;
+    const graduating = remainingUnits > 0 && remainingUnits <= gradCap;
 
     const maxUnits = graduating
-        ? Math.max(Number(options.maxUnits) || 0, DEFAULTS.maxUnitsGraduating)
+        ? Math.max(Number(options.maxUnits) || 0, gradCap)
         : (Number(options.maxUnits) || DEFAULTS.maxUnits);
     const availableUnits = Math.max(0, maxUnits - enrolledUnits);
 
@@ -460,18 +656,24 @@ function assess(student, records, knowledgeBase, options = {}) {
        best signal for what belongs in this semester. A retake is exempt:
        a failed subject is owed whatever term it was originally placed in. */
     const term = Number(options.term) || null;
-    const filterByTerm = term !== null && !respectOfferings;
 
     const recommended = [];
     let units = 0;
 
     for (const e of eligible) {
-        /* A subject that is eligible but not scheduled is not a
-           recommendation. Sending a student to enrol in something the
-           department is not running is the failure this replaces. */
-        if (respectOfferings && !e.offered) continue;
+        /* A catalogue subject is a choice offered to fill a slot, not load
+           in its own right: the slot it would fill is what carries the
+           units, and it is what gets recommended. */
+        if (isCatalogue(e.subject)) continue;
 
-        if (filterByTerm && !e.retake && Number(e.subject.term) !== term) continue;
+        /* A subject in a block the department is scheduling, but which it
+           is not running, is not a recommendation. Sending a student to
+           enrol in something with no section is the failure this replaces. */
+        if (e.scheduleState === 'not-run') continue;
+
+        const leansOnCurriculum = e.scheduleState === 'none' || e.scheduleState === 'pending';
+        if (leansOnCurriculum && term !== null && !e.retake
+            && Number(e.subject.term) !== term) continue;
 
         const u = Number(e.subject.units) || 0;
         if (units + u > availableUnits) continue;
@@ -489,7 +691,7 @@ function assess(student, records, knowledgeBase, options = {}) {
 
     return {
         facts: {
-            unitsEarned: facts.unitsEarned,
+            unitsEarned,
             completedThroughPosition: facts.completedThroughPosition,
             passedCount: facts.passed.size,
             failedCount: facts.failed.size,
@@ -506,6 +708,7 @@ function assess(student, records, knowledgeBase, options = {}) {
         availableUnits,
         graduating,
         totalUnits,
+        electives,
     };
 }
 
@@ -526,18 +729,27 @@ function scoreSubject(entry, facts) {
 
     score += entry.unlocks * 25;
 
-    if (facts.yearLevel) {
+    /* A catalogue elective has no year, so it is neither owed nor ahead. */
+    if (facts.yearLevel && s.year_level != null) {
         const behind = facts.yearLevel - s.year_level;
         if (behind > 0) score += behind * 60;   // owed from an earlier year
         if (behind < 0) score += behind * 30;   // running ahead, deprioritised
     }
 
-    if (!s.is_elective) score += 20;
+    if (!isElective(s)) score += 20;
 
     return score;
 }
 
 function recommendationReason(entry, facts) {
+    if (isElective(entry.subject) && entry.subject.year_level != null) {
+        const n = entry.slotOptions?.length ?? 0;
+        const kind = entry.subject.elective_type === 'FREE' ? 'free elective' : 'programme elective';
+        return n > 0
+            ? `Elective slot: choose one of ${n} ${kind}${n === 1 ? '' : 's'}.`
+            : 'Elective slot: no electives are listed for it yet.';
+    }
+
     if (entry.retake) {
         return entry.unlocks > 0
             ? `Retake. Passing this opens ${Math.round(entry.unlocks)} further subject${entry.unlocks === 1 ? '' : 's'}.`
@@ -548,7 +760,8 @@ function recommendationReason(entry, facts) {
         return `Opens ${Math.round(entry.unlocks)} later subjects — taking it now avoids a bottleneck.`;
     }
 
-    if (facts.yearLevel && entry.subject.year_level < facts.yearLevel) {
+    if (facts.yearLevel && entry.subject.year_level != null
+        && entry.subject.year_level < facts.yearLevel) {
         return 'Outstanding from an earlier year level.';
     }
 
@@ -580,7 +793,10 @@ return {
     evaluateSubject,
     chainForward,
     highestCompletedPosition,
+    firstIncompletePosition,
+    isElective,
     describePosition,
+    standingPosition,
     explain,
     DEFAULTS,
     PASSED, FAILED, ENROLLED,

@@ -1,12 +1,38 @@
 (function () {
 'use strict';
 
-console.log('auth.js loaded');
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC ?? {};
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
+/* Which roles this specific login page will accept. Read from the page
+   itself via <body data-allowed-roles="..."> rather than hardcoded here,
+   since auth.js is shared by every login page and has no idea on its own
+   which one it is currently loaded into.
 
+   Without this, resolveRole() below matched against every actor table in
+   ROLES regardless of page -- a student typing real credentials into the
+   staff login page authenticated successfully and was sent to their own
+   dashboard, because nothing ever checked that a student should not be
+   allowed to authenticate from that page at all.
+
+   Falls back to allowing every role if the attribute is missing, so a
+   page that has not been updated yet still behaves as before -- the
+   restriction is opt-in per page. Computed before the client below, since
+   that also needs it (to pick this page's storage bucket). */
+const PAGE_ALLOWED_ROLES = (() => {
+    const raw = document.body?.dataset?.allowedRoles;
+    if (!raw) return null;
+    return raw.split(',').map(r => r.trim()).filter(Boolean);
+})();
+
+// Bucketed by role (see config.js) so a sign-in here lands in the same
+// storage slot the destination dashboard's own client will read from --
+// without this, every role shared one localStorage key, so signing in
+// as a second role in a new tab silently logged the first tab in as
+// that second role too, on its next refresh.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { storageKey: authStorageKey?.(PAGE_ALLOWED_ROLES) },
+    })
     : null;
 
 if (!supabase) console.error('auth.js: Supabase client not created. Is config.js loaded?');
@@ -26,27 +52,35 @@ const ROLES = {
 };
 
 const NO_PERSIST = ['registrar_staff', 'department_staff', 'system_administrator'];
-
-/* Which roles this specific login page will accept. Read from the page
-   itself via <body data-allowed-roles="..."> rather than hardcoded here,
-   since auth.js is shared by every login page and has no idea on its own
-   which one it is currently loaded into.
-
-   Without this, resolveRole() below matched against every actor table in
-   ROLES regardless of page -- a student typing real credentials into the
-   staff login page authenticated successfully and was sent to their own
-   dashboard, because nothing ever checked that a student should not be
-   allowed to authenticate from that page at all.
-
-   Falls back to allowing every role if the attribute is missing, so a
-   page that has not been updated yet still behaves as before -- the
-   restriction is opt-in per page. */
-const PAGE_ALLOWED_ROLES = (() => {
-    const raw = document.body?.dataset?.allowedRoles;
-    if (!raw) return null;
-    return raw.split(',').map(r => r.trim()).filter(Boolean);
-})();
 const GENERIC_FAIL = 'Invalid username or password.';
+
+/* What each login page accepts in the username box:
+     student page  -> school email or uc-1234567
+     staff page    -> school email or EMP-00123
+     admin page    -> email only
+   A page with no data-allowed-roles accepts every shape. The server
+   (sign-in edge function) enforces the same shapes; this only gives a useful
+   message before anything is sent. Returns null when the shape is fine. */
+const EMAIL_SHAPE   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STUDENT_SHAPE = /^uc-\d{1,7}$/i;
+const STAFF_SHAPE   = /^emp-[a-z0-9]{1,10}$/i;
+const STAFF_ROLES   = ['faculty_staff', 'registrar_staff', 'department_staff'];
+
+function identifierProblem(identifier) {
+    if (EMAIL_SHAPE.test(identifier)) return null;
+
+    const roles = PAGE_ALLOWED_ROLES;
+    const takesStudentId = !roles || roles.includes('university_student');
+    const takesStaffId   = !roles || roles.some(r => STAFF_ROLES.includes(r));
+
+    if (takesStudentId && STUDENT_SHAPE.test(identifier)) return null;
+    if (takesStaffId   && STAFF_SHAPE.test(identifier))   return null;
+
+    if (takesStudentId && !takesStaffId) return 'Enter your school email or your student ID (for example uc-2401187).';
+    if (takesStaffId && !takesStudentId) return 'Enter your school email or your employee ID (for example EMP-00123).';
+    if (!takesStudentId && !takesStaffId) return 'Enter your administrator email address.';
+    return 'Enter your school email or your ID.';
+}
 
 /* DEBUG_LOGIN must be OFF in production. It exists purely to make local
    development easier: verbose console logging of auth internals, and
@@ -143,43 +177,53 @@ async function handleLogin() {
         return showMsg('Cannot reach the authentication service.');
     }
 
+    // Wrong shape: say what this page accepts, before anything is sent.
+    // Which shapes are valid is a property of the page, not a secret.
+    const shapeProblem = identifierProblem(identifier);
+    if (shapeProblem) return showMsg(shapeProblem);
+
     btn.disabled = true;
     btn.textContent = 'Signing in…';
 
     try {
-        // Students sign in with uc-1234567, staff with EMP-00871. Both
-        // resolve to an email server-side — the lookup is an RPC rather
-        // than a client query, so the actor tables need no anon read
-        // policy, which would expose the whole student list.
-        let email = identifier;
+        // The email, a uc-1234567 or an EMP-00871 is sent to the sign-in edge
+        // function, which finds the account and checks the password on the
+        // server. The browser never learns an account's email from an ID,
+        // and an unknown ID gets the same answer as a wrong password.
+        let session;
+        try {
+            const res = await fetch(`${SUPABASE_URL}/functions/v1/sign-in`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    apikey: SUPABASE_ANON_KEY,
+                    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                },
+                body: JSON.stringify({ identifier, password }),
+            });
 
-        if (!identifier.includes('@')) {
-            const { data: resolved, error: rpcError } =
-                await supabase.rpc('resolve_login_identifier', { identifier });
-
-            if (rpcError) {
-                console.warn('[FAIL: rpc] identifier lookup failed:', rpcError.message);
+            if (res.status === 429) {
+                return showMsg('Too many attempts. Please wait a few minutes and try again.');
+            }
+            if (!res.ok) {
+                if (DEBUG_LOGIN) console.warn('[FAIL: sign-in]', res.status);
                 return showMsg(GENERIC_FAIL);
             }
-
-            if (!resolved) {
-                // Same message as a wrong password. A distinct one here
-                // would confirm whether an ID exists.
-                if (DEBUG_LOGIN) console.warn('[FAIL: identifier] no account for', identifier);
-                return showMsg(GENERIC_FAIL);
-            }
-
-            email = resolved;
-            if (DEBUG_LOGIN) console.log('[auth] identifier resolved to', email);
+            session = (await res.json())?.session;
+        } catch (netErr) {
+            console.warn('[FAIL: network] sign-in service unreachable:', netErr?.message);
+            return showMsg('Cannot reach the sign-in service. Check your connection and try again.');
         }
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
+        if (!session?.access_token || !session?.refresh_token) return showMsg(GENERIC_FAIL);
+
+        const { data, error } = await supabase.auth.setSession({
+            access_token:  session.access_token,
+            refresh_token: session.refresh_token,
         });
 
         if (error || !data?.user) {
-            if (DEBUG_LOGIN) console.warn('[FAIL: credentials] sign-in rejected:', error?.message);
+            if (DEBUG_LOGIN) console.warn('[FAIL: session] could not start session:', error?.message);
             return showMsg(GENERIC_FAIL);
         }
 
@@ -218,7 +262,23 @@ async function handleLogin() {
         const persist = rememberEl?.checked && !NO_PERSIST.includes(resolved.key);
 
         sessionStorage.setItem('cl_role', resolved.key);
-        if (!persist) sessionStorage.setItem('cl_no_persist', '1');
+        if (!persist) {
+            sessionStorage.setItem('cl_no_persist', '1');
+            // The sign-in above just saved the session to localStorage. A login
+            // that is not remembered keeps it for this tab only: move it, so it
+            // is gone when the tab closes. (The dashboard reads from the same
+            // place: authOptions() in config.js.)
+            try {
+                const slot = authStorageKey?.(PAGE_ALLOWED_ROLES);
+                const raw = slot ? localStorage.getItem(slot) : null;
+                if (raw) {
+                    sessionStorage.setItem(slot, raw);
+                    localStorage.removeItem(slot);
+                }
+            } catch { /* storage blocked: nothing to move */ }
+        } else {
+            sessionStorage.removeItem('cl_no_persist');
+        }
 
         showMsg(`Signed in as ${resolved.role.label}. Redirecting…`, 'success');
         setTimeout(() => { window.location.href = resolved.role.home; }, 700);
