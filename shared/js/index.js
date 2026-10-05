@@ -32,25 +32,41 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ---------- reveal on scroll ---------- */
+    // Hero rows animate on load in CSS. Below-the-fold items fade up once,
+    // staggered 60ms within their own group. No JS = everything stays visible.
 
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const revealables = document.querySelectorAll('.feat-card, .step, .elig, .reason');
+    if (!('IntersectionObserver' in window)) return;
 
-    if (reduceMotion || !('IntersectionObserver' in window)) return;
+    const groups = [
+        '.feat-grid .feat-card',
+        '.steps .step',
+        '.shot-stats .stat',
+        '.shot-rows .shot-row',
+    ];
+
+    document.documentElement.classList.add('js');
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
             if (!entry.isIntersecting) return;
-            entry.target.style.opacity = '1';
-            entry.target.style.transform = 'none';
-            observer.unobserve(entry.target);
+            const el = entry.target;
+            el.classList.add('is-in');
+            observer.unobserve(el);
+
+            // Once faded in, hand the element back to its own hover/press transitions
+            el.addEventListener('transitionend', (e) => {
+                if (e.propertyName !== 'opacity') return;
+                el.classList.remove('reveal', 'is-in');
+                el.style.removeProperty('--reveal-delay');
+            }, { once: false });
         });
     }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
 
-    revealables.forEach((el, i) => {
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(14px)';
-        el.style.transition = `opacity 0.5s ease ${i % 4 * 60}ms, transform 0.5s ease ${i % 4 * 60}ms`;
-        observer.observe(el);
+    groups.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((el, i) => {
+            el.classList.add('reveal');
+            el.style.setProperty('--reveal-delay', `${i * 60}ms`);
+            observer.observe(el);
+        });
     });
 });

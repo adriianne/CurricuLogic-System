@@ -8,6 +8,9 @@
     <meta name="description" content="Check which subjects you are eligible to enrol in, see why others are locked, and plan your term with confidence.">
 
     <link rel="icon" type="image/png" href="../assets/CurriculogicLogo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&display=swap">
     <link rel="stylesheet" href="/shared/css/index.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
@@ -47,16 +50,16 @@
     <div class="hero-inner">
 
         <div class="hero-copy">
-            <h1 class="hero-title"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></h1>
-            <p class="hero-lead">
-                Know exactly which subjects you can enrol in this term — and why the rest are locked.
-            </p>
+            <p class="hero-eyebrow">CurricuLogic · Subject recommendation</p>
+            <h1 class="hero-title">
+                Know exactly which subjects you can enrol in this term — and <span class="hl">why the rest are locked.</span>
+            </h1>
             <p class="hero-sub">
-                CurricuLogic reads your academic record against the BSIT prospectus, checks every
+                CurricuLogic reads your academic record against your program’s prospectus, checks every
                 prerequisite chain, and explains each result in plain language.
             </p>
             <div class="hero-cta">
-                <a href="../HTML/registerpage.html" class="btn-accent">Get Started</a>
+                <a href="../features/auth/html/registerpage.html" class="btn-accent">Get Started</a>
                 <a href="#how-it-works" class="btn-ghost">See how it works</a>
             </div>
         </div>
@@ -71,8 +74,8 @@
                 <li class="elig ok">
                     <span class="mark">✓</span>
                     <div class="elig-body">
-                        <span class="code">IT-SAD</span>
-                        <span class="name">Information Systems Analysis and Design</span>
+                        <span class="code">CC-DIGILOG21</span>
+                        <span class="name">Digital Logic Design</span>
                     </div>
                     <span class="tag tag-ok">Eligible</span>
                 </li>
@@ -80,8 +83,8 @@
                 <li class="elig no">
                     <span class="mark">✕</span>
                     <div class="elig-body">
-                        <span class="code">COMPROG-11</span>
-                        <span class="name">Computer Programming 1</span>
+                        <span class="code">IT-SAD21</span>
+                        <span class="name">System Analysis &amp; Design</span>
                     </div>
                     <span class="tag tag-no">Not met</span>
                 </li>
@@ -89,23 +92,19 @@
                 <li class="elig ok">
                     <span class="mark">✓</span>
                     <div class="elig-body">
-                        <span class="code">DIGILOG-31</span>
-                        <span class="name">Digital Logic</span>
+                        <span class="code">SOCIO 101</span>
+                        <span class="name">The Contemporary World</span>
                     </div>
                     <span class="tag tag-ok">Eligible</span>
                 </li>
             </ul>
 
-            <p class="reason-label">Why COMPROG-11 is locked</p>
+            <p class="reason-label">Why IT-SAD21 is locked</p>
 
             <ul class="reason-list">
                 <li class="reason">
-                <i class="fa-solid fa-lock fa-beat-fade" style="color: rgb(247, 113, 113);"></i>
-                    <span><strong>IT-NETWORKING</strong> — Networking 2 · not yet taken</span>
-                </li>
-                <li class="reason">
-                    <i class="fa-solid fa-lock fa-beat-fade" style="color: rgb(247, 113, 113);"></i>
-                    <span><strong>SYS-ADM</strong> — System Administration · not yet taken</span>
+                    <i class="fa-solid fa-lock lock" aria-hidden="true"></i>
+                    <span><strong>CC-COMPROG12</strong> — Computer Programming 2 · not yet passed</span>
                 </li>
             </ul>
         </div>
@@ -128,7 +127,7 @@
 
             <article class="feat-card">
                 <span class="feat-ico">
-                <i class="fa-regular fa-circle-check fa-xl" style="color: rgba(15, 138, 95, 1);"></i>
+                <i class="fa-regular fa-circle-check" aria-hidden="true"></i>
                 </span>
                 <h3 class="feat-title">Prerequisite verification</h3>
                 <p class="feat-body">
@@ -138,8 +137,8 @@
             </article>
 
             <article class="feat-card">
-                <span class="feat-ico">
-                <img src="../assets/CurriculogicLogo.png" alt="Lock icon" width="26" height="26">
+                <span class="feat-ico is-indigo">
+                <i class="fa-regular fa-comment-dots" aria-hidden="true"></i>
                 </span>
                 <h3 class="feat-title">Explained results</h3>
                 <p class="feat-body">
@@ -150,7 +149,7 @@
 
             <article class="feat-card">
                 <span class="feat-ico">
-            <i class="fa-solid fa-thumbs-up fa-xl" style="color: rgba(15, 138, 95, 1);"></i>
+                <i class="fa-solid fa-thumbs-up" aria-hidden="true"></i>
                 </span>
                 <h3 class="feat-title">Term recommendations</h3>
                 <p class="feat-body">
@@ -175,10 +174,10 @@
                 <li class="step">
                     <span class="step-num">1</span>
                     <div class="step-body">
-                        <h3>Your record goes in</h3>
+                        <h3>Your record is on file</h3>
                         <p>
-                            The registrar uploads grades, or you check what's already on file.
-                            Subjects taken, passed, failed, and in progress are all read.
+                            The department uploads your grades and the registrar verifies your record.
+                            Subjects passed, failed, and in progress are all read.
                         </p>
                     </div>
                 </li>
@@ -189,7 +188,7 @@
                         <h3>Rules are matched against the prospectus</h3>
                         <p>
                             Every prerequisite chain, year standing, and elective group in the
-                            BSIT curriculum is checked — subject by subject.
+                            curriculum of your program is checked — subject by subject.
                         </p>
                     </div>
                 </li>
@@ -199,8 +198,8 @@
                     <div class="step-body">
                         <h3>You get a result and a reason</h3>
                         <p>
-                            Eligible, locked, or already taken — with the specific requirement
-                            behind every locked subject spelled out.
+                            Each subject shows as passed, in progress, can take, retake, or locked —
+                            with the specific requirement behind every locked subject spelled out.
                         </p>
                     </div>
                 </li>
@@ -208,10 +207,10 @@
                 <li class="step">
                     <span class="step-num">4</span>
                     <div class="step-body">
-                        <h3>Prerequisites gets easier</h3>
+                        <h3>Plan it, then get it approved</h3>
                         <p>
-                            Bring a load you already know will clear. Faculty and registrar review
-                            the same result you're looking at.
+                            Build your plan and send it as an advising request. Faculty reviews it,
+                            then the registrar approves it. CurricuLogic advises — it does not enrol you.
                         </p>
                     </div>
                 </li>
@@ -220,6 +219,7 @@
         </div>
 
         <div class="how-visual">
+            <p class="shot-caption">Example · sample student and counts, for illustration</p>
             <div class="shot">
                 <div class="shot-bar">
                     <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
@@ -242,11 +242,11 @@
                     </div>
 
                     <div class="shot-rows">
-                        <div class="shot-row ok"><span class="c">IT 311</span><span class="n">Information Management 2</span><span class="t">Eligible</span></div>
-                        <div class="shot-row ok"><span class="c">IT 318</span><span class="n">Web Systems &amp; Technologies</span><span class="t">Eligible</span></div>
-                        <div class="shot-row ok"><span class="c">IT 315</span><span class="n">Quantitative Methods</span><span class="t">Eligible</span></div>
-                        <div class="shot-row no"><span class="c">IT 324</span><span class="n">Systems Integration</span><span class="t">Locked</span></div>
-                        <div class="shot-row no"><span class="c">IT 401</span><span class="n">Capstone Project 1</span><span class="t">Locked</span></div>
+                        <div class="shot-row ok"><span class="c">IT-OOPROG21</span><span class="n">Object Oriented Programming</span><span class="t">Eligible</span></div>
+                        <div class="shot-row ok"><span class="c">IT-SAD21</span><span class="n">System Analysis &amp; Design</span><span class="t">Eligible</span></div>
+                        <div class="shot-row ok"><span class="c">CC-DIGILOG21</span><span class="n">Digital Logic Design</span><span class="t">Eligible</span></div>
+                        <div class="shot-row no"><span class="c">CC-TWRITE21</span><span class="n">Technical Writing &amp; Presentation</span><span class="t">Locked</span></div>
+                        <div class="shot-row no"><span class="c">CC-ACCTG21</span><span class="n">Accounting for IT</span><span class="t">Locked</span></div>
                     </div>
 
                     <div class="shot-fade"></div>
@@ -271,7 +271,7 @@
                 Prerequisite verification and subject recommendation for
                 University of Cebu students.
             </p>
-            <p class="foot-pilot">Pilot — College of Computer Studies</p>
+            <p class="foot-pilot">Pilot — University of Cebu programs</p>
         </div>
 
         <nav class="foot-col" aria-labelledby="foot-company">
@@ -288,7 +288,7 @@
             <ul>
                 <li><a href="#features">Features</a></li>
                 <li><a href="#how-it-works">How it works</a></li>
-                <li><a href="registerpage.html">Get started</a></li>
+                <li><a href="../features/auth/html/registerpage.html">Get started</a></li>
             </ul>
         </nav>
 
@@ -310,8 +310,6 @@
         </div>
     </div>
 </footer>
-
-</main>
 
 <script src="../shared/js/index.js"></script>
 </body>
