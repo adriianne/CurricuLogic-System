@@ -92,5 +92,18 @@ function build(summary, option = null) {
     return { rows: rowsFor(recommended, null), notInPlan, label: null, changes: [] };
 }
 
-return { build, meetingText };
+/* The suggested subjects for the plan table ("what should I take?"), each with the section
+   and when it meets once a schedule is published: the summary's own entries plus
+   { section, meetings, when }. Subjects with no published section get section null and an
+   empty "when", so the table can leave the column out until there is something to show. */
+function planRows(summary) {
+    const recommended = summary?.recommended ?? [];
+    const times = new Map(rowsFor(recommended, null).map(r => [r.code, r]));
+    return recommended.map(e => {
+        const t = times.get(e.code);
+        return { ...e, section: t?.section ?? null, meetings: t?.meetings ?? [], when: t?.when ?? '' };
+    });
+}
+
+return { build, planRows, meetingText };
 }));

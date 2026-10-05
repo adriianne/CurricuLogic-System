@@ -1,11 +1,10 @@
 # CurricuLogic
 
 A rule-based expert system for academic advising at the University of
-Cebu, College of Computer Studies. Verifies prerequisites, checks
-eligibility, and recommends subjects. Currently scoped to the BSIT
-programme — the schema carries a `program` table and the section
-format is derived from `program.code`, but no second programme has
-been loaded yet.
+Cebu. Verifies prerequisites, checks eligibility, and recommends subjects
+for any degree program in the system. Each program has its own
+curriculum, students and faculty: the schema carries a `program` table,
+and section names are derived from `program.code`.
 
 Advisory only. The system does not enrol students or record financial
 transactions.
@@ -80,7 +79,7 @@ through the same consistency and redesign pass.
   which cannot distinguish two programmes under one college.
 - **Section letters and year ranges** become per-programme settings.
   The `SECTION_LETTERS` constant is `['A','B','C','D']` today, and
-  year level is 1–4 — both correct for BSIT, both wrong for two-year
+  year level is 1–4 — both correct for a four-year bachelor’s program, both wrong for two-year
   diploma programmes and post-baccalaureate programmes.
 
 ### Data notices
@@ -109,3 +108,9 @@ module per dashboard, one shared stylesheet.
 ---
 
 ## Layout
+
+## Security and operations
+
+Where secrets live, how sessions and the audit log work, and how to back up and
+recover the system: see [`docs/SECURITY-OPERATIONS.md`](docs/SECURITY-OPERATIONS.md).
+The database structure can be regenerated with `db/tools/export-schema.sql`.
