@@ -24,7 +24,7 @@ const require = createRequire(import.meta.url);
 const E = require('../shared/engine/engine.js');
 
 const { assess, buildFacts, evaluateSubject, chainForward,
-        highestCompletedPosition, explain,
+        highestCompletedPosition, standingPosition, explain,
         PASSED, FAILED, ENROLLED } = E;
 
 
@@ -259,7 +259,8 @@ describe('conditions', () => {
         const gated = subj('GATED', { year: 2 });
         const all = [y1a, y1b, gated];
         const byId = new Map(all.map(s => [s.id, s]));
-        const rules = [rule(gated, null, { type: 'standing', threshold: 1 })];
+        // 11 = through 1st year, 1st sem: both fixture subjects sit there.
+        const rules = [rule(gated, null, { type: 'standing', threshold: 11 })];
 
         const partial = buildFacts(student(), [rec(y1a, PASSED)], all);
         assert.equal(evaluateSubject(gated, rules, partial, byId).satisfied, false,
@@ -462,7 +463,7 @@ describe('BSIT 2023-2024', () => {
             rule(appsdev, oop, { group: 1 }),
             rule(appsdev, sad, { group: 2 }),
             // "must finish all 1st year to 2nd year courses"
-            rule(profis, null, { type: 'standing', threshold: 2 }),
+            rule(profis, null, { type: 'standing', threshold: 22 }),
         ];
 
         return { subjects, rules, byCode: c => subjects.find(s => s.code === c) };
@@ -615,14 +616,18 @@ describe('term filter', () => {
         assert.deepEqual(out.recommended.map(r => r.subject.code).sort(), ['T1', 'T2']);
     });
 
-    test('real offerings take over from the term filter', () => {
+    test('a scheduled subject is recommended whatever its curriculum term', () => {
         const t1 = subj('T1', { year: 1, term: 1 });
         const t2 = subj('T2', { year: 1, term: 2 });
         const kb = kbOf([t1, t2], [], [{ subject_id: t2.id, section: '1-A' }]);
 
         const out = assess(student(), [], kb, { term: 1 });
 
-        assert.deepEqual(out.recommended.map(r => r.subject.code), ['T2']);
+        const t2out = out.recommended.find(r => r.subject.code === 'T2');
+        assert.equal(t2out.scheduleState, 'offered');
+        // T1's semester has nothing scheduled yet, so it is judged by the
+        // curriculum (its term matches) and labelled as pending.
+        assert.equal(out.recommended.find(r => r.subject.code === 'T1').scheduleState, 'pending');
     });
 
     test('no term option leaves recommendations unfiltered', () => {
@@ -705,5 +710,315 @@ describe('explain', () => {
 
         assert.ok(explain(locked).some(l => /any one of/i.test(l)),
             'a disjunction must not read as though both are required');
+    });
+});
+
+
+/* ---- standing thresholds are positions ---- */
+
+describe('standingPosition', () => {
+    test('a position is used as it is', () => {
+        for (const p of [11, 12, 21, 22, 31, 32, 41]) assert.equal(standingPosition(p), p);
+        assert.equal(standingPosition('22'), 22);
+    });
+    test('a bare year (1-9) means through the end of that year', () => {
+        assert.equal(standingPosition(1), 12);
+        assert.equal(standingPosition(2), 22);
+        assert.equal(standingPosition(3), 32);
+        assert.equal(standingPosition('2'), 22);
+    });
+    test('nothing usable means no requirement', () => {
+        assert.equal(standingPosition(null), 0);
+        assert.equal(standingPosition(undefined), 0);
+        assert.equal(standingPosition(0), 0);
+        assert.equal(standingPosition('abc'), 0);
+    });
+});
+
+describe('a standing gate is not met by partial progress', () => {
+    // Year 1 has two semesters; the gate is "finish all of 2nd year".
+    const y11 = subj('Y11', { year: 1, term: 1 });
+    const y12 = subj('Y12', { year: 1, term: 2 });
+    const y21 = subj('Y21', { year: 2, term: 1 });
+    const y22 = subj('Y22', { year: 2, term: 2 });
+    const gated = subj('G31', { year: 3, term: 1 });
+    const all = [y11, y12, y21, y22, gated];
+    const byId = new Map(all.map(s => [s.id, s]));
+    const met = (records, threshold) => evaluateSubject(
+        gated, [rule(gated, null, { type: 'standing', threshold })],
+        buildFacts(student(), records, all), byId).satisfied;
+
+
+    for (const threshold of [22, 2]) {
+        const label = threshold === 22 ? 'position 22' : 'legacy year 2';
+        test(label + ': first year only leaves it closed', () => {
+            assert.equal(met([rec(y11, PASSED), rec(y12, PASSED)], threshold), false);
+        });
+        test(label + ': all of second year opens it', () => {
+            assert.equal(met([rec(y11, PASSED), rec(y12, PASSED),
+                              rec(y21, PASSED), rec(y22, PASSED)], threshold), true);
+        });
+        test(label + ': one second-year subject short keeps it closed', () => {
+            assert.equal(met([rec(y11, PASSED), rec(y12, PASSED), rec(y21, PASSED)], threshold), false);
+        });
+    }
+});
+
+
+/* ---- the degree's units: what counts toward "still to do" ---- */
+
+describe('totalUnits and the graduating cap', () => {
+    const many = (n, opts = {}) => Array.from({ length: n }, (_, i) => subj('D' + i, { units: 3, ...opts }));
+    // An elective catalogue entry: no year, no term, an option a student picks.
+    const catalogue = (n) => Array.from({ length: n }, (_, i) =>
+        ({ ...subj('CAT' + i, { units: 3, elective: true }), year_level: null, term: null }));
+
+    test('catalogue electives are not part of the degree total', () => {
+        const scheduled = many(10);                 // 30 units
+        const out = assess(student(), [], kbOf([...scheduled, ...catalogue(6)]), ignoreOfferings);
+        assert.equal(out.totalUnits, 30);
+    });
+
+    test('a catalogue does not stop a student who is nearly done from being "graduating"', () => {
+        // 10 scheduled subjects (30 units), 2 passed -> 24 left, which fits under 27.
+        // Six catalogue options (18 units) used to push "remaining" to 42.
+        const scheduled = many(10);
+        const passed = [rec(scheduled[0], PASSED), rec(scheduled[1], PASSED)];
+        const out = assess(student(), passed, kbOf([...scheduled, ...catalogue(6)]), ignoreOfferings);
+        assert.equal(out.graduating, true);
+        assert.equal(out.maxUnits, 27);
+    });
+
+    test('a catalogue elective is not boosted as "owed from an earlier year"', () => {
+        const core = subj('CORE', { year: 3, units: 3 });
+        const [opt] = catalogue(1);
+        const out = assess(student({ year: 3 }), [], kbOf([core, opt]), ignoreOfferings);
+        const eOpt = out.eligible.find(e => e.subject.id === opt.id);
+        assert.ok(!Number.isNaN(eOpt.priority));
+        assert.ok(eOpt.priority < out.eligible.find(e => e.subject.id === core.id).priority,
+            'a required subject outranks an optional catalogue entry');
+        const reason = out.recommended.find(r => r.subject.id === opt.id)?.reason ?? '';
+        assert.ok(!/earlier year/.test(reason));
+    });
+
+    test('remaining units never go negative when electives push earned above the total', () => {
+        const scheduled = many(2);                  // 6 units
+        const extra = catalogue(3);                 // 9 units of electives passed
+        const out = assess(student(),
+            [...scheduled, ...extra].map(s => rec(s, PASSED)),
+            kbOf([...scheduled, ...extra]), ignoreOfferings);
+        assert.equal(out.graduating, false, 'nothing left to take is not "graduating"');
+    });
+});
+
+describe('inactive subjects', () => {
+    test('an inactive subject the student never took is out of the plan and the total', () => {
+        const a = subj('A'), b = subj('B'), gone = { ...subj('GONE'), is_active: false };
+        const out = assess(student(), [], kbOf([a, b, gone]), ignoreOfferings);
+        const codes = [...out.eligible, ...out.locked].map(e => e.subject.code);
+        assert.ok(!codes.includes('GONE'));
+        assert.equal(out.totalUnits, 6);
+        assert.ok(!out.recommended.some(r => r.subject.code === 'GONE'));
+    });
+
+    test('an inactive subject the student passed still counts as completed', () => {
+        const a = subj('A'), old = { ...subj('OLD'), is_active: false };
+        const out = assess(student(), [rec(old, PASSED)], kbOf([a, old]), ignoreOfferings);
+        assert.ok(out.completed.some(s => s.code === 'OLD'));
+        assert.equal(out.totalUnits, 6);
+        assert.equal(out.facts.unitsEarned, 3);
+    });
+
+    test('an unpassed inactive subject cannot hold up a year-standing gate', () => {
+        const y11 = subj('Y11', { year: 1, term: 1 });
+        const gone = { ...subj('GONE', { year: 1, term: 2 }), is_active: false };
+        const gated = subj('G21', { year: 2, term: 1 });
+        const rules = [rule(gated, null, { type: 'standing', threshold: 12 })];
+        const out = assess(student({ year: 2 }), [rec(y11, PASSED)],
+            kbOf([y11, gone, gated], rules), ignoreOfferings);
+        assert.ok(out.eligible.some(e => e.subject.code === 'G21'),
+            'first year is finished once the only active subject is passed');
+    });
+
+    test('a subject without an is_active field is treated as active', () => {
+        const a = subj('A');
+        const out = assess(student(), [], kbOf([a]), ignoreOfferings);
+        assert.equal(out.totalUnits, 3);
+    });
+});
+
+describe('a standing gate at a semester that holds no subjects', () => {
+    test('is met once everything at or before it is passed, and not before', () => {
+        const y11 = subj('Y11', { year: 1, term: 1 });
+        const y12 = subj('Y12', { year: 1, term: 2 });
+        const gated = subj('G21', { year: 2, term: 1 });
+        // 13 = through 1st-year summer; this programme has no summer subjects.
+        const rules = [rule(gated, null, { type: 'standing', threshold: 13 })];
+        const all = [y11, y12, gated];
+        const byId = new Map(all.map(s => [s.id, s]));
+        const sat = (records) => evaluateSubject(gated, rules, buildFacts(student(), records, all), byId).satisfied;
+
+        assert.equal(sat([rec(y11, PASSED)]), false, 'Y12 is still owed');
+        assert.equal(sat([rec(y11, PASSED), rec(y12, PASSED)]), true);
+    });
+});
+
+
+/* ---- the year-level gate (printed ** / *** footnotes, for every programme) ---- */
+
+describe('year gate', () => {
+    // A four-year programme, one subject per semester, no prerequisites at
+    // all: only the gate can hold anything back.
+    const s = {};
+    for (let y = 1; y <= 4; y++) for (let t = 1; t <= 2; t++) {
+        s[`${y}${t}`] = subj(`S${y}${t}`, { year: y, term: t });
+    }
+    const all = Object.values(s);
+    const passedThrough = (...keys) => keys.map(k => rec(s[k], PASSED));
+    const codes = (list) => list.map(e => e.subject.code).sort();
+
+    test('a subject with no prerequisites in year 3 is locked until year 2 is finished', () => {
+        const out = assess(student({ year: 2 }), passedThrough('11', '12', '21'),
+            kbOf(all), ignoreOfferings);
+        assert.ok(codes(out.eligible).includes('S22'), 'next semester is open');
+        assert.ok(!codes(out.eligible).includes('S31'), '3rd year stays locked');
+        assert.ok(!codes(out.eligible).includes('S41'));
+        assert.ok(codes(out.locked).includes('S31'));
+    });
+
+    test('year 1 and year 2 are not gated', () => {
+        const out = assess(student(), [], kbOf(all), ignoreOfferings);
+        for (const c of ['S11', 'S12', 'S21', 'S22']) assert.ok(codes(out.eligible).includes(c), c);
+    });
+
+    test('year 3 opens once year 2 is complete, year 4 once year 3 is', () => {
+        const y2 = passedThrough('11', '12', '21', '22');
+        let out = assess(student({ year: 3 }), y2, kbOf(all), ignoreOfferings);
+        assert.ok(codes(out.eligible).includes('S31') && codes(out.eligible).includes('S32'));
+        assert.ok(!codes(out.eligible).includes('S41'), 'year 4 still needs year 3');
+
+        out = assess(student({ year: 4 }), [...y2, ...passedThrough('31', '32')],
+            kbOf(all), ignoreOfferings);
+        assert.ok(codes(out.eligible).includes('S41'));
+    });
+
+    test('one missing second-year subject keeps year 3 closed', () => {
+        const out = assess(student({ year: 3 }), passedThrough('11', '12', '21'),
+            kbOf(all), ignoreOfferings);
+        assert.ok(!codes(out.eligible).includes('S31'));
+    });
+
+    test('the reason a gated subject is locked names what is missing', () => {
+        const out = assess(student(), [], kbOf(all), ignoreOfferings);
+        const l = out.locked.find(e => e.subject.code === 'S31');
+        assert.match(explain(l).join(' '), /2nd Year, 2nd Semester/);
+    });
+
+    test('a prospectus that states its own gates is followed as written', () => {
+        // S31 says "through 1st year, 2nd semester" (12). Because this prospectus
+        // states a gate of its own, the system default steps aside entirely:
+        // S31 opens with year 1 done, and S32 (no mark) is not held back either.
+        const rules = [rule(s['31'], null, { type: 'standing', threshold: 12 })];
+        const out = assess(student({ year: 3 }), passedThrough('11', '12'),
+            kbOf(all, rules), ignoreOfferings);
+        assert.ok(codes(out.eligible).includes('S31'));
+        assert.ok(codes(out.eligible).includes('S32'), 'unmarked subjects are not gated by the default');
+        assert.ok(codes(out.eligible).includes('S41'));
+    });
+
+    test('a marked subject is still held back until its own gate is met', () => {
+        const rules = [rule(s['41'], null, { type: 'standing', threshold: 32 })];
+        const behind = assess(student({ year: 4 }), passedThrough('11', '12', '21', '22', '31'),
+            kbOf(all, rules), ignoreOfferings);
+        assert.ok(!codes(behind.eligible).includes('S41'), 'year 3 is not finished');
+        const done = assess(student({ year: 4 }), passedThrough('11', '12', '21', '22', '31', '32'),
+            kbOf(all, rules), ignoreOfferings);
+        assert.ok(codes(done.eligible).includes('S41'));
+    });
+
+    test('a standing rule belonging to another prospectus does not switch the default off', () => {
+        const stranger = { ...subj('OTHER', { year: 3, term: 1 }), id: 999999 };
+        const rules = [rule(stranger, null, { type: 'standing', threshold: 22 })];
+        const out = assess(student({ year: 2 }), passedThrough('11', '12', '21'),
+            kbOf(all, rules), ignoreOfferings);
+        assert.ok(!codes(out.eligible).includes('S31'), 'the default still holds here');
+    });
+
+    test('a gate that asks a subject to pass itself is held to the semester before it', () => {
+        // S42 marked "through 4th year" (42) would need S42 itself first. It
+        // is read as "through 4th year, 1st sem" (41), so it can open.
+        const rules = [rule(s['42'], null, { type: 'standing', threshold: 42 })];
+        const before = assess(student({ year: 4 }), passedThrough('11', '12', '21', '22', '31', '32'),
+            kbOf(all, rules), ignoreOfferings);
+        assert.ok(!codes(before.eligible).includes('S42'), 'S41 is still owed');
+        const after = assess(student({ year: 4 }), passedThrough('11', '12', '21', '22', '31', '32', '41'),
+            kbOf(all, rules), ignoreOfferings);
+        assert.ok(codes(after.eligible).includes('S42'), 'opens once 4th year 1st sem is done');
+    });
+
+    test('the gate can be turned off', () => {
+        const out = assess(student(), [], kbOf(all), { respectOfferings: false, yearGate: false });
+        assert.ok(codes(out.eligible).includes('S31'));
+    });
+
+    test('a locked year-3 subject is reachable in the forward chain, not "unreachable"', () => {
+        const out = assess(student({ year: 2 }), passedThrough('11', '12', '21'),
+            kbOf(all), ignoreOfferings);
+        const l = out.locked.find(e => e.subject.code === 'S31');
+        assert.ok(l.termsAway !== null && l.termsAway > 1);
+    });
+});
+
+
+/* ---- a partly published schedule ---- */
+
+describe('partial schedule', () => {
+    // Year 1 has no schedule; only year 2 term 1 has one section published.
+    const a = subj('A11', { year: 1, term: 1 });
+    const b = subj('B11', { year: 1, term: 1 });
+    const c = subj('C12', { year: 1, term: 2 });
+    const x = subj('X21', { year: 2, term: 1 });
+    const y = subj('Y21', { year: 2, term: 1 });
+    const all = [a, b, c, x, y];
+    const offerings = [{ subject_id: x.id, section: 'BSIT-2A' }];
+    const codes = (list) => list.map(r => r.subject.code).sort();
+
+    test('publishing one section no longer empties other students lists', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        assert.ok(codes(out.recommended).includes('A11'));
+        assert.ok(codes(out.recommended).includes('B11'));
+    });
+
+    test('a subject in an unscheduled block is labelled pending, a scheduled one offered', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        const state = (code) => out.eligible.find(e => e.subject.code === code).scheduleState;
+        assert.equal(state('A11'), 'pending');
+        assert.equal(state('X21'), 'offered');
+    });
+
+    test('a subject the department is not running, in a block it IS scheduling, is not recommended', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        assert.equal(out.eligible.find(e => e.subject.code === 'Y21').scheduleState, 'not-run');
+        assert.ok(!codes(out.recommended).includes('Y21'));
+    });
+
+    test('pending subjects still respect the current term', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        assert.ok(!codes(out.recommended).includes('C12'), 'a 2nd-semester subject is not for a 1st-semester term');
+    });
+
+    test('a retake in an unscheduled block is recommended whatever its term', () => {
+        const out = assess(student(), [rec(c, FAILED)], kbOf(all, [], offerings), { term: 1 });
+        assert.ok(codes(out.recommended).includes('C12'));
+    });
+
+    test('with no schedule at all every subject is "none" and offered is true', () => {
+        const out = assess(student(), [], kbOf(all), { term: 1 });
+        assert.ok(out.eligible.every(e => e.scheduleState === 'none' && e.offered === true));
+    });
+
+    test('with the schedule switched off nothing is treated as scheduled or unscheduled', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1, respectOfferings: false });
+        assert.ok(out.eligible.every(e => e.scheduleState === 'none'));
     });
 });
