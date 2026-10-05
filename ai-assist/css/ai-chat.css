@@ -298,3 +298,9 @@
 @media (prefers-reduced-motion: reduce) {
     .typing i { animation: none; opacity: 0.6; }
 }
+
+/* the schedule table under an answer about when subjects meet */
+.chat-schedule td { vertical-align: top; }
+.chat-schedule .sched-line { display: block; white-space: nowrap; }
+.chat-schedule .sched-line.is-lab { color: #64748b; }
+.chat-notinplan { font-size: 0.82rem; color: #64748b; margin: 0.5rem 0 0; }
