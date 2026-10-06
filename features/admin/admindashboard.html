@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
-<body>
+<body data-idle-role="system_administrator">
 
 <div class="shell" id="shell">
 
@@ -222,15 +222,15 @@
                         <div class="form-grid">
                             <div class="field">
                                 <label for="a-first-name">First name</label>
-                                <input type="text" id="a-first-name" placeholder="Juan" autocomplete="off">
+                                <input type="text" id="a-first-name" placeholder="Juan" autocomplete="off" maxlength="60">
                             </div>
                             <div class="field">
                                 <label for="a-last-name">Last name</label>
-                                <input type="text" id="a-last-name" placeholder="Dela Cruz" autocomplete="off">
+                                <input type="text" id="a-last-name" placeholder="Dela Cruz" autocomplete="off" maxlength="60">
                             </div>
                             <div class="field">
                                 <label for="a-email">University email</label>
-                                <input type="email" id="a-email" placeholder="juan.delacruz@uc.edu.ph" autocomplete="off">
+                                <input type="email" id="a-email" placeholder="juan.delacruz@uc.edu.ph" autocomplete="off" maxlength="254">
                             </div>
                             <div class="field field-sm">
                                 <label for="a-role">Role</label>
@@ -244,12 +244,12 @@
                             <!-- Staff-only: Employee ID -->
                             <div class="field" id="a-employee-id-wrap">
                                 <label for="a-employee-id">Employee ID</label>
-                                <input type="text" id="a-employee-id" placeholder="EMP-00871" autocomplete="off">
+                                <input type="text" id="a-employee-id" placeholder="Assigned automatically (EMP-00001, EMP-00002, ...)" autocomplete="off" maxlength="12" disabled>
                             </div>
                             <!-- Student-only: Student ID and Year level -->
                             <div class="field" id="a-student-id-wrap" hidden>
-                                <label for="a-student-id">Student ID</label>
-                                <input type="text" id="a-student-id" placeholder="2401187" autocomplete="off">
+                                <label for="a-student-id">Student ID <span class="opt">optional</span></label>
+                                <input type="text" id="a-student-id" placeholder="Blank = assigned automatically" autocomplete="off" maxlength="12">
                             </div>
                             <div class="field field-sm" id="a-year-level-wrap" hidden>
                                 <label for="a-year-level">Year level</label>
@@ -274,13 +274,13 @@
                             <div class="field" id="a-department-wrap">
                                 <label for="a-department">Department / college</label>
                                 <input type="text" id="a-department" list="college-list"
-                                       placeholder="Name of the college or department" autocomplete="off">
+                                       placeholder="Name of the college or department" autocomplete="off" maxlength="100">
                                 <datalist id="college-list"></datalist>
                             </div>
                             <div class="field">
                                 <label for="a-password">Temporary password</label>
                                 <div class="input-wrap">
-                                    <input type="password" id="a-password" placeholder="At least 8 characters" autocomplete="new-password">
+                                    <input type="password" id="a-password" placeholder="8+ characters with a special character (admin: 12+)" autocomplete="new-password" maxlength="72">
                                     <button type="button" class="toggle-pw" data-target="a-password" aria-label="Show password">
                                         <i class="fa-solid fa-eye" aria-hidden="true"></i>
                                     </button>
@@ -289,7 +289,7 @@
                             <div class="field">
                                 <label for="a-confirm">Confirm password</label>
                                 <div class="input-wrap">
-                                    <input type="password" id="a-confirm" placeholder="Re-enter password" autocomplete="new-password">
+                                    <input type="password" id="a-confirm" placeholder="Re-enter password" autocomplete="new-password" maxlength="72">
                                     <button type="button" class="toggle-pw" data-target="a-confirm" aria-label="Show password">
                                         <i class="fa-solid fa-eye" aria-hidden="true"></i>
                                     </button>
@@ -335,8 +335,8 @@
                     <div>
                         <strong>File format</strong>
                         Required columns: <span class="mono">first_name, last_name, email, role</span>.
-                        For staff (faculty, registrar, department): <span class="mono">employee_id</span> is required.
-                        For students: <span class="mono">student_id</span> is required.
+                        For staff (faculty, registrar, department): leave <span class="mono">employee_id</span> blank, it is assigned automatically (EMP-00001, EMP-00002, ...). Only an admin row needs one (SYS-...) plus a <span class="mono">username</span>.
+                        For students: <span class="mono">student_id</span> is optional. Give it if the student already has one (7 digits), or leave it blank and the system assigns the next number.
                         Every role except admin also needs <span class="mono">program_code</span> --
                         which programme decides a student's curriculum, and is what each staff
                         role's per-programme account cap is checked against.
@@ -439,7 +439,7 @@
                                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                                 <input type="search" id="staff-search"
                                        placeholder="Search name, email, or employee ID"
-                                       autocomplete="off" aria-label="Search staff">
+                                       autocomplete="off" aria-label="Search staff" maxlength="100">
                             </div>
                             <select id="staff-filter" aria-label="Filter by role">
                                 <option value="all">All roles</option>
@@ -492,12 +492,12 @@
                             <div class="term-field prog-wide">
                                 <label for="prog-name">Name</label>
                                 <input type="text" id="prog-name" placeholder="Bachelor of Science in Nursing"
-                                       autocomplete="off">
+                                       autocomplete="off" maxlength="150">
                             </div>
                             <div class="term-field prog-wide">
                                 <label for="prog-college">College</label>
                                 <input type="text" id="prog-college" list="college-list"
-                                       placeholder="College of Nursing" autocomplete="off">
+                                       placeholder="College of Nursing" autocomplete="off" maxlength="100">
                                 <span class="term-hint">A free-text label shown on staff accounts. Staff are linked to this programme explicitly, not by matching this text.</span>
                             </div>
                             <button type="submit" class="btn-primary" id="prog-add">Add programme</button>
@@ -544,7 +544,7 @@
                                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                                 <input type="search" id="student-search"
                                        placeholder="Search name, student ID, or email"
-                                       autocomplete="off" aria-label="Search students">
+                                       autocomplete="off" aria-label="Search students" maxlength="100">
                             </div>
                             <select id="student-filter" aria-label="Filter by status">
                                 <option value="all">All students</option>
@@ -630,8 +630,12 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../../shared/js/config.js"></script>
+<script src="../../shared/js/idlesignout.js"></script>
 <script src="../../shared/js/systemconfig.js"></script>
 <script src="../../shared/js/bulkaccounts.js"></script>
+<script src="../../shared/js/passwordrules.js"></script>
+<script src="../../shared/js/forcepasswordchange.js"></script>
+<script src="../../shared/js/uploadlimits.js"></script>
 <script src="admindashboard.js"></script>
 </body>
 </html>

@@ -10,13 +10,13 @@
 (function () {
 'use strict';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC ?? {};
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey, authOptions } = window.CURRICULOGIC ?? {};
 
 // Bucketed storage key (see config.js) -- keeps an admin session in this
 // tab from colliding with a different role signed in in another tab.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: { storageKey: authStorageKey?.(['system_administrator']) },
+        auth: authOptions ? authOptions(['system_administrator']) : { storageKey: authStorageKey?.(['system_administrator']) },
     })
     : null;
 
@@ -666,7 +666,6 @@ async function createAccount() {
     const first      = $('a-first-name').value.trim();
     const last       = $('a-last-name').value.trim();
     const email      = $('a-email').value.trim();
-    const employeeId = $('a-employee-id').value.trim();
     const studentId  = $('a-student-id')?.value.trim() ?? '';
     const yearLevel  = $('a-year-level')?.value ?? '';
     const role       = $('a-role').value;
@@ -682,11 +681,10 @@ async function createAccount() {
     if (!email)     return showMsg(boxId, 'Enter an email address.');
     if (!EMAIL_RE.test(email)) return showMsg(boxId, 'Enter a valid email address.');
 
-    if (role === 'student') {
-        if (!studentId) return showMsg(boxId, 'Enter a student ID.');
-    } else {
-        if (!employeeId) return showMsg(boxId, 'Enter an employee ID.');
-    }
+    // Staff (faculty, registrar, department) get their EMP- number from the
+    // database when the account is created; nothing is typed for them.
+    // A student with no ID yet is fine: leave it blank and the database
+    // issues one (db/045). A typed ID is checked there (7 digits, unique).
 
     // Every role in this form belongs to exactly one programme (db/030) --
     // a student's decides their curriculum, and a staff role's is what
@@ -703,7 +701,8 @@ async function createAccount() {
     if (dep.error) return showMsg(boxId, dep.error);
     const department = dep.value;
 
-    if (!password || password.length < 8) return showMsg(boxId, 'Password must be at least 8 characters.');
+    const pwProblem = CurriculogicPasswordRules.problem(password, role);
+    if (pwProblem) return showMsg(boxId, pwProblem);
     if (password !== confirm) return showMsg(boxId, 'The two passwords do not match.');
 
     const btn = $('create-account');
@@ -718,7 +717,7 @@ async function createAccount() {
                 first_name: first,
                 last_name: last,
                 email,
-                employee_id: employeeId,
+                employee_id: 'EMP-(assigned on save)',
                 program_id: PROGRAMS.find(p => p.code === programCode)?.id ?? null,
                 is_approved: true,
                 created_at: new Date().toISOString(),
@@ -743,7 +742,7 @@ async function createAccount() {
             p_email: email,
             p_password: password,
             p_role: role,
-            p_employee_id: role === 'student' ? null : employeeId,
+            p_employee_id: null,
             p_student_id: role === 'student' ? studentId : null,
             p_department: department,
             p_year_level: role === 'student' ? yearLevel : null,
@@ -762,7 +761,11 @@ async function createAccount() {
         }
 
         clearCreateForm();
-        showMsg(boxId, `${first} ${last} account created. They can now sign in.`, 'success');
+        const assigned = data?.employee_id ? ` Employee ID: ${data.employee_id}.`
+            : (role === 'student' && !studentId && data?.student_id)
+                ? ` Student ID ${data.student_id} was assigned (they sign in with uc-${data.student_id}).`
+                : '';
+        showMsg(boxId, `${first} ${last} account created.${assigned} They can now sign in.`, 'success');
         await loadStaff(true);
 
     } catch (err) {
@@ -940,12 +943,12 @@ function downloadBulkTemplate() {
     // An admin sample appears only when admin is chosen on purpose.
     const selectedRole = $('bulk-role-filter')?.value || 'all';
     const SAMPLE_ROWS = {
-        faculty:    { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: 'EMP-00101', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
-        registrar:  { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: 'EMP-00102', student_id: '', program_code: sampleProgram, department: 'Office of the Registrar', year_level: '', password: '', username: '' },
-        department: { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: 'EMP-00103', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
+        faculty:    { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: '', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
+        registrar:  { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: '', student_id: '', program_code: sampleProgram, department: 'Office of the Registrar', year_level: '', password: '', username: '' },
+        department: { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: '', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
         student:    { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '2401187', program_code: sampleProgram, department: '', year_level: '2', password: '', username: '' },
         // An admin belongs to no programme, whatever is chosen above.
-        admin:      { first_name: 'Alex', last_name: 'Rivera', email: 'alex.rivera@uc.edu.ph', role: 'admin', employee_id: 'EMP-00001', student_id: '', program_code: '', department: '', year_level: '', password: '', username: 'alex.rivera' },
+        admin:      { first_name: 'Alex', last_name: 'Rivera', email: 'alex.rivera@uc.edu.ph', role: 'admin', employee_id: 'SYS-ADMIN02', student_id: '', program_code: '', department: '', year_level: '', password: '', username: 'alex.rivera' },
     };
     const rows = CurriculogicBulkAccounts.sampleRoles(selectedRole).map(role => SAMPLE_ROWS[role]);
 
@@ -991,6 +994,9 @@ async function handleBulkFile(e) {
 }
 
 async function readBulkFile(file) {
+    const fileIssue = CurriculogicUploadLimits.fileProblem(file, 'accounts');
+    if (fileIssue) throw new Error(fileIssue);
+
     if (typeof XLSX === 'undefined') {
         await new Promise((resolve, reject) => {
             const s = document.createElement('script');
@@ -1009,6 +1015,9 @@ async function readBulkFile(file) {
 
     const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
     if (rows.length === 0) throw new Error('File is empty.');
+
+    const rowsIssue = CurriculogicUploadLimits.rowsProblem(rows.length, 'accounts');
+    if (rowsIssue) throw new Error(rowsIssue);
 
     // Normalize headers
     return rows.map((r, i) => {
@@ -1039,7 +1048,7 @@ function validateBulkRows(rows, fileName) {
         const studentId = (r.student_id || '').replace(/[\s-]/g, '');
         const department = r.department || '';
         const yearLevel = r.year_level ? parseInt(r.year_level) : null;
-        const password = r.password || generateDefaultPassword();
+        const password = r.password || CurriculogicPasswordRules.generate(role);
         const username = r.username || '';
 
         const base = { line: r.__line, first, last, email, role, employeeId, studentId, programCode: '', department, yearLevel, password, username };
@@ -1060,13 +1069,17 @@ function validateBulkRows(rows, fileName) {
 
         const gate = CurriculogicBulkAccounts.programmeGate(selectedProgram, role, r.program_code);
         if (gate.error) { bad.push({ ...base, programCode: String(r.program_code || '').trim().toUpperCase(), why: gate.error }); continue; }
-        if (password.length < 8) { bad.push({ ...base, why: 'Password must be at least 8 characters.' }); continue; }
+        const pwProblem = CurriculogicPasswordRules.problem(password, role);
+        if (pwProblem) { bad.push({ ...base, why: pwProblem }); continue; }
 
         // Role-specific validation
         if (role === 'student') {
-            if (!studentId) { bad.push({ ...base, why: 'Student ID is required for students.' }); continue; }
-            if (seenStudentIds.has(studentId)) { bad.push({ ...base, why: 'Duplicate student ID in file.' }); continue; }
-            seenStudentIds.add(studentId);
+            // A blank student_id is fine: the database issues the number.
+            if (studentId) {
+                if (!/^\d{7}$/.test(studentId)) { bad.push({ ...base, why: 'Student ID must be 7 digits, or left blank to be assigned automatically.' }); continue; }
+                if (seenStudentIds.has(studentId)) { bad.push({ ...base, why: 'Duplicate student ID in file.' }); continue; }
+                seenStudentIds.add(studentId);
+            }
         }
 
         // Every role except admin belongs to exactly one programme
@@ -1086,9 +1099,15 @@ function validateBulkRows(rows, fileName) {
         base.department = dep.value;
 
         if (['faculty', 'registrar', 'department', 'admin'].includes(role)) {
-            if (!employeeId) { bad.push({ ...base, why: 'Employee ID is required for staff.' }); continue; }
-            if (seenEmployeeIds.has(employeeId)) { bad.push({ ...base, why: 'Duplicate employee ID in file.' }); continue; }
-            seenEmployeeIds.add(employeeId);
+            if (role === 'admin') {
+                if (!/^SYS-[A-Z0-9]{3,12}$/.test(employeeId)) { bad.push({ ...base, why: 'An admin needs an employee ID that starts with SYS- (for example SYS-ADMIN02).' }); continue; }
+            } else if (employeeId) {
+                bad.push({ ...base, why: 'Leave employee_id blank for faculty, registrar and department staff. It is assigned automatically.' }); continue;
+            }
+            if (employeeId) {
+                if (seenEmployeeIds.has(employeeId)) { bad.push({ ...base, why: 'Duplicate employee ID in file.' }); continue; }
+                seenEmployeeIds.add(employeeId);
+            }
         }
 
         if (role === 'admin' && !username) { 
@@ -1106,15 +1125,6 @@ function validateBulkRows(rows, fileName) {
     PENDING_BULK_BAD = bad;
     PENDING_BULK_FILE = fileName;
     renderBulkPreview(ok, bad, fileName);
-}
-
-function generateDefaultPassword() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
-    let result = '';
-    for (let i = 0; i < 10; i++) {
-        result += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return result;
 }
 
 /* Mirrors the Role dropdown: every programme that currently exists in
@@ -1353,7 +1363,7 @@ async function saveBulkHistory(fileName, successCount, failedCount) {
     try {
         await supabase.from('bulk_upload_history').insert([{
             admin_id: ADMIN?.id,
-            file_name: fileName,
+            file_name: String(fileName ?? '').slice(0, 255),
             total_rows: successCount + failedCount,
             success_count: successCount,
             failed_count: failedCount,
@@ -1968,6 +1978,7 @@ $('term-confirm-no')?.addEventListener('click', hideTermConfirm);
     ADMIN = admin;
     renderProfile(admin, session.user.email);
     renderNotice(admin);
+    window.CurriculogicForcePassword?.run(supabase, 'admin');
 
     await loadStaff();
     await loadStudents();
