@@ -7,7 +7,12 @@
     <title>Log in — CurricuLogic</title>
     <meta name="description" content="Log in to CurricuLogic to check your subject eligibility and plan your term.">
 
+    <meta name="theme-color" content="#f6f2e9">
+
     <link rel="icon" type="image/png" href="../../../assets/CurriculogicLogo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&display=swap">
     <link rel="stylesheet" href="../css/loginpage.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
@@ -15,8 +20,9 @@
 
 <div class="auth-shell">
 
-   <!-- left pannel -->
-    <aside class="auth-aside">
+<!-- left panel -->
+    <aside class="auth-aside" data-grid-glow>
+        <span class="aside-glow" aria-hidden="true"></span>
         <div class="aside-inner">
 
             <a href="../../../index.html" class="aside-back">
@@ -33,7 +39,7 @@
                 <p>
                     A prerequisite verification and subject recommendation tool for
                     University of Cebu students. It checks your academic record against
-                    your programme's prospectus and explains every result — so planning your
+                    your programme's prospectus and explains every result, so planning your
                     load stops being guesswork.
                 </p>
             </div>
@@ -69,8 +75,8 @@
         </div>
     </aside>
 
-    <!--Right pannel -->
-    <main class="auth-main">
+    <!-- right panel -->
+    <main class="auth-main" data-grid-glow data-grid-glow-rest=".auth-card">
         <div class="auth-card">
 
             <a href="../../../index.html" class="brand auth-brand" aria-label="CurricuLogic home">
@@ -89,7 +95,7 @@
                 <label for="identifier">Username</label>
                 <div class="input-wrap">
                     <i class="fa-solid fa-user lead" aria-hidden="true"></i>
-                    <input type="text" id="identifier" placeholder="ID number or school email" autocomplete="username" required>
+                    <input type="text" id="identifier" placeholder="ID number or school email" autocomplete="username" maxlength="254" required>
                 </div>
             </div>
 
@@ -97,22 +103,21 @@
                 <label for="password">Password</label>
                 <div class="input-wrap">
                     <i class="fa-solid fa-lock lead" aria-hidden="true"></i>
-                    <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password" required>
+                    <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password" maxlength="72" required>
                     <button type="button" class="toggle-pw" data-target="password" aria-label="Show password">
                         <i class="fa-solid fa-eye" aria-hidden="true"></i>
                     </button>
                 </div>
             </div>
 
-            <button class="btn-submit" id="login-btn">Log in</button>
-
-            <div class="form-row">
+            <div class="form-row form-row-above">
                 <label class="check">
                     <input type="checkbox" id="remember">
                     <span>Remember me</span>
                 </label>
-                <a href="#forgot" class="link-quiet">Forgot password?</a>
             </div>
+
+            <button class="btn-submit" id="login-btn">Log in</button>
 
             <div class="rule"><span>or</span></div>
 
@@ -142,5 +147,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../../../shared/js/config.js"></script>
 <script src="../../../shared/js/auth.js"></script>
+<script src="../../../shared/js/gridglow.js"></script>
 </body>
 </html>

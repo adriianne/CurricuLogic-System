@@ -7,16 +7,22 @@
     <title>Staff login — CurricuLogic</title>
     <meta name="description" content="Staff access to CurricuLogic for University of Cebu faculty, registrar, and department personnel.">
 
+    <meta name="theme-color" content="#f6f2e9">
+
     <link rel="icon" type="image/png" href="../../../assets/CurriculogicLogo.png">
-    <link rel="stylesheet" href="../css/staffloginpage.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&display=swap">
+    <link rel="stylesheet" href="../css/loginpage.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body data-allowed-roles="faculty_staff,registrar_staff,department_staff">
 
 <div class="auth-shell">
 
-    <!-- LEFT PANEL -->
-    <aside class="auth-aside">
+    <!-- left panel -->
+    <aside class="auth-aside" data-grid-glow>
+        <span class="aside-glow" aria-hidden="true"></span>
         <div class="aside-inner">
 
             <a href="../../../index.html" class="aside-back">
@@ -33,7 +39,7 @@
                 <p>
                     A prerequisite verification and subject recommendation tool for
                     University of Cebu students. It checks academic records against
-                    each programme's prospectus and explains every result — so advising works
+                    each programme's prospectus and explains every result, so advising works
                     from a verified list instead of a manual check.
                 </p>
             </div>
@@ -69,8 +75,8 @@
         </div>
     </aside>
 
-    <!-- RIGHT PANEL -->
-    <main class="auth-main">
+    <!-- right panel -->
+    <main class="auth-main" data-grid-glow data-grid-glow-rest=".auth-card">
         <div class="auth-card">
 
             <a href="../../../index.html" class="brand auth-brand" aria-label="CurricuLogic home">
@@ -78,7 +84,7 @@
                 <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
             </a>
 
-            <p class="login-as">Login as <span id="role-name">University Institution</span></p>
+            <p class="login-as">Login as <span id="role-name">Staff</span></p>
 
             <h1 class="auth-title">Welcome back</h1>
             <p class="auth-sub">Log in with your university account to continue.</p>
@@ -89,7 +95,7 @@
                 <label for="identifier" id="identifier-label">Employee ID</label>
                 <div class="input-wrap">
                     <i class="fa-solid fa-id-badge lead" aria-hidden="true"></i>
-                    <input type="text" id="identifier" placeholder="EMP-101345 or school email" autocomplete="username" required>
+                    <input type="text" id="identifier" placeholder="EMP-00123 or school email" autocomplete="username" maxlength="254" required>
                 </div>
             </div>
 
@@ -97,7 +103,7 @@
                 <label for="password">Password</label>
                 <div class="input-wrap">
                     <i class="fa-solid fa-lock lead" aria-hidden="true"></i>
-                    <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password" required>
+                    <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password" maxlength="72" required>
                     <button type="button" class="toggle-pw" data-target="password" aria-label="Show password">
                         <i class="fa-solid fa-eye" aria-hidden="true"></i>
                     </button>
@@ -107,29 +113,18 @@
             <button class="btn-submit" id="login-btn">Log in</button>
 
             <div class="form-row" id="form-row">
-                <span class="session-note" id="session-note"></span>
-                <a href="#forgot" class="link-quiet">Forgot password?</a>
+                <span class="session-note" id="session-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Your sign-in ends when you close this tab.</span>
             </div>
 
 <div class="rule"><span>or</span></div>
-
-            <a href="staffregisterpage.html" class="btn-request">
-                <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
-                <span>Request a staff account</span>
-            </a>
-
-            <p class="request-note">
-                For faculty, registrar, and department personnel who do not yet have access.
-                Requests are verified against college records before approval.
-            </p>
 
             <p class="auth-alt">
                 Are you a student? <a href="loginpage.html">Student login</a>
             </p>
 
             <p class="auth-note">
-                System Administrator accounts are provisioned by the college and are not
-                created through this form. Contact IT support for access.
+                Staff accounts are created by the system administrator, so there is no
+                sign-up form. Contact IT support if you need access.
             </p>
 
             <nav class="auth-links" aria-label="Help links">
@@ -150,5 +145,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../../../shared/js/config.js"></script>
 <script src="../../../shared/js/auth.js"></script>
+<script src="../../../shared/js/gridglow.js"></script>
 </body>
 </html>

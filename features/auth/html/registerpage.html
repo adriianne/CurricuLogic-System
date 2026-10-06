@@ -7,7 +7,13 @@
     <title>Request an account — CurricuLogic</title>
     <meta name="description" content="Request a CurricuLogic account. New students register; students with an existing academic record claim their account.">
 
+    <meta name="theme-color" content="#f6f2e9">
+
     <link rel="icon" type="image/png" href="../../../assets/CurriculogicLogo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&display=swap">
+    <link rel="stylesheet" href="../css/loginpage.css">
     <link rel="stylesheet" href="../css/registerpage.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
@@ -15,8 +21,9 @@
 
 <div class="auth-shell">
 
-    <!-- LEFT PANEL -->
-    <aside class="auth-aside">
+    <!-- left panel -->
+    <aside class="auth-aside" data-grid-glow>
+        <span class="aside-glow" aria-hidden="true"></span>
         <div class="aside-inner">
 
             <a href="../../../index.html" class="aside-back">
@@ -68,8 +75,8 @@
         </div>
     </aside>
 
-    <!-- RIGHT PANEL -->
-    <main class="auth-main">
+    <!-- right panel -->
+    <main class="auth-main" data-grid-glow data-grid-glow-rest=".auth-card">
         <div class="auth-card">
 
             <a href="../../../index.html" class="brand auth-brand" aria-label="CurricuLogic home">
@@ -112,13 +119,13 @@
                     <div class="field">
                         <label for="first-name">First name</label>
                         <div class="input-wrap">
-                            <input type="text" id="first-name" placeholder="Althea" autocomplete="given-name">
+                            <input type="text" id="first-name" placeholder="Althea" autocomplete="given-name" maxlength="60">
                         </div>
                     </div>
                     <div class="field">
                         <label for="last-name">Last name</label>
                         <div class="input-wrap">
-                            <input type="text" id="last-name" placeholder="Villanueva" autocomplete="family-name">
+                            <input type="text" id="last-name" placeholder="Villanueva" autocomplete="family-name" maxlength="60">
                         </div>
                     </div>
                 </div>
@@ -132,29 +139,22 @@
                     <p class="hint">Choose the degree program you are enrolled in.</p>
                 </div>
 
-                <div class="field">
-                    <label for="student-id-new">Student ID <span class="opt">optional</span></label>
-                    <div class="input-wrap">
-                        <i class="fa-solid fa-hashtag lead" aria-hidden="true"></i>
-                        <input type="text" id="student-id-new" placeholder="2026-01187">
-                    </div>
-                    <p class="hint">Leave blank if your ID has not been issued yet.</p>
-                </div>
+                <p class="hint">Your student ID is issued automatically when the Office of the Registrar approves your request. You will use it to sign in.</p>
 
             </div>
 
-            <!-- ---- EXISTING STUDENT ---- -->
+            <!-- EXISTING STUDENT -->
             <div class="pane" id="pane-existing" hidden>
 
                 <div class="field">
                     <label for="student-id">Student ID</label>
                     <div class="input-wrap">
                         <i class="fa-solid fa-hashtag lead" aria-hidden="true"></i>
-                        <input type="text" id="student-id" placeholder="2024-01187">
+                        <input type="text" id="student-id" placeholder="2024-01187" maxlength="12">
                     </div>
                     <p class="hint">
                         Your programme, year level, and prospectus are taken from
-                        university records — you do not need to enter them.
+                        university records, so you do not need to enter them.
                     </p>
                 </div>
 
@@ -165,7 +165,7 @@
                 <label for="email">University email</label>
                 <div class="input-wrap">
                     <i class="fa-solid fa-envelope lead" aria-hidden="true"></i>
-                    <input type="email" id="email" placeholder="you@uc.edu.ph" autocomplete="email">
+                    <input type="email" id="email" placeholder="you@uc.edu.ph" autocomplete="email" maxlength="254">
                 </div>
                 <p class="hint" id="email-hint">
                     Must be the address on file with the university.
@@ -176,18 +176,19 @@
                 <label for="password">Password</label>
                 <div class="input-wrap">
                     <i class="fa-solid fa-lock lead" aria-hidden="true"></i>
-                    <input type="password" id="password" placeholder="At least 8 characters" autocomplete="new-password">
+                    <input type="password" id="password" placeholder="Create a password" autocomplete="new-password" maxlength="72">
                     <button type="button" class="toggle-pw" data-target="password" aria-label="Show password">
                         <i class="fa-solid fa-eye" aria-hidden="true"></i>
                     </button>
                 </div>
+                <p class="hint">At least 8 characters, including one special character such as ! or #.</p>
             </div>
 
             <div class="field">
                 <label for="confirm">Confirm password</label>
                 <div class="input-wrap">
                     <i class="fa-solid fa-lock lead" aria-hidden="true"></i>
-                    <input type="password" id="confirm" placeholder="Re-enter your password" autocomplete="new-password">
+                    <input type="password" id="confirm" placeholder="Re-enter your password" autocomplete="new-password" maxlength="72">
                     <button type="button" class="toggle-pw" data-target="confirm" aria-label="Show password">
                         <i class="fa-solid fa-eye" aria-hidden="true"></i>
                     </button>
@@ -198,7 +199,7 @@
                 <input type="checkbox" id="consent">
                 <span>
                     I confirm the information above is accurate and I agree to the
-                    university's <a href="#privacy">data privacy notice</a>.
+                    university's data privacy notice.
                 </span>
             </label>
 
@@ -237,6 +238,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../../../shared/js/config.js"></script>
+<script src="../../../shared/js/passwordrules.js"></script>
 <script src="../../../shared/js/register.js"></script>
+<script src="../../../shared/js/gridglow.js"></script>
 </body>
 </html>

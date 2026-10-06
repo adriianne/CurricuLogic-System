@@ -1,19 +1,32 @@
-/* Admin Login */
+/* ============================================
+   CurricuLogic — Administrator login
+   Same system as the other auth pages (warm paper, Fraunces headlines, mono
+   labels, logo indigo/green). The card is frosted glass over two soft orbs
+   and the graph-paper grid, so this restricted door feels distinct.
+   ============================================ */
 
 :root {
-    --indigo:      #4f46e5;
-    --indigo-dark: #4338ca;
-    --green:       #0f8a5f;
-    --ink:         #0f172a;
-    --slate:       #64748b;
-    --line:        #e8ecf3;
-    --canvas:      #f8fafc;
+    --paper:       #f6f2e9;
+    --surface:     #fffdf7;
+    --ink:         #1d1b16;
+    --muted:       #5c574c;
+    --line:        #ddd6c6;
 
-    --s1: 0.5rem;
-    --s2: 0.85rem;
-    --s3: 1.25rem;
-    --s4: 1.75rem;
-    --s5: 2.5rem;
+    --indigo:      #4338ca;
+    --indigo-dark: #3730a3;
+    --indigo-tint: #dcd8fb;
+    --green:       #0f8a5f;
+    --green-deep:  #0a7a53;
+    --green-tint:  #def0e6;
+    --rust:        #9b2c22;
+    --rust-tint:   #f6e1dd;
+    --grid:        rgba(29, 27, 22, 0.055);
+
+    --font-display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --font-mono:    ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+    --r-ctl:  10px;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -21,6 +34,7 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     color: var(--ink);
+    background: var(--paper);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
@@ -35,36 +49,146 @@ img { max-width: 100%; }
 }
 
 
+/* Backdrop: graph paper + two orbs for the glass to blur */
+
 .admin-shell {
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
     min-height: 100dvh;
-    padding: var(--s5) var(--s3);
-    background:
-        radial-gradient(circle at 18% 12%, rgba(79, 70, 229, 0.07), transparent 46%),
-        radial-gradient(circle at 84% 84%, rgba(15, 138, 95, 0.06), transparent 46%),
-        var(--canvas);
+    padding: 40px 24px;
+    background: var(--paper);
 }
 
+.admin-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 32px 32px;
+    -webkit-mask-image: radial-gradient(70% 80% at 50% 50%, #000 25%, transparent 85%);
+    mask-image: radial-gradient(70% 80% at 50% 50%, #000 25%, transparent 85%);
+}
+
+/* Same graph paper in the logo green, shown only under a soft spotlight that
+   drifts across the page (same effect as the landing hero). */
+.admin-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(15, 138, 95, 0.62) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(15, 138, 95, 0.62) 1px, transparent 1px);
+    background-size: 32px 32px;
+    -webkit-mask-image:
+        radial-gradient(circle closest-side, #000 0%, transparent 100%),
+        radial-gradient(70% 80% at 50% 50%, #000 25%, transparent 85%);
+    mask-image:
+        radial-gradient(circle closest-side, #000 0%, transparent 100%),
+        radial-gradient(70% 80% at 50% 50%, #000 25%, transparent 85%);
+    -webkit-mask-size: 640px 640px, 100% 100%;
+    mask-size: 640px 640px, 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+    -webkit-mask-position: 0% 0%, 0 0;
+    mask-position: 0% 0%, 0 0;
+    animation: grid-glow 18s ease-in-out infinite alternate;
+}
+
+/* While the mouse is over the page, the spotlight follows it (see gridglow.js) */
+.admin-shell.glow-follow::after {
+    animation: none;
+    -webkit-mask-position: calc(var(--gx, 0px) - 320px) calc(var(--gy, 0px) - 320px), 0 0;
+    mask-position: calc(var(--gx, 0px) - 320px) calc(var(--gy, 0px) - 320px), 0 0;
+}
+
+@keyframes grid-glow {
+    0%   { -webkit-mask-position: 0% 0%, 0 0;     mask-position: 0% 0%, 0 0; }
+    33%  { -webkit-mask-position: 100% 20%, 0 0;  mask-position: 100% 20%, 0 0; }
+    66%  { -webkit-mask-position: 85% 100%, 0 0;  mask-position: 85% 100%, 0 0; }
+    100% { -webkit-mask-position: 10% 85%, 0 0;   mask-position: 10% 85%, 0 0; }
+}
+
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    filter: blur(60px);
+    will-change: transform;
+}
+
+.orb-indigo {
+    width: 420px;
+    height: 420px;
+    top: -120px;
+    left: calc(50% - 460px);
+    background: rgba(67, 56, 202, 0.38);
+    animation: orb-a 22s ease-in-out infinite alternate;
+}
+
+.orb-green {
+    width: 380px;
+    height: 380px;
+    bottom: -120px;
+    right: calc(50% - 440px);
+    background: rgba(15, 138, 95, 0.36);
+    animation: orb-b 26s ease-in-out infinite alternate;
+}
+
+@keyframes orb-a {
+    to { transform: translate3d(90px, 70px, 0) scale(1.08); }
+}
+
+@keyframes orb-b {
+    to { transform: translate3d(-80px, -60px, 0) scale(1.1); }
+}
+
+
+/* The glass card */
+
 .admin-card {
+    position: relative;
+    z-index: 1;
     width: 100%;
     max-width: 30rem;
     margin: auto;
-    background: #fff;
-    border: 1px solid var(--line);
-    border-top: 3px solid var(--indigo);
-    border-radius: 16px;
-    padding: var(--s5) var(--s4) var(--s4);
-    box-shadow: 0 24px 56px rgba(15, 23, 42, 0.1);
+    padding: 40px 32px 32px;
+    background: rgba(255, 253, 247, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 20px;
+    box-shadow:
+        0 24px 56px rgba(29, 27, 22, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    animation: card-in 420ms var(--ease-out) both;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .admin-card {
+        background: rgba(255, 253, 247, 0.58);
+        -webkit-backdrop-filter: blur(22px) saturate(160%);
+        backdrop-filter: blur(22px) saturate(160%);
+    }
+}
+
+@keyframes card-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
 }
 
 .admin-brand {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
-    margin-bottom: var(--s3);
+    gap: 9px;
+    margin-bottom: 24px;
 }
 
 .brand-mark { height: 32px; width: auto; display: block; }
@@ -82,16 +206,18 @@ img { max-width: 100%; }
 .admin-badge {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
-    padding: 0.32rem 0.8rem;
-    background: #eef2ff;
-    border: 1px solid #c7d2fe;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(220, 216, 251, 0.7);
+    border: 1px solid rgba(67, 56, 202, 0.25);
     border-radius: 999px;
-    font-size: 0.74rem;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    color: var(--indigo);
-    margin-bottom: var(--s3);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--indigo-dark);
+    margin-bottom: 24px;
 }
 
 .admin-badge i { font-size: 0.7rem; }
@@ -100,28 +226,35 @@ img { max-width: 100%; }
 /* Headings */
 
 .admin-title {
-    font-size: 1.62rem;
-    font-weight: 700;
-    letter-spacing: -0.7px;
-    line-height: 1.2;
-    margin-bottom: 0.45rem;
+    font-family: var(--font-display);
+    font-size: 1.953rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    margin-bottom: 8px;
 }
 
 .admin-sub {
     font-size: 0.9rem;
     line-height: 1.65;
-    color: var(--slate);
-    margin-bottom: var(--s4);
+    color: var(--muted);
+    margin-bottom: 28px;
 }
 
-.field { margin-bottom: var(--s2); }
+
+/* Fields */
+
+.field { margin-bottom: 16px; }
 
 .field label {
     display: block;
-    font-size: 0.82rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
     font-weight: 600;
-    color: #334155;
-    margin-bottom: 0.42rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
 }
 
 .input-wrap {
@@ -132,8 +265,8 @@ img { max-width: 100%; }
 
 .input-wrap .lead {
     position: absolute;
-    left: 0.95rem;
-    color: #b6c0cf;
+    left: 15px;
+    color: #8f897a;
     font-size: 0.82rem;
     line-height: 1;
     pointer-events: none;
@@ -141,69 +274,72 @@ img { max-width: 100%; }
 
 .field input {
     width: 100%;
-    height: 3rem;
-    padding: 0 2.75rem 0 2.55rem;
+    height: 48px;
+    padding: 0 44px 0 40px;
     border: 1.5px solid var(--line);
-    border-radius: 10px;
-    font-size: 0.93rem;
+    border-radius: var(--r-ctl);
+    font-size: 0.95rem;
     font-family: inherit;
     color: var(--ink);
-    background: #fff;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    background: rgba(255, 253, 247, 0.85);
+    transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
 }
 
-.field input::placeholder { color: #b6c0cf; }
+.field input::placeholder { color: #8f897a; }
 
 .field input:focus {
     outline: none;
     border-color: var(--indigo);
-    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    background: var(--surface);
+    box-shadow: 0 0 0 3px rgba(67, 56, 202, 0.14);
 }
 
 .toggle-pw {
     position: absolute;
-    right: 0.55rem;
+    right: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
+    width: 36px;
+    height: 36px;
     background: none;
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    color: #b6c0cf;
+    color: #8f897a;
     font-size: 0.85rem;
-    transition: color 0.2s, background 0.2s;
+    transition: color 150ms ease, background 150ms ease;
 }
 
-.toggle-pw:hover { color: var(--indigo); background: var(--canvas); }
+.toggle-pw:hover { color: var(--indigo); background: rgba(67, 56, 202, 0.08); }
 
 
-/*  Submit  */
+/* Submit */
 
 .btn-submit {
     width: 100%;
-    height: 3rem;
-    margin-top: var(--s3);
+    height: 48px;
+    margin-top: 24px;
     background: var(--indigo);
     color: #fff;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     font-size: 0.97rem;
     font-weight: 600;
     font-family: inherit;
     cursor: pointer;
-    transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+    transition: background 150ms ease, transform 160ms var(--ease-out), box-shadow 150ms ease;
 }
 
-.btn-submit:hover {
-    background: var(--indigo-dark);
-    transform: translateY(-1px);
-    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.28);
+@media (hover: hover) and (pointer: fine) {
+    .btn-submit:hover {
+        background: var(--indigo-dark);
+        transform: translateY(-1px);
+        box-shadow: 0 10px 24px rgba(67, 56, 202, 0.28);
+    }
 }
 
-.btn-submit:active { transform: translateY(0); box-shadow: none; }
+.btn-submit:active { transform: scale(0.98); box-shadow: none; }
 
 .btn-submit:disabled {
     opacity: 0.6;
@@ -215,85 +351,87 @@ img { max-width: 100%; }
 .form-row {
     display: flex;
     align-items: center;
-    min-height: 1.5rem;
-    margin-top: var(--s2);
+    min-height: 24px;
+    margin-top: 16px;
 }
 
 .session-note {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 8px;
     font-size: 0.78rem;
     line-height: 1.4;
-    color: var(--slate);
+    color: var(--muted);
 }
 
-.session-note i { color: var(--indigo); font-size: 0.75rem; }
+.session-note i { color: var(--green); font-size: 0.75rem; }
 
 
-/*  Note + footer  */
+/* Note + footer */
 
 .admin-note {
-    margin-top: var(--s4);
-    padding: var(--s2) 0.95rem;
-    background: var(--canvas);
+    margin-top: 24px;
+    padding: 12px 16px;
+    background: rgba(255, 253, 247, 0.55);
     border: 1px solid var(--line);
-    border-left: 3px solid #c7d2fe;
+    border-left: 3px solid var(--green);
     border-radius: 9px;
     font-size: 0.79rem;
     line-height: 1.65;
-    color: var(--slate);
+    color: var(--muted);
 }
 
 .admin-foot {
-    margin-top: var(--s4);
-    padding-top: var(--s3);
-    border-top: 1px solid var(--line);
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(29, 27, 22, 0.1);
     text-align: center;
-    font-size: 0.76rem;
-    letter-spacing: 0.2px;
-    color: #94a3b8;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #756f60;
 }
 
 
-/*  Messages  */
+/* Messages */
 
 .msg {
     display: none;
-    padding: 0.72rem 0.9rem;
+    padding: 12px 14px;
     border-radius: 8px;
     font-size: 0.85rem;
     line-height: 1.5;
-    margin-bottom: var(--s2);
+    margin-bottom: 16px;
 }
 
-.msg.error   { display: block; background: #fef2f2; color: #b91c1c; border-left: 3px solid #ef4444; }
-.msg.success { display: block; background: #ecfdf5; color: #047857; border-left: 3px solid #10b981; }
+.msg.error   { display: block; background: var(--rust-tint); color: var(--rust); border-left: 3px solid var(--rust); }
+.msg.success { display: block; background: var(--green-tint); color: var(--green-deep); border-left: 3px solid var(--green); }
 
 
-/*  Responsive  */
+/* Responsive */
 
 @media (max-width: 480px) {
-    .admin-shell { padding: var(--s3); }
+    .admin-shell { padding: 24px 16px; }
 
     .admin-card {
-        padding: var(--s4) var(--s3) var(--s3);
-        border-radius: 14px;
+        padding: 28px 20px 24px;
+        border-radius: 16px;
     }
 
-    .admin-title { font-size: 1.42rem; }
+    .admin-title { font-size: 1.563rem; }
+
+    .orb-indigo { left: -160px; }
+    .orb-green  { right: -160px; }
 }
 
 @media (max-height: 700px) {
-    .admin-shell { padding-top: var(--s3); padding-bottom: var(--s3); }
-    .admin-sub { margin-bottom: var(--s3); }
-    .admin-note { margin-top: var(--s3); }
-    .admin-foot { margin-top: var(--s3); }
+    .admin-shell { padding-top: 24px; padding-bottom: 24px; }
+    .admin-sub { margin-bottom: 20px; }
+    .admin-note, .admin-foot { margin-top: 20px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-        transition-duration: 0.01ms !important;
-        animation-duration: 0.01ms !important;
-    }
+    .orb, .admin-card, .admin-shell::after { animation: none; }
+    .btn-submit { transition: background 150ms ease; }
 }
