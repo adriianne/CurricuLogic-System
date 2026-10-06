@@ -7,11 +7,16 @@
     <title>CurricuLogic — Subject Recommendation System</title>
     <meta name="description" content="Check which subjects you are eligible to enrol in, see why others are locked, and plan your term with confidence.">
 
-    <link rel="icon" type="image/png" href="../assets/CurriculogicLogo.png">
+    <meta name="theme-color" content="#f6f2e9">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="CurricuLogic — Subject Recommendation System">
+    <meta property="og:description" content="Check which subjects you are eligible to enrol in, see why others are locked, and plan your term with confidence.">
+
+    <link rel="icon" type="image/png" href="assets/CurriculogicLogo.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&display=swap">
-    <link rel="stylesheet" href="/shared/css/index.css">
+    <link rel="stylesheet" href="shared/css/index.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body>
@@ -22,7 +27,7 @@
     <div class="header-inner">
 
         <a href="index.html" class="brand" aria-label="CurricuLogic home">
-            <img src="../assets/CurriculogicLogo.png"
+            <img src="assets/CurriculogicLogo.png"
             alt="" class="brand-mark" width="1024" height="576" decoding="async">
             <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
         </a>
@@ -34,8 +39,8 @@
         </nav>
 
         <div class="header-actions">
-            <a href="../features/auth/html/loginpage.html" class="btn-outline">Login</a>
-            <a href="../features/auth/html/registerpage.html" class="btn-accent">Get Started</a>
+            <a href="features/auth/html/loginpage.html" class="btn-outline">Login</a>
+            <a href="features/auth/html/registerpage.html" class="btn-accent">Get Started</a>
         </div>
 
         <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="main-nav">
@@ -59,12 +64,12 @@
                 prerequisite chain, and explains each result in plain language.
             </p>
             <div class="hero-cta">
-                <a href="../features/auth/html/registerpage.html" class="btn-accent">Get Started</a>
+                <a href="features/auth/html/registerpage.html" class="btn-accent">Get Started</a>
                 <a href="#how-it-works" class="btn-ghost">See how it works</a>
             </div>
         </div>
 
-        <div class="hero-panel">
+        <div class="hero-panel" role="group" aria-label="Example eligibility result">
             <div class="panel-head">
                 <span class="panel-title">Subject eligibility</span>
                 <span class="panel-term">1st Sem · AY 2026-2027</span>
@@ -72,7 +77,7 @@
 
             <ul class="elig-list">
                 <li class="elig ok">
-                    <span class="mark">✓</span>
+                    <span class="mark" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
                     <div class="elig-body">
                         <span class="code">CC-DIGILOG21</span>
                         <span class="name">Digital Logic Design</span>
@@ -81,7 +86,7 @@
                 </li>
 
                 <li class="elig no">
-                    <span class="mark">✕</span>
+                    <span class="mark" aria-hidden="true"><i class="fa-solid fa-xmark"></i></span>
                     <div class="elig-body">
                         <span class="code">IT-SAD21</span>
                         <span class="name">System Analysis &amp; Design</span>
@@ -90,7 +95,7 @@
                 </li>
 
                 <li class="elig ok">
-                    <span class="mark">✓</span>
+                    <span class="mark" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
                     <div class="elig-body">
                         <span class="code">SOCIO 101</span>
                         <span class="name">The Contemporary World</span>
@@ -116,8 +121,7 @@
     <div class="features-inner">
 
         <header class="sec-head">
-            <span class="sec-eyebrow">Features</span>
-            <h2 class="sec-title">Built around how prerequisites actually works</h2>
+            <h2 class="sec-title">Built around how prerequisites actually work</h2>
             <p class="sec-sub">
                 Three things the system does before you ever queue at the registrar.
             </p>
@@ -127,18 +131,18 @@
 
             <article class="feat-card">
                 <span class="feat-ico">
-                <i class="fa-regular fa-circle-check" aria-hidden="true"></i>
+                <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
                 </span>
                 <h3 class="feat-title">Prerequisite verification</h3>
                 <p class="feat-body">
                     Every subject in your prospectus is checked against your academic record
-                    before enrolment — so nothing gets rejected at the counter.
+                    before enrolment — so you know where you stand before you meet your adviser.
                 </p>
             </article>
 
             <article class="feat-card">
                 <span class="feat-ico is-indigo">
-                <i class="fa-regular fa-comment-dots" aria-hidden="true"></i>
+                <i class="fa-solid fa-comment-dots" aria-hidden="true"></i>
                 </span>
                 <h3 class="feat-title">Explained results</h3>
                 <p class="feat-body">
@@ -149,7 +153,7 @@
 
             <article class="feat-card">
                 <span class="feat-ico">
-                <i class="fa-solid fa-thumbs-up" aria-hidden="true"></i>
+                <i class="fa-solid fa-list-check" aria-hidden="true"></i>
                 </span>
                 <h3 class="feat-title">Term recommendations</h3>
                 <p class="feat-body">
@@ -166,51 +170,46 @@
     <div class="how-inner">
 
         <div class="how-copy">
-            <span class="sec-eyebrow">How it works</span>
-            <h2 class="sec-title how-title">We bring the pieces together so prerequisites stops being guesswork</h2>
+            <h2 class="sec-title how-title">We bring the pieces together so prerequisites stop being guesswork</h2>
 
             <ol class="steps">
 
-                <li class="step">
-                    <span class="step-num">1</span>
+                <li class="step is-active" data-step="0">
+                    <button type="button" class="step-num" aria-pressed="true" aria-controls="shot-0" aria-label="Show step 1: Your record is on file">1</button>
                     <div class="step-body">
                         <h3>Your record is on file</h3>
                         <p>
-                            The department uploads your grades and the registrar verifies your record.
-                            Subjects passed, failed, and in progress are all read.
+                            The department uploads your grades and the registrar verifies your record. Subjects passed, failed, and in progress are all read.
                         </p>
                     </div>
                 </li>
 
-                <li class="step">
-                    <span class="step-num">2</span>
+                <li class="step" data-step="1">
+                    <button type="button" class="step-num" aria-pressed="false" aria-controls="shot-1" aria-label="Show step 2: Rules are matched against the prospectus">2</button>
                     <div class="step-body">
                         <h3>Rules are matched against the prospectus</h3>
                         <p>
-                            Every prerequisite chain, year standing, and elective group in the
-                            curriculum of your program is checked — subject by subject.
+                            Every prerequisite chain, year standing, and elective group in the curriculum of your program is checked — subject by subject.
                         </p>
                     </div>
                 </li>
 
-                <li class="step">
-                    <span class="step-num">3</span>
+                <li class="step" data-step="2">
+                    <button type="button" class="step-num" aria-pressed="false" aria-controls="shot-2" aria-label="Show step 3: You get a result and a reason">3</button>
                     <div class="step-body">
                         <h3>You get a result and a reason</h3>
                         <p>
-                            Each subject shows as passed, in progress, can take, retake, or locked —
-                            with the specific requirement behind every locked subject spelled out.
+                            Each subject shows as passed, in progress, can take, retake, or locked — with the specific requirement behind every locked subject spelled out.
                         </p>
                     </div>
                 </li>
 
-                <li class="step">
-                    <span class="step-num">4</span>
+                <li class="step" data-step="3">
+                    <button type="button" class="step-num" aria-pressed="false" aria-controls="shot-3" aria-label="Show step 4: Plan it, then get it approved">4</button>
                     <div class="step-body">
                         <h3>Plan it, then get it approved</h3>
                         <p>
-                            Build your plan and send it as an advising request. Faculty reviews it,
-                            then the registrar approves it. CurricuLogic advises — it does not enrol you.
+                            Build your plan and send it as an advising request. Your faculty adviser reviews and approves it, then prints your enrollment form. CurricuLogic advises — it does not enrol you.
                         </p>
                     </div>
                 </li>
@@ -218,42 +217,140 @@
             </ol>
         </div>
 
-        <div class="how-visual">
-            <p class="shot-caption">Example · sample student and counts, for illustration</p>
+        <div class="how-visual" data-device="web">
+            <div class="device-toggle" role="group" aria-label="Show the website or the Android app">
+                <button type="button" class="device-btn is-active" data-device="web" aria-pressed="true">Website</button>
+                <button type="button" class="device-btn" data-device="app" aria-pressed="false">Android app</button>
+            </div>
+            <p class="shot-caption" id="shot-caption" aria-live="polite">Academic record · sample student data</p>
             <div class="shot">
                 <div class="shot-bar">
                     <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-                    <span class="shot-url">curriculogic.uc.edu.ph</span>
                 </div>
+                <div class="shot-stage">
+                    <img class="shot-img is-active" id="shot-0" data-caption="Academic record · sample student data" src="assets/screens/student-record.png"
+                         alt="Academic record: subjects grouped by term, each marked Enrolled, Failed or Passed, with Computer Programming 2 flagged as a retake."
+                         width="1066" height="722" decoding="async">
+                    <img class="shot-img" id="shot-1" data-caption="My prospectus · sample student data" src="assets/screens/student-prospectus.png"
+                         alt="My prospectus: the BS Information Technology curriculum by year and semester, with each subject's prerequisite and the student's status against it."
+                         width="1066" height="722" loading="lazy" decoding="async">
+                    <img class="shot-img" id="shot-2" data-caption="Your term · sample student data" src="assets/screens/student-term.png"
+                         alt="The Your term panel of the student dashboard: 14 of 24 units suggested, with Computer Programming 2 marked as a retake that opens 4 further subjects."
+                         width="1066" height="722" loading="lazy" decoding="async">
+                    <img class="shot-img" id="shot-3" data-caption="Build your plan · sample student data" src="assets/screens/student-plan.png"
+                         alt="Build your plan: suggested subjects with checkboxes, each showing why it is recommended, ready to submit for review."
+                         width="1066" height="722" loading="lazy" decoding="async">
+                </div>
+            </div>
 
-                <div class="shot-body">
-                    <div class="shot-head">
-                        <div>
-                            <span class="shot-name">Althea M. Villanueva</span>
-                            <span class="shot-meta">2024-01187 · BSIT · 2nd Year</span>
-                        </div>
-                        <span class="shot-term">1st Sem · AY 2026–2027</span>
-                    </div>
-
-                    <div class="shot-stats">
-                        <div class="stat"><b>9</b><span>Eligible</span></div>
-                        <div class="stat"><b>4</b><span>Locked</span></div>
-                        <div class="stat"><b>18</b><span>Units</span></div>
-                    </div>
-
-                    <div class="shot-rows">
-                        <div class="shot-row ok"><span class="c">IT-OOPROG21</span><span class="n">Object Oriented Programming</span><span class="t">Eligible</span></div>
-                        <div class="shot-row ok"><span class="c">IT-SAD21</span><span class="n">System Analysis &amp; Design</span><span class="t">Eligible</span></div>
-                        <div class="shot-row ok"><span class="c">CC-DIGILOG21</span><span class="n">Digital Logic Design</span><span class="t">Eligible</span></div>
-                        <div class="shot-row no"><span class="c">CC-TWRITE21</span><span class="n">Technical Writing &amp; Presentation</span><span class="t">Locked</span></div>
-                        <div class="shot-row no"><span class="c">CC-ACCTG21</span><span class="n">Accounting for IT</span><span class="t">Locked</span></div>
-                    </div>
-
-                    <div class="shot-fade"></div>
+            <div class="phone" aria-hidden="false">
+                <div class="phone-screen">
+                    <img class="phone-img is-active" data-phone="0" data-caption="Android app · Home · sample student data" src="assets/screens/app-home.png"
+                         alt="Android app Home: units this term, units earned, class-time and load preferences, and the subjects suggested for the term."
+                         width="540" height="1155" decoding="async">
+                    <img class="phone-img" data-phone="1" data-caption="Android app · Curriculum map · sample student data" src="assets/screens/app-curriculum.png"
+                         alt="Android app Curriculum map: each subject in the first semester colour-coded as retake or can take, with the reason under it."
+                         width="540" height="1155" loading="lazy" decoding="async">
+                    <img class="phone-img" data-phone="2" data-caption="Android app · Cura chat · sample student data" src="assets/screens/app-cura.png"
+                         alt="Android app Cura chat: a plan table with subjects, class times and total units, and follow-up question chips below."
+                         width="540" height="1155" loading="lazy" decoding="async">
+                    <img class="phone-img" data-phone="3" data-caption="Android app · Build your plan · sample student data" src="assets/screens/app-plan.png"
+                         alt="Android app Build your plan: suggested subjects with checkboxes and a Send to adviser button."
+                         width="540" height="1155" loading="lazy" decoding="async">
                 </div>
             </div>
         </div>
 
+    </div>
+</section>
+
+<section class="features" id="about">
+    <div class="features-inner">
+
+        <header class="sec-head">
+            <h2 class="sec-title">A rule-based advisor, not a black box</h2>
+            <p class="sec-sub">
+                CurricuLogic is an academic advising system for the University of Cebu,
+                built as a capstone project of the College of Computer Studies.
+            </p>
+        </header>
+
+        <div class="feat-grid" id="why">
+
+            <article class="feat-card">
+                <span class="feat-ico"><i class="fa-solid fa-book" aria-hidden="true"></i></span>
+                <h3 class="feat-title">Rules, not guesses</h3>
+                <p class="feat-body">
+                    Eligibility comes from the prerequisite rules published in your prospectus,
+                    applied step by step. Nothing is trained on data, so the same record always
+                    gives the same answer.
+                </p>
+            </article>
+
+            <article class="feat-card">
+                <span class="feat-ico is-indigo"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span>
+                <h3 class="feat-title">Every answer has a reason</h3>
+                <p class="feat-body">
+                    A locked subject names the exact requirement that failed, so you and your
+                    adviser can check the result instead of taking it on trust.
+                </p>
+            </article>
+
+            <article class="feat-card">
+                <span class="feat-ico"><i class="fa-solid fa-user-check" aria-hidden="true"></i></span>
+                <h3 class="feat-title">Advisory only</h3>
+                <p class="feat-body">
+                    CurricuLogic does not enrol students or handle payments. Your faculty
+                    and the registrar still review and approve your plan.
+                </p>
+            </article>
+
+        </div>
+    </div>
+</section>
+
+<section class="faq" id="faq">
+    <div class="faq-inner">
+
+        <header class="sec-head">
+            <h2 class="sec-title">Common questions</h2>
+        </header>
+
+        <details>
+            <summary>Does CurricuLogic enrol me in subjects?</summary>
+            <p>
+                No. It is advisory only: it shows what you can take and why. You send your plan
+                as an advising request, and faculty and the registrar review and approve it.
+            </p>
+        </details>
+
+        <details>
+            <summary>Is the eligibility check artificial intelligence?</summary>
+            <p>
+                The eligibility decision is rule-based, not machine learning. It applies the
+                prerequisite rules from your prospectus, so every result can be traced back to a rule.
+            </p>
+        </details>
+
+        <details>
+            <summary>Who can see my record and results?</summary>
+            <p>
+                You, and the faculty and registrar staff who review student records and
+                advising requests.
+            </p>
+        </details>
+
+    </div>
+</section>
+
+<section class="cta">
+    <div class="cta-inner">
+        <h2 class="cta-title">See what you can take this term.</h2>
+        <p class="cta-sub">Create an account to check your eligibility, or sign in if you already have one.</p>
+        <div class="cta-actions">
+            <a href="features/auth/html/registerpage.html" class="btn-accent">Get Started</a>
+            <a href="features/auth/html/loginpage.html" class="btn-ghost">Login</a>
+        </div>
     </div>
 </section>
 
@@ -264,7 +361,7 @@
 
         <div class="foot-brand">
             <a href="index.html" class="brand" aria-label="CurricuLogic home">
-                <img src="../assets/CurriculogicLogo.png" alt="" class="brand-mark" width="1024" height="576" decoding="async">
+                <img src="assets/CurriculogicLogo.png" alt="" class="brand-mark" width="1024" height="576" decoding="async">
                 <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
             </a>
             <p class="foot-blurb">
@@ -279,7 +376,6 @@
             <ul>
                 <li><a href="#about">About us</a></li>
                 <li><a href="#why">Why CurricuLogic</a></li>
-                <li><a href="#team">The team</a></li>
             </ul>
         </nav>
 
@@ -288,7 +384,7 @@
             <ul>
                 <li><a href="#features">Features</a></li>
                 <li><a href="#how-it-works">How it works</a></li>
-                <li><a href="../features/auth/html/registerpage.html">Get started</a></li>
+                <li><a href="features/auth/html/registerpage.html">Get started</a></li>
             </ul>
         </nav>
 
@@ -296,8 +392,7 @@
             <h3 class="foot-head" id="foot-touch">Get in touch</h3>
             <ul>
                 <li><a href="mailto:support@curriculogic.uc.edu.ph">Contact</a></li>
-                <li><a href="#help">Help centre</a></li>
-                <li><a href="#privacy">Privacy</a></li>
+                <li><a href="#faq">Help centre</a></li>
             </ul>
         </nav>
 
@@ -311,6 +406,6 @@
     </div>
 </footer>
 
-<script src="../shared/js/index.js"></script>
+<script src="shared/js/index.js"></script>
 </body>
 </html>
