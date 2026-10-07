@@ -107,7 +107,7 @@ const rec = (id, status, grade, year, term) => {
     return {
         id: 'pv-' + id,
         subject_id: id,
-        subject: { code: s.code, title: s.title, units: s.units },
+        subject: { code: s.code, title: s.title, units: s.units, year_level: s.year_level, term: s.term },
         subject_code: s.code,
         subject_title: s.title,
         units: s.units,
@@ -147,6 +147,66 @@ const RECORDS = [
     rec(95,  'ENROLLED', null, 2026, 1),
 ];
 
+/* ---- An optional timetable: open the preview as ?preview&schedule ----
+   Built to exercise "Auto-select my plan" (shared/js/autoplan.js):
+     CC-COMPROG12  two sections (the retake: it is placed first)
+     CC-TWRITE21   ONE section, which overlaps CC-COMPROG12's first section
+     RIZAL 101     one section
+     SOCIO 101     two sections; the first overlaps RIZAL 101, the second does not
+     PE 103        no section at all, in a block that IS scheduled: the department
+                   is not running it, so it is "not-run" and never recommended
+   Off by default: with any offering present the engine switches to schedule mode,
+   which changes what the rest of the preview shows. */
+let offeringId = 9000;
+const meet = (subjectId, section, type, days, start, end) =>
+    ({ id: offeringId++, subject_id: subjectId, section, meeting_type: type, schedule_days: days, start_time: start, end_time: end });
+
+const OFFERINGS = [
+    meet(88, 'BSIT-1A', 'LEC', 'MW',  '08:00', '09:30'), meet(88, 'BSIT-1A', 'LAB', 'F',   '13:00', '16:00'),
+    meet(88, 'BSIT-1B', 'LEC', 'TTH', '13:00', '14:30'), meet(88, 'BSIT-1B', 'LAB', 'S',   '08:00', '11:00'),
+    meet(66, 'BSIT-2A', 'LEC', 'MW',  '08:30', '10:00'),
+    meet(92, 'BSIT-2A', 'LEC', 'TTH', '10:00', '11:30'),
+    meet(102, 'BSIT-2A', 'LEC', 'TTH', '11:00', '12:30'),
+    meet(102, 'BSIT-2B', 'LEC', 'F',   '08:00', '11:00'),
+    // other subjects of the same block, so the block counts as scheduled
+    meet(95, 'BSIT-2A', 'LEC', 'MW',  '13:00', '14:30'),
+    meet(99, 'BSIT-2A', 'LEC', 'TTH', '15:00', '16:30'),
+];
+const WITH_SCHEDULE = typeof location !== 'undefined' && new URLSearchParams(location.search).has('schedule');
+
+/* ---- Optional sample requests: open the preview as ?preview&requests ----
+   For the My requests page: one still waiting for the adviser (one subject
+   flagged), one partly approved with a subject sent back and the adviser's
+   reason, and an older fully approved one. Off by default: a request locks its
+   subjects, which would empty the Build your plan list in the normal preview. */
+const WITH_REQUESTS = typeof location !== 'undefined' && new URLSearchParams(location.search).has('requests');
+const subj = (id) => { const x = SUBJECTS.find(v => v.id === id); return { code: x.code, title: x.title, units: x.units }; };
+const item = (id, subjectId, status, offeringId, remarks = null) =>
+    ({ id, subject_id: subjectId, status, remarks, offering_id: offeringId, subject: subj(subjectId) });
+
+const REQUESTS = [
+    { id: 3, status: 'submitted', registrar_status: null, registrar_notes: null,
+      requested_term: 1, requested_year: 2023, created_at: '2026-10-05T09:40:00',
+      request_item: [
+        item(31, 95, 'valid',   9008),
+        item(32, 99, 'flagged', 9009, 'CC-DISCRET12 is not yet passed. Your adviser will decide.'),
+      ] },
+    { id: 2, status: 'partially_approved', registrar_status: null, registrar_notes: null,
+      requested_term: 1, requested_year: 2023, created_at: '2026-10-03T14:05:00',
+      request_item: [
+        item(21, 66,  'approved', 9004),
+        item(22, 92,  'approved', 9005),
+        item(23, 102, 'rejected', 9006, 'Overlaps with RIZAL 101 on Tuesday and Thursday. Pick the Friday section and send it again.'),
+      ] },
+    { id: 1, status: 'approved', registrar_status: null, registrar_notes: null,
+      requested_term: 2, requested_year: 2022, created_at: '2026-06-12T10:20:00',
+      request_item: [
+        item(11, 61, 'approved', null),
+        item(12, 59, 'approved', null),
+        item(13, 97, 'approved', null),
+      ] },
+];
+
 return {
     STUDENT: {
         first_name: 'Althea', last_name: 'Villanueva',
@@ -155,7 +215,9 @@ return {
     },
     EMAIL: 'althea1@gmail.com',
     RECORDS,
-    KB: { subjects: SUBJECTS, rules: RULES, offerings: [] },
+    KB: { subjects: SUBJECTS, rules: RULES, offerings: WITH_SCHEDULE ? OFFERINGS : [] },
+    OFFERINGS,                                  // always available, for showing a request's sections
+    REQUESTS: WITH_REQUESTS ? REQUESTS : [],
 };
 
 })();

@@ -13,14 +13,14 @@
 (function () {
 'use strict';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC ?? {};
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey, authOptions } = window.CURRICULOGIC ?? {};
 
 // Bucketed storage key (see config.js) -- keeps a student session in
 // this tab from colliding with a different role signed in in another
 // tab.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: { storageKey: authStorageKey?.(['university_student']) },
+        auth: authOptions ? authOptions(['university_student']) : { storageKey: authStorageKey?.(['university_student']) },
     })
     : null;
 
@@ -354,7 +354,8 @@ $('prof-pw-form')?.addEventListener('submit', async (e) => {
     const confirm = $('pw-confirm')?.value ?? '';
 
     if (!current) return showMsg('pw-msg', 'Enter your current password.');
-    if (next.length < 8) return showMsg('pw-msg', 'New password must be at least 8 characters.');
+    const pwProblem = CurriculogicPasswordRules.problem(next);
+    if (pwProblem) return showMsg('pw-msg', pwProblem);
     if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
     if (next === current) return showMsg('pw-msg', 'Choose a password different from your current one.');
 
@@ -375,6 +376,9 @@ $('prof-pw-form')?.addEventListener('submit', async (e) => {
 
     const { error: upErr } = await supabase.auth.updateUser({ password: next });
     if (upErr) return finish(upErr.message || 'Could not change password.');
+
+    // A new password replaces any temporary one (db/057).
+    await supabase.rpc('clear_must_change_password');
 
     ['pw-current', 'pw-new', 'pw-confirm'].forEach(id => { const el = $(id); if (el) el.value = ''; });
     finish('Password updated.', 'success');
@@ -442,7 +446,7 @@ function renderStats() {
 
     setText('stat-eligible', String(RESULT.eligible.length), 'stat-value');
     setText('stat-locked',   String(RESULT.locked.length),   'stat-value');
-    if (hint) hint.textContent = `${RESULT.recommended.length} suggested this term`;
+    if (hint) hint.textContent = `${(personalised()?.recommended ?? RESULT.recommended).length} suggested this term`;
 }
 
 /* assess() output -> the grid's status map.
@@ -682,9 +686,11 @@ function renderPrefBar(plan) {
         // If Cura is already open, give it the new picture (keeping the
         // conversation) so its next answer matches what the page now shows.
         if (chatInitialized) {
-            const summary = summarizeForExplanation(personalised(), STUDENT?.first_name);
+            const summary = summarizeForExplanation(personalised(), STUDENT?.first_name, { inRequestIds: [...SUBJECT_LOCKS.locked.keys()] });
             window.EligibilityChat?.updateSummary(summary);
+            CHAT_SUMMARY = summary;
             renderChatContext(summary);
+            showChatFollowUps(null);     // the questions follow the new picture too
         }
     }));
 }
@@ -1017,7 +1023,7 @@ async function loadRecords(force = false) {
 
     const { data, error } = await supabase
         .from('academic_record')
-        .select('id, subject_id, grade, grade_points, status, taken_term, taken_year, subject:subject_id (code, title, units)')
+        .select('id, subject_id, grade, grade_points, status, taken_term, taken_year, subject:subject_id (code, title, units, year_level, term)')
         .eq('student_id', STUDENT_ROW_ID)
         .order('taken_year', { ascending: true })
         .order('taken_term', { ascending: true });
@@ -1117,55 +1123,99 @@ function renderRecords() {
         ? RECORDS
         : RECORDS.filter(r => r.status === RECORD_FILTER);
 
-    // One group per term taken, most recent first: what a student wants
-    // to see is what they just did, not their first semester.
-    const groups = new Map();
+    // Laid out like the degree itself: a header for each year, and under it
+    // two panels side by side, the 1st semester on the left and the 2nd on the
+    // right (a summer, if there is one, below them). Only years the student has
+    // records in are shown. A subject the curriculum does not place in a year
+    // (an elective, say) goes in a last section.
+    const SEMESTER = { 1: '1st Semester', 2: '2nd Semester', 3: 'Summer' };
+
+    const placement = (r) => {
+        const year = Number(r.subject?.year_level ?? KB?.subjects?.find(s => s.id === r.subject_id)?.year_level);
+        const term = Number(r.subject?.term ?? KB?.subjects?.find(s => s.id === r.subject_id)?.term);
+        return { year: Number.isInteger(year) && year > 0 ? year : null, term: [1, 2, 3].includes(term) ? term : null };
+    };
+
+    const years = new Map();          // year level -> { 1: [], 2: [], 3: [] }
+    const unplaced = [];
     for (const r of shown) {
-        const key = `${r.taken_year ?? 0}-${r.taken_term ?? 0}`;
-        if (!groups.has(key)) groups.set(key, { year: r.taken_year, term: r.taken_term, rows: [] });
-        groups.get(key).rows.push(r);
+        const { year, term } = placement(r);
+        if (!year || !term) { unplaced.push(r); continue; }
+        if (!years.has(year)) years.set(year, { 1: [], 2: [], 3: [] });
+        years.get(year)[term].push(r);
     }
-    const ordered = [...groups.values()].sort((a, b) =>
-        (b.year ?? 0) - (a.year ?? 0) || (b.term ?? 0) - (a.term ?? 0));
 
     const rowNote = (r) =>
         r.status === 'FAILED'   ? '<span class="rec-note bad">Retake required</span>' :
         r.status === 'ENROLLED' ? '<span class="rec-note">In progress</span>' : '';
 
-    const table = (g) => {
-        const units = g.rows
-            .filter(r => r.status === 'PASSED')
-            .reduce((s, r) => s + Number(r.units || 0), 0);
-        const label = g.year ? `${termLabel(g.term)} · ${escapeHtml(g.year)}` : 'Term not recorded';
+    const earnedOf = (rows) => rows
+        .filter(r => r.status === 'PASSED')
+        .reduce((s, r) => s + Number(r.units || 0), 0);
 
-        return `
-            <section class="rec-group">
-                <header class="rec-group-head">
-                    <h3>${label}</h3>
-                    <span class="dim">${g.rows.length} subject${g.rows.length === 1 ? '' : 's'}${units ? ` · ${units} units earned` : ''}</span>
-                </header>
-                <div class="table-wrap">
-                    <table class="data-table">
-                        <thead>
-                            <tr><th>Code</th><th>Descriptive title</th><th class="num">Units</th><th>Status</th></tr>
-                        </thead>
-                        <tbody>
-                            ${[...g.rows].sort((a, b) => String(a.subject_code).localeCompare(String(b.subject_code))).map(r => `
-                            <tr class="${r.status === 'FAILED' ? 'rec-row-failed' : ''}">
-                                <td class="mono">${escapeHtml(r.subject_code)}</td>
-                                <td>${escapeHtml(r.subject_title || '—')}${rowNote(r)}</td>
-                                <td class="num">${escapeHtml(r.units)}</td>
-                                <td><span class="pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td>
-                            </tr>`).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </section>`;
+    const countLine = (rows) => {
+        const units = earnedOf(rows);
+        return `${rows.length} subject${rows.length === 1 ? '' : 's'}${units ? ` \u00b7 ${units} units earned` : ''}`;
     };
+
+    const panel = (title, rows) => `
+        <section class="rec-panel">
+            <header class="rec-panel-head">
+                <h4>${escapeHtml(title)}</h4>
+                <span class="dim">${rows.length ? escapeHtml(countLine(rows)) : ''}</span>
+            </header>
+            ${rows.length ? `
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Code</th><th>Descriptive title</th><th class="num">Units</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                        ${[...rows].sort((a, b) => String(a.subject_code).localeCompare(String(b.subject_code))).map(r => `
+                        <tr class="${r.status === 'FAILED' ? 'rec-row-failed' : ''}">
+                            <td class="mono">${escapeHtml(r.subject_code)}</td>
+                            <td>
+                                ${escapeHtml(r.subject_title || '\u2014')}${rowNote(r)}
+                                ${r.taken_year ? `<span class="rec-taken">Taken ${escapeHtml(termLabel(r.taken_term))} \u00b7 ${escapeHtml(r.taken_year)}</span>` : ''}
+                            </td>
+                            <td class="num">${escapeHtml(r.units)}</td>
+                            <td><span class="pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>` : '<p class="rec-empty">Nothing recorded for this semester.</p>'}
+        </section>`;
+
+    const yearSection = ([year, terms]) => {
+        const all = [...terms[1], ...terms[2], ...terms[3]];
+        return `
+        <section class="rec-year">
+            <header class="rec-year-head">
+                <h3>${escapeHtml(ordinal(year) ?? `Year ${year}`)}</h3>
+                <span class="dim">${escapeHtml(countLine(all))}</span>
+            </header>
+            <div class="rec-split">
+                ${panel(SEMESTER[1], terms[1])}
+                ${panel(SEMESTER[2], terms[2])}
+            </div>
+            ${terms[3].length ? `<div class="rec-summer">${panel(SEMESTER[3], terms[3])}</div>` : ''}
+        </section>`;
+    };
+
+    const orderedYears = [...years.entries()].sort((a, b) => a[0] - b[0]);
 
     body.innerHTML = `
         <div class="rec-filters" role="group" aria-label="Filter subjects by status">${chips}</div>
-        ${ordered.map(table).join('')}`;
+        ${orderedYears.map(yearSection).join('')}
+        ${unplaced.length ? `
+        <section class="rec-year">
+            <header class="rec-year-head">
+                <h3>Other subjects</h3>
+                <span class="dim">${escapeHtml(countLine(unplaced))}</span>
+            </header>
+            <div class="rec-summer">${panel('Not placed in a year', unplaced)}</div>
+        </section>` : ''}
+        ${shown.length === 0 ? '<p class="rec-empty">No subjects match that filter.</p>' : ''}`;
 }
 
 $('record-body')?.addEventListener('click', (e) => {
@@ -1181,7 +1231,8 @@ function statusClass(s) {
 }
 
 function statusLabel(s) {
-    return { PASSED: 'Passed', FAILED: 'Failed', ENROLLED: 'Enrolled', DROPPED: 'Dropped' }[s] || s;
+    // An unknown status is shown as it is, but as text: this goes into HTML.
+    return { PASSED: 'Passed', FAILED: 'Failed', ENROLLED: 'Enrolled', DROPPED: 'Dropped' }[s] || escapeHtml(s);
 }
 
 /* Record entry was removed on 21 Aug to match the ERD: grades reach
@@ -1284,6 +1335,7 @@ function renderProspectusEmpty() {
 /* Ask AI chat */
 
 let chatInitialized = false;
+let CHAT_SUMMARY = null;     // what Cura reads; the follow-up questions are built from it
 
 async function initChatIfNeeded() {
     if (chatInitialized) return;
@@ -1294,7 +1346,8 @@ async function initChatIfNeeded() {
     // computed -- never a second, separate call to the engine. The
     // chat can only ever discuss what the real assessment already
     // decided.
-    const summary = summarizeForExplanation(personalised(), STUDENT?.first_name);
+    const summary = summarizeForExplanation(personalised(), STUDENT?.first_name, { inRequestIds: [...SUBJECT_LOCKS.locked.keys()] });
+    CHAT_SUMMARY = summary;
     window.EligibilityChat.initEligibilityChat(summary);
 
     renderChatContext(summary);
@@ -1308,10 +1361,18 @@ async function initChatIfNeeded() {
         // live reply -- it reflects what's recommended now, not a snapshot
         // frozen at send time.
         for (const m of priorMessages) {
-            appendChatMessage(m.role, m.text, m.show_recommended_table ? (summary.recommended ?? []) : null);
+            appendChatMessage(
+                m.role, m.text,
+                m.show_recommended_table ? window.EligibilityChat.tableFor(summary) : null,
+                m.show_schedule_table ? window.EligibilityChat.scheduleFor(summary, m.schedule_option ?? null) : null,
+            );
         }
+        // Pick the conversation up where it was left: questions that have not
+        // been asked yet, shaped by the last answer.
+        const last = priorMessages[priorMessages.length - 1];
+        showChatFollowUps({ table: !!(last?.role === 'model' && last.show_recommended_table) });
     } else {
-        renderChatSuggestions(summary);
+        showChatFollowUps(null);
     }
 }
 
@@ -1332,30 +1393,31 @@ function renderChatContext(summary) {
     box.hidden = false;
 }
 
-/* Starter questions. Two are always relevant; the third names the locked
-   subject closest to opening, so a student sees Cura can answer about
-   their own record rather than in general. Hidden after the first message. */
-function renderChatSuggestions(summary) {
+/* The questions offered under the chat: four to start with, then up to three
+   after every answer, built from this student's own record by
+   ai-assist/chatsuggestions.js. A question already asked is not offered
+   again, and what was just answered shapes what comes next (after a plan
+   table: "how do I send it to my adviser?"). They go away when none is left.
+   `lastReply` is { table } for the answer just shown, null at the start. */
+function showChatFollowUps(lastReply) {
     const box = $('chat-suggestions');
     if (!box) return;
 
-    const questions = [
-        'What should I take next semester?',
-        'How many units can I take?',
-    ];
-    if (summary.recommended?.some(r => r.sections?.length)) {
-        questions.push('Which of my recommended subjects have morning sections?');
-    }
-    const nearest = summary.locked?.[0];
-    if (nearest) questions.push(`Why is ${nearest.code} locked?`);
+    const asked = (window.EligibilityChat?.getChatHistory?.() ?? [])
+        .filter(m => m.role === 'user')
+        .map(m => m.text);
+
+    const questions = window.CurriculogicChatSuggestions && CHAT_SUMMARY
+        ? window.CurriculogicChatSuggestions.followUps({ summary: CHAT_SUMMARY, asked, lastReply, max: asked.length ? 3 : 4 })
+        : [];
 
     box.innerHTML = questions.map(q =>
         `<button type="button" class="chat-chip" data-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`
     ).join('');
-    box.hidden = false;
+    box.hidden = questions.length === 0;
 }
 
-function appendChatMessage(role, text, table) {
+function appendChatMessage(role, text, table, schedule) {
     const log = $('chat-log');
     if (!log) return null;
 
@@ -1367,7 +1429,7 @@ function appendChatMessage(role, text, table) {
         // as activity, not as a message the assistant sent.
         bubble.innerHTML = '<span class="typing" aria-label="Cura is typing"><i></i><i></i><i></i></span>';
     } else {
-        bubble.innerHTML = `<p>${escapeHtml(text)}</p>` + renderChatTable(table);
+        bubble.innerHTML = `<p>${escapeHtml(text)}</p>` + renderChatTable(table) + renderScheduleTable(schedule);
     }
 
     // The assistant gets its avatar; the student's own messages do not
@@ -1376,7 +1438,7 @@ function appendChatMessage(role, text, table) {
     const row = document.createElement('div');
     row.className = 'chat-row chat-row-' + (role === 'user' ? 'user' : 'model');
     if (role !== 'user') {
-        row.innerHTML = '<span class="chat-avatar" aria-hidden="true">C</span>';
+        row.innerHTML = '<span class="chat-avatar" aria-hidden="true"><img src="../../assets/CurriculogicLogo.png" alt="" width="34" height="34"></span>';
     }
     row.appendChild(bubble);
 
@@ -1385,15 +1447,54 @@ function appendChatMessage(role, text, table) {
     return row;
 }
 
+/* Subject, section and when it meets, from shared/js/scheduletable.js. Everything
+   shown comes from the student's real plan; text is escaped. */
+function renderScheduleTable(schedule) {
+    if (!schedule || (!schedule.rows?.length && !schedule.notInPlan?.length)) return '';
+
+    const rows = (schedule.rows ?? []).map(r => `
+        <tr>
+            <td class="mono">${escapeHtml(r.code)}</td>
+            <td>${escapeHtml(r.section ?? '—')}</td>
+            <td>${r.meetings.length
+                ? r.meetings.map(m => `<span class="sched-line${m.kind === 'LAB' ? ' is-lab' : ''}">${escapeHtml(m.text)}</span>`).join('')
+                : '<span class="dim">No schedule yet</span>'}</td>
+        </tr>`).join('');
+
+    const left = (schedule.notInPlan ?? []).length
+        ? `<p class="chat-notinplan"><strong>Not in your plan:</strong> ${schedule.notInPlan.map(n =>
+            `${escapeHtml(n.code)} (${escapeHtml(n.reason)})`).join('; ')}.</p>`
+        : '';
+
+    const head = schedule.label
+        ? `<p class="chat-notinplan"><strong>${escapeHtml(schedule.label)}</strong>${(schedule.changes ?? []).length
+            ? ' — ' + (schedule.changes ?? []).map(escapeHtml).join('; ') : ''}.</p>`
+        : '';
+
+    return `${head}
+        <table class="chat-table chat-schedule">
+            <thead><tr><th>Code</th><th>Section</th><th>When</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>${left}`;
+}
+
 function renderChatTable(entries) {
     if (!entries || !entries.length) return '';
 
     const totalUnits = entries.reduce((sum, e) => sum + (Number(e.units) || 0), 0);
 
+    // Once a schedule is published the table also says which section and when each subject
+    // meets; until then it stays as it was.
+    const withTimes = entries.some(e => e.when);
+
     const rows = entries.map(e => `
         <tr>
             <td class="mono">${escapeHtml(e.code)}</td>
             <td>${escapeHtml(e.title)}</td>
+            ${withTimes ? `<td>${e.when
+                ? `${e.section ? `<span class="dim">${escapeHtml(e.section)}</span> ` : ''}${(e.meetings ?? []).map(m =>
+                    `<span class="sched-line${m.kind === 'LAB' ? ' is-lab' : ''}">${escapeHtml(m.text)}</span>`).join('')}`
+                : '<span class="dim">No schedule yet</span>'}</td>` : ''}
             <td class="n">${e.units ?? ''}</td>
             <td>${e.retake ? 'Retake' : ''}</td>
         </tr>`).join('');
@@ -1401,11 +1502,11 @@ function renderChatTable(entries) {
     return `
         <table class="chat-table">
             <thead>
-                <tr><th>Code</th><th>Title</th><th class="n">Units</th><th></th></tr>
+                <tr><th>Code</th><th>Title</th>${withTimes ? '<th>When</th>' : ''}<th class="n">Units</th><th></th></tr>
             </thead>
             <tbody>${rows}</tbody>
             <tfoot>
-                <tr><td colspan="2">Total</td><td class="n">${totalUnits}</td><td></td></tr>
+                <tr><td colspan="${withTimes ? 3 : 2}">Total</td><td class="n">${totalUnits}</td><td></td></tr>
             </tfoot>
         </table>`;
 }
@@ -1420,7 +1521,7 @@ $('chat-form')?.addEventListener('submit', async (e) => {
     appendChatMessage('user', text);
     input.value = '';
 
-    // The starter questions have done their job once a conversation begins.
+    // The suggestions step aside while Cura answers; fresh ones follow the reply.
     const suggestions = $('chat-suggestions');
     if (suggestions) suggestions.hidden = true;
 
@@ -1433,11 +1534,13 @@ $('chat-form')?.addEventListener('submit', async (e) => {
     try {
         const result = await window.EligibilityChat.sendChatMessage(supabase, text);
         pending?.remove();
-        appendChatMessage('model', result.text, result.table);
+        appendChatMessage('model', result.text, result.table, result.schedule);
+        showChatFollowUps({ table: !!result.table?.length });
     } catch (err) {
         console.warn('chat send failed:', err);
         pending?.remove();
         appendChatMessage('model', 'Sorry, I could not reach the assistant just now. Please try again.');
+        showChatFollowUps(null);
     } finally {
         if (sendBtn) sendBtn.disabled = false;
         input.disabled = false;
@@ -1467,7 +1570,11 @@ let requestsInitialized = false;
 function chosenSection(entry) {
     const groups = groupSections(entry?.sections);
     if (!groups.length) return null;
-    return groups.find(g => g.section === SELECTED_SECTIONS.get(entry.subject.id)) ?? groups[0];
+    // The student's own pick, else the section the planner chose (so the default
+    // selection is already clash-free), else the first one offered.
+    return groups.find(g => g.section === SELECTED_SECTIONS.get(entry.subject.id))
+        ?? groups.find(g => g.section === entry.chosenSection?.section)
+        ?? groups[0];
 }
 
 /* All of the student's own requests, fetched once per Build-Your-Plan
@@ -1478,7 +1585,12 @@ let MY_REQUESTS = [];
 let SUBJECT_LOCKS = { locked: new Map(), resubmittable: new Map() };
 
 async function fetchMyRequests() {
-    if (PREVIEW || !supabase || !STUDENT_ROW_ID) {
+    if (PREVIEW) {
+        // Sample requests only when the preview is opened with ?requests
+        MY_REQUESTS = window.CL_PREVIEW?.REQUESTS ?? [];
+        return MY_REQUESTS;
+    }
+    if (!supabase || !STUDENT_ROW_ID) {
         MY_REQUESTS = [];
         return MY_REQUESTS;
     }
@@ -1488,7 +1600,7 @@ async function fetchMyRequests() {
         .select(`
             id, status, registrar_status, registrar_notes,
             requested_term, requested_year, created_at,
-            request_item(id, subject_id, status, remarks, subject:subject_id(code, title))
+            request_item(id, subject_id, status, remarks, offering_id, subject:subject_id(code, title, units))
         `)
         .eq('student_id', STUDENT_ROW_ID)
         .order('created_at', { ascending: false });
@@ -1565,7 +1677,8 @@ function computeSubjectLocks(myRequests) {
    separately (three chances to drift out of sync). Now there is one
    source of truth, filtered down to what's actually pickable. */
 function pickerCandidates() {
-    const recommended = RESULT?.recommended ?? [];
+    // The planned suggestion: sections already chosen so that nothing clashes.
+    const recommended = personalised()?.recommended ?? [];
     const alsoEligible = (RESULT?.eligible ?? [])
         .filter(e => !recommended.some(r => r.subject.id === e.subject.id));
     const all = [...recommended, ...alsoEligible];
@@ -1582,6 +1695,8 @@ function pickerCandidates() {
 async function loadRequestPicker() {
     const picker = $('req-picker');
     if (!picker) return;
+
+    if ($('auto-plan')) $('auto-plan').hidden = true;      // shown below, once there is something to select
 
     if (!RESULT) {
         picker.innerHTML = '<p class="dim">Your eligibility has not loaded yet.</p>';
@@ -1615,7 +1730,7 @@ async function loadRequestPicker() {
 
     // The engine's own picks come first, with the reason it gave. The rest
     // of the eligible list is still choosable, just not vouched for.
-    const suggestedIds = new Set((RESULT.recommended ?? []).map(r => r.subject.id));
+    const suggestedIds = new Set((personalised()?.recommended ?? []).map(r => r.subject.id));
     const suggested = candidates.filter(c => suggestedIds.has(c.subject.id));
     const others    = candidates.filter(c => !suggestedIds.has(c.subject.id));
 
@@ -1628,7 +1743,10 @@ async function loadRequestPicker() {
         if (groups.length === 1) {
             return `<span class="req-sched">${escapeHtml(fmtSection(groups[0]))}</span>`;
         }
-        const chosen = SELECTED_SECTIONS.get(entry.subject.id) ?? groups[0].section;
+        // The section that will actually be sent: the student's pick, else the
+        // planner's, else the first. (It used to show the first section even when
+        // the planner had chosen another, so the box and the submission disagreed.)
+        const chosen = chosenSection(entry)?.section ?? groups[0].section;
         return `
             <select class="req-section-pick" data-section-for="${entry.subject.id}"
                     aria-label="Section for ${escapeHtml(entry.subject.code)}">
@@ -1714,10 +1832,71 @@ async function loadRequestPicker() {
         });
 
         $('req-submit')?.addEventListener('click', submitAdvisingRequest);
+        $('auto-plan-btn')?.addEventListener('click', runAutoPlan);
         requestsInitialized = true;
     }
 
+    // The button is offered only when the engine suggests something to select.
+    if ($('auto-plan')) {
+        $('auto-plan').hidden = suggested.length === 0;
+        if ($('auto-plan-result')) $('auto-plan-result').hidden = true;
+    }
+
     updateRequestCount();
+}
+
+/* ---- Auto-select my plan ----
+   shared/js/autoplan.js does the choosing and the checking; this only feeds it
+   what is on screen and shows the result. The checkboxes and section boxes are
+   the same ones the student could have used by hand, so everything stays
+   editable, and nothing is sent until Submit for review is pressed. */
+function runAutoPlan() {
+    if (!window.CurriculogicAutoPlan || !window.ScheduleConflicts) return;
+
+    const suggestedIds = new Set((personalised()?.recommended ?? []).map(r => r.subject.id));
+    const cap = RESULT?.availableUnits ?? unitLimits(STUDENT).maxUnits;
+
+    const plan = window.CurriculogicAutoPlan.buildAutoPlan({
+        entries: pickerCandidates(),
+        suggestedIds,
+        cap,
+        conflicts: window.ScheduleConflicts,
+    });
+
+    // The plan replaces whatever was picked before.
+    SELECTED_SUBJECT_IDS.clear();
+    for (const p of plan.picks) {
+        SELECTED_SUBJECT_IDS.add(p.subjectId);
+        if (p.section) SELECTED_SECTIONS.set(p.subjectId, p.section);
+    }
+
+    // Show it in the boxes the student already knows.
+    document.querySelectorAll('#req-picker input[type="checkbox"][data-subject-id]').forEach(box => {
+        box.checked = SELECTED_SUBJECT_IDS.has(Number(box.dataset.subjectId));
+    });
+    document.querySelectorAll('#req-picker select[data-section-for]').forEach(sel => {
+        const section = SELECTED_SECTIONS.get(Number(sel.dataset.sectionFor));
+        if (section) sel.value = section;
+    });
+    updateRequestCount();
+    renderAutoPlanResult(plan);
+
+    // Ready to read and submit.
+    if (plan.picks.length) $('req-submit')?.focus({ preventScroll: false });
+}
+
+function renderAutoPlanResult(plan) {
+    const box = $('auto-plan-result');
+    if (!box) return;
+
+    const left = plan.skipped.length ? `
+        <p class="auto-plan-left-head">Left out</p>
+        <ul class="auto-plan-left">${plan.skipped.map(s =>
+            `<li><strong>${escapeHtml(s.code)}</strong> ${escapeHtml(s.reason)}</li>`).join('')}</ul>` : '';
+
+    box.className = 'auto-plan-result ' + (plan.picks.length ? 'is-ok' : 'is-none');
+    box.innerHTML = `<p>${escapeHtml(window.CurriculogicAutoPlan.summarize(plan))}</p>${left}`;
+    box.hidden = false;
 }
 
 function updateRequestCount() {
@@ -1873,7 +2052,17 @@ async function submitAdvisingRequest() {
         );
 
         SELECTED_SUBJECT_IDS.clear();
-        loadRequestPicker();
+        await loadRequestPicker();
+
+        // What was just submitted is now with the adviser: Cura's picture of the
+        // student follows, so it stops suggesting those subjects.
+        if (chatInitialized) {
+            const summary = summarizeForExplanation(personalised(), STUDENT?.first_name, { inRequestIds: [...SUBJECT_LOCKS.locked.keys()] });
+            window.EligibilityChat?.updateSummary(summary);
+            CHAT_SUMMARY = summary;
+            renderChatContext(summary);
+            showChatFollowUps(null);
+        }
 
     } catch (err) {
         console.warn('submitAdvisingRequest threw:', err);
@@ -1908,9 +2097,89 @@ function itemStatusChip(status) {
    than what the picker just used to decide locks. Not capped to 5:
    this is now its own page, not a small dashboard card, so the
    student's whole history is the point of visiting it. */
+/* How an item reads to the student. The engine's own words (valid, flagged)
+   mean "waiting for the adviser", so that is what is said. */
+function requestItemChip(status) {
+    switch (status) {
+        case 'approved': return { cls: 'ok',   label: 'Approved' };
+        case 'rejected': return { cls: 'bad',  label: 'Sent back' };
+        case 'flagged':  return { cls: 'info', label: 'In review \u00b7 flagged' };
+        default:         return { cls: 'info', label: 'In review' };
+    }
+}
+
+const REQ_PILL = { ok: 'ok', info: 'info', danger: 'bad' };   // requeststatus.js chip -> pill
+
+function requestTitle(r) {
+    const y = Number(r.requested_year);
+    if (!r.requested_term) return 'Advising request';
+    return termLabel(r.requested_term) + (y ? ` \u00b7 AY ${y}\u2013${y + 1}` : '');
+}
+
+const longDate = (iso) => new Date(iso).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+
+/* The three steps of a request, and where it has got to. */
+function requestSteps(r) {
+    const RS = window.CurriculogicRequestStatus;
+    let last = { label: 'Decision', cls: '' };
+    if (RS.sentBack(r))                      last = { label: 'Sent back by the Registrar', cls: 'is-bad' };
+    else if (r.status === 'rejected')        last = { label: 'Sent back', cls: 'is-bad' };
+    else if (r.status === 'partially_approved') last = { label: 'Partly approved', cls: 'is-done' };
+    else if (r.status === 'approved')        last = { label: 'Approved', cls: 'is-done' };
+    return [
+        { label: 'Submitted', cls: 'is-done' },
+        { label: 'Adviser review', cls: RS.waiting(r) ? 'is-current' : 'is-done' },
+        last,
+    ];
+}
+
+/* Fills item._section (the section the subject was submitted with, with all of
+   its meetings) for every item that has an offering. Two small reads: the
+   offering each item points at, then every meeting of that section. */
+async function attachRequestSections(requests) {
+    const items = requests.flatMap(r => r.request_item ?? []).filter(i => i.offering_id && !i._section);
+    if (!items.length || !window.ScheduleConflicts) return;
+
+    let rows = [];
+    let picked = [];
+    if (PREVIEW) {
+        rows = window.CL_PREVIEW?.OFFERINGS ?? [];
+        picked = rows;
+    } else if (supabase) {
+        const ids = [...new Set(items.map(i => i.offering_id))];
+        const first = await supabase.from('subject_offering')
+            .select('id, subject_id, section, academic_year, term').in('id', ids);
+        picked = first.data ?? [];
+        const subjectIds = [...new Set(picked.map(o => o.subject_id))];
+        if (subjectIds.length) {
+            const all = await supabase.from('subject_offering')
+                .select('id, subject_id, section, academic_year, term, meeting_type, schedule_days, start_time, end_time')
+                .in('subject_id', subjectIds);
+            rows = all.data ?? [];
+        }
+    }
+
+    const byId = new Map(picked.map(o => [o.id, o]));
+    for (const item of items) {
+        const o = byId.get(item.offering_id);
+        if (!o) continue;
+        // the same section in the same term: a section name comes back every term
+        const meetings = rows.filter(x => x.subject_id === o.subject_id && x.section === o.section
+            && x.academic_year === o.academic_year && x.term === o.term);
+        item._section = window.ScheduleConflicts.groupSections(meetings)[0] ?? null;
+    }
+}
+
+/* Full-page status view (the "My requests" nav item) -- reuses the
+   same fetchMyRequests() query the picker uses, rather than a second,
+   separately-limited query that could show a different set of requests
+   than what the picker just used to decide locks. Not capped: this is
+   its own page, so the student's whole history is the point of visiting it.
+   The newest request is open; older ones are folded away. */
 async function loadRequestHistory() {
     const body = $('myrequests-body');
-    if (!body || !supabase || !STUDENT) return;
+    if (!body || !STUDENT) return;
+    if (!PREVIEW && !supabase) return;
 
     body.innerHTML = `
         <div class="empty">
@@ -1919,49 +2188,125 @@ async function loadRequestHistory() {
         </div>`;
 
     const requests = await fetchMyRequests();
+    await attachRequestSections(requests);
 
+    const sum = $('myrequests-summary');
     if (!requests.length) {
+        if (sum) sum.hidden = true;
         body.innerHTML = `
             <div class="empty">
                 <i class="fa-solid fa-inbox" aria-hidden="true"></i>
                 <h3>No requests yet</h3>
-                <p>Once you submit a plan from Build Your Plan, its status
-                   will show up here.</p>
+                <p>Once you submit a plan from <a href="#plan">Build your plan</a>, its
+                   status will show up here.</p>
             </div>`;
         return;
     }
 
-    body.innerHTML = requests.map(r => {
+    const RS = window.CurriculogicRequestStatus;
+    const hasSentBackItems = (r) => (r.request_item ?? []).some(i => i.status === 'rejected');
+    const counts = {
+        all:      requests.length,
+        waiting:  requests.filter(r => RS.waiting(r)).length,
+        approved: requests.filter(r => RS.finalApproved(r)).length,
+        sentBack: requests.filter(r => r.status === 'rejected' || RS.sentBack(r) || hasSentBackItems(r)).length,
+    };
+    if (sum) {
+        sum.hidden = false;
+        sum.innerHTML = [
+            ['Requests',                 counts.all,      'Submitted so far'],
+            ['Awaiting adviser',         counts.waiting,  'Waiting for a decision'],
+            ['Approved for enrollment',  counts.approved, 'Your adviser\u2019s approval is final'],
+            ['Sent back',                counts.sentBack, 'Need a change from you'],
+        ].map(([label, n, hint]) => `
+            <div class="stat">
+                <span class="stat-label">${escapeHtml(label)}</span>
+                <span class="stat-value">${n}</span>
+                <span class="stat-hint">${escapeHtml(hint)}</span>
+            </div>`).join('');
+    }
+
+    body.innerHTML = requests.map((r, index) => {
         const { faculty, registrar } = requestStages(r);
+        const items = r.request_item ?? [];
+        const kept = items.filter(i => i.status !== 'rejected');
+        const units = kept.reduce((t, i) => t + (Number(i.subject?.units) || 0), 0);
+        const sentBackItems = items.filter(i => i.status === 'rejected');
+
+        const steps = requestSteps(r).map(st => `
+            <li class="${st.cls}"><span class="req-step-dot" aria-hidden="true"></span>${escapeHtml(st.label)}</li>`).join('');
+
+        const rows = items.map(item => {
+            const chip = requestItemChip(item.status);
+            const sectionText = item._section ? fmtSection(item._section) : '';
+            return `
+                <tr>
+                    <td>
+                        <span class="req-code">${escapeHtml(item.subject?.code ?? '')}</span>
+                        <span class="req-item-title">${escapeHtml(item.subject?.title ?? '')}</span>
+                        ${item.remarks ? `<span class="req-item-note ${item.status === 'rejected' ? 'is-bad' : ''}">${escapeHtml(item.remarks)}</span>` : ''}
+                    </td>
+                    <td class="dim req-item-section">${sectionText ? escapeHtml(sectionText) : '—'}</td>
+                    <td class="num">${escapeHtml(item.subject?.units ?? '')}</td>
+                    <td><span class="pill ${chip.cls}">${escapeHtml(chip.label)}</span></td>
+                </tr>`;
+        }).join('');
+
+        const meta = [
+            `Submitted ${longDate(r.created_at)}`,
+            `${kept.length} subject${kept.length === 1 ? '' : 's'}`,
+            `${units} unit${units === 1 ? '' : 's'}`,
+        ].join(' \u00b7 ');
 
         return `
-        <div class="req-history-entry">
-            <div class="req-history-head">
-                <span>${new Date(r.created_at).toLocaleDateString()}</span>
-                <div class="req-history-stages">
-                    <span class="pg-chip ${faculty.chip}">${escapeHtml(faculty.label)}</span>
-                    ${registrar ? `
-                        <i class="fa-solid fa-chevron-right dim" aria-hidden="true"></i>
-                        <span class="pg-chip ${registrar.chip}">${escapeHtml(registrar.label)}</span>
-                    ` : ''}
+        <details class="req-card" ${index === 0 ? 'open' : ''}>
+            <summary class="req-card-head">
+                <span class="req-card-title">
+                    <strong>${escapeHtml(requestTitle(r))}</strong>
+                    <span class="dim">${escapeHtml(meta)}</span>
+                </span>
+                <span class="pill ${REQ_PILL[faculty.chip] ?? 'info'}">${escapeHtml(faculty.label)}</span>
+            </summary>
+            <div class="req-card-body">
+                <ol class="req-steps" aria-label="Progress of this request">${steps}</ol>
+
+                ${r.registrar_status === 'rejected' && r.registrar_notes ? `
+                    <div class="notice pending">
+                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                        <div>
+                            <strong>Sent back by the Registrar</strong>
+                            ${escapeHtml(r.registrar_notes)} Submit a new request with the
+                            needed changes -- this one is closed.
+                        </div>
+                    </div>` : ''}
+
+                <div class="table-wrap">
+                    <table class="data-table my-req-table">
+                        <thead><tr><th>Subject</th><th>Section and time</th><th class="num">Units</th><th>Status</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
                 </div>
+
+                ${RS.finalApproved(r) ? `
+                    <p class="req-foot is-ok"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                        ${r.status === 'partially_approved'
+                            ? 'The approved subjects are approved for enrollment. Your adviser\u2019s decision is final.'
+                            : 'Approved for enrollment. Your adviser\u2019s approval is final.'}</p>` : ''}
+                ${sentBackItems.length ? `
+                    <div class="notice pending">
+                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                        <div>
+                            <strong>${sentBackItems.length} subject${sentBackItems.length === 1 ? ' was' : 's were'} sent back</strong>
+                            ${sentBackItems.length === 1 ? 'It appears' : 'They appear'} again in
+                            <a href="#plan">Build your plan</a> with the adviser\u2019s reason, so you can fix
+                            ${sentBackItems.length === 1 ? 'it' : 'them'} and send ${sentBackItems.length === 1 ? 'it' : 'them'} again.
+                        </div>
+                    </div>` : ''}
+                ${RS.waiting(r) ? `
+                    <p class="req-foot"><i class="fa-regular fa-clock" aria-hidden="true"></i>
+                        With your adviser. You will be notified when there is a decision.</p>` : ''}
             </div>
-            ${r.registrar_status === 'rejected' && r.registrar_notes ? `
-                <div class="notice pending">
-                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
-                    <div>
-                        <strong>Sent back by the Registrar</strong>
-                        ${escapeHtml(r.registrar_notes)} Submit a new request with the
-                        needed changes -- this one is closed.
-                    </div>
-                </div>` : ''}
-            ${(r.request_item ?? []).map(item => `
-                <div class="req-history-item">
-                    <span class="req-code">${escapeHtml(item.subject?.code ?? '')}</span>
-                    <span class="pg-chip ${itemStatusChip(item.status)}">${escapeHtml(item.status)}</span>
-                    ${item.remarks ? `<span class="dim">${escapeHtml(item.remarks)}</span>` : ''}
-                </div>`).join('')}
-        </div>`;
+        </details>`;
     }).join('');
 }
 
@@ -2173,6 +2518,7 @@ function render(student, email) {
     // student's own degree, whatever it is.
     await window.CurriculogicPrograms?.load(supabase);
     render(student, session.user.email);
+    window.CurriculogicForcePassword?.run(supabase, 'student');
 
         // Resolve the active prospectus once. Used as a fallback for any
     // student whose own prospectus_id is null — which happens when
