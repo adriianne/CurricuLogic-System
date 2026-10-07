@@ -208,6 +208,10 @@ function renderProfile(admin, authEmail) {
         ? `Welcome back, ${admin.first_name}`
         : 'Welcome back';
 
+    setText('prof-avatar', initials(admin?.first_name, admin?.last_name, email));
+    setText('prof-name',   full || admin?.username || email);
+    setText('prof-sub',    [admin?.employee_id, 'System Administrator'].filter(Boolean).join(' \u00b7 '));
+
     setText('d-name',  full || '—');
     setText('d-eid',   admin?.employee_id || '—', 'mono');
     setText('d-username', admin?.username || '—', 'mono');
@@ -307,19 +311,48 @@ async function loadStudents(force = false) {
 
 /* ---------- dashboard stats ---------- */
 
+/* One number on the dashboard: set as usual, then counted up from what is
+   shown (or from 0 the first time). See shared/js/motion.js. */
+function setStat(id, n) {
+    const el = $(id);
+    const before = (el?.textContent ?? '').trim();
+    setText(id, String(n), 'stat-value');
+    if (!el) return;
+    el.textContent = /^\d+$/.test(before) ? before : '0';
+    window.CurriculogicMotion?.countUp(el, n);
+}
+
+/* The four numbers on the profile page, counted up from what is shown. */
+function renderProfileStats() {
+    const pending = STUDENTS.filter(s =>
+        (s.approval_status || (s.is_approved ? 'approved' : 'pending')) === 'pending').length;
+    const set = (id, n) => {
+        const el = $(id);
+        if (!el) return;
+        if (!/^\d+$/.test(el.textContent.trim())) el.textContent = '0';
+        window.CurriculogicMotion?.countUp(el, n);
+    };
+    set('p-stat-staff',    STAFF.length);
+    set('p-stat-students', STUDENTS.length);
+    set('p-stat-programs', PROGRAMS.length);
+    set('p-stat-pending',  pending);
+}
+
 function renderStats() {
+    renderProfileStats();
     const faculty    = STAFF.filter(s => s.role === 'faculty').length;
     const registrar  = STAFF.filter(s => s.role === 'registrar').length;
     const department = STAFF.filter(s => s.role === 'department').length;
 
-    setText('stat-faculty',    String(faculty),    'stat-value');
-    setText('stat-registrar',  String(registrar),  'stat-value');
-    setText('stat-department', String(department), 'stat-value');
-    setText('stat-students',   String(STUDENTS.length), 'stat-value');
+    setStat('stat-faculty',    faculty);
+    setStat('stat-registrar',  registrar);
+    setStat('stat-department', department);
+    setStat('stat-students',   STUDENTS.length);
 }
 
 function renderStudentStats() {
-    setText('stat-students', String(STUDENTS.length), 'stat-value');
+    setStat('stat-students', STUDENTS.length);
+    renderProfileStats();
 }
 
 
@@ -395,12 +428,21 @@ const ROLE_TABLE = {
 };
 const ROLE_LIMIT = { faculty: 10, registrar: 2, department: 1 };
 
+const STAFF_PAGE_SIZE = 20;
+let STAFF_PAGE = 1;
+
 function renderStaff() {
     const body  = $('staff-body');
     const count = $('staff-count');
     if (!body) return;
 
     const list = filteredStaff();
+
+    // 20 staff a page; a search or filter change goes back to page 1.
+    const pages = Math.max(1, Math.ceil(list.length / STAFF_PAGE_SIZE));
+    STAFF_PAGE = Math.min(Math.max(1, STAFF_PAGE), pages);
+    const from = (STAFF_PAGE - 1) * STAFF_PAGE_SIZE;
+    const shown = list.slice(from, from + STAFF_PAGE_SIZE);
 
     if (count) {
         count.textContent = STAFF.length
@@ -443,7 +485,7 @@ function renderStaff() {
                     </tr>
                 </thead>
                 <tbody>
-                    ${list.map(s => `
+                    ${shown.map(s => `
                         <tr>
                             <td class="mono">${escapeHtml(s.employee_id || '—')}</td>
                             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
@@ -458,7 +500,16 @@ function renderStaff() {
                     `).join('')}
                 </tbody>
             </table>
-        </div>`;
+        </div>
+        ${pages > 1 ? `
+        <div class="pager">
+            <span class="dim">${from + 1}–${from + shown.length} of ${list.length}</span>
+            <span class="pager-btns">
+                <button type="button" class="btn-small" data-staff-page="prev" ${STAFF_PAGE === 1 ? 'disabled' : ''}>Previous</button>
+                <span class="pager-now">Page ${STAFF_PAGE} of ${pages}</span>
+                <button type="button" class="btn-small" data-staff-page="next" ${STAFF_PAGE === pages ? 'disabled' : ''}>Next</button>
+            </span>
+        </div>` : ''}`;
 }
 
 /* Which programme a staff member belongs to (db/030 -- one per account,
@@ -489,11 +540,14 @@ function staffProgramCell(s) {
 
     const mine = PROGRAMS.find(p => p.id === s.program_id);
 
+    // One row: the programme (a fixed-width pill, so every Edit lines up) and its Edit link.
     return `
-        ${mine
-            ? `<span class="pill info" title="${escapeHtml(mine.name)}">${escapeHtml(mine.code)}</span>`
-            : '<span class="pill waiting" title="No programme assigned">None</span>'}
-        <button type="button" class="btn-link" data-program-edit="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">Edit</button>`;
+        <div class="prog-cell">
+            ${mine
+                ? `<span class="pill info" title="${escapeHtml(mine.name)}">${escapeHtml(mine.code)}</span>`
+                : '<span class="pill waiting" title="No programme assigned">None</span>'}
+            <button type="button" class="btn-link" data-program-edit="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">Edit</button>
+        </div>`;
 }
 
 async function saveStaffProgram(staffId, role, newProgramId) {
@@ -548,6 +602,14 @@ async function saveStaffProgram(staffId, role, newProgramId) {
 }
 
 $('staff-body')?.addEventListener('click', (e) => {
+    const pg = e.target.closest('[data-staff-page]');
+    if (pg) {
+        if (pg.disabled) return;
+        STAFF_PAGE += pg.dataset.staffPage === 'next' ? 1 : -1;
+        EDITING_PROGRAM_FOR = null;
+        return renderStaff();
+    }
+
     const edit = e.target.closest('[data-program-edit]');
     if (edit) {
         EDITING_PROGRAM_FOR = { staffId: edit.dataset.programEdit, role: edit.dataset.role };
@@ -565,8 +627,8 @@ $('staff-body')?.addEventListener('click', (e) => {
     }
 });
 
-$('staff-search')?.addEventListener('input', renderStaff);
-$('staff-filter')?.addEventListener('change', renderStaff);
+$('staff-search')?.addEventListener('input', () => { STAFF_PAGE = 1; renderStaff(); });
+$('staff-filter')?.addEventListener('change', () => { STAFF_PAGE = 1; renderStaff(); });
 
 
 /* ---------- students listing ---------- */
@@ -584,12 +646,21 @@ function filteredStudents() {
     });
 }
 
+const STUDENT_PAGE_SIZE = 20;
+let STUDENT_PAGE = 1;
+
 function renderStudents() {
     const body  = $('student-body');
     const count = $('student-count');
     if (!body) return;
 
     const list = filteredStudents();
+
+    // 20 students a page; a search or filter change goes back to page 1.
+    const pages = Math.max(1, Math.ceil(list.length / STUDENT_PAGE_SIZE));
+    STUDENT_PAGE = Math.min(Math.max(1, STUDENT_PAGE), pages);
+    const from = (STUDENT_PAGE - 1) * STUDENT_PAGE_SIZE;
+    const shown = list.slice(from, from + STUDENT_PAGE_SIZE);
 
     if (count) {
         count.textContent = STUDENTS.length
@@ -630,7 +701,7 @@ function renderStudents() {
                     </tr>
                 </thead>
                 <tbody>
-                    ${list.map(s => {
+                    ${shown.map(s => {
                         const status = s.approval_status || (s.is_approved ? 'approved' : 'pending');
                         const pill = status === 'approved'
                             ? '<span class="pill ok">Approved</span>'
@@ -648,24 +719,38 @@ function renderStudents() {
                     }).join('')}
                 </tbody>
             </table>
-        </div>`;
+        </div>
+        ${pages > 1 ? `
+        <div class="pager">
+            <span class="dim">${from + 1}–${from + shown.length} of ${list.length}</span>
+            <span class="pager-btns">
+                <button type="button" class="btn-small" data-student-page="prev" ${STUDENT_PAGE === 1 ? 'disabled' : ''}>Previous</button>
+                <span class="pager-now">Page ${STUDENT_PAGE} of ${pages}</span>
+                <button type="button" class="btn-small" data-student-page="next" ${STUDENT_PAGE === pages ? 'disabled' : ''}>Next</button>
+            </span>
+        </div>` : ''}`;
 }
 
-$('student-search')?.addEventListener('input', renderStudents);
-$('student-filter')?.addEventListener('change', renderStudents);
+$('student-search')?.addEventListener('input', () => { STUDENT_PAGE = 1; renderStudents(); });
+$('student-filter')?.addEventListener('change', () => { STUDENT_PAGE = 1; renderStudents(); });
+$('student-body')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-student-page]');
+    if (!b || b.disabled) return;
+    STUDENT_PAGE += b.dataset.studentPage === 'next' ? 1 : -1;
+    renderStudents();
+});
 
 
 /* ---------- create single account ---------- */
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function createAccount() {
     const boxId = 'create-msg';
     showMsg(boxId, '');
 
-    const first      = $('a-first-name').value.trim();
-    const last       = $('a-last-name').value.trim();
-    const email      = $('a-email').value.trim();
+    const first      = CurriculogicNameRules.clean($('a-first-name').value);
+    const last       = CurriculogicNameRules.clean($('a-last-name').value);
+    const email      = CurriculogicEmailRules.clean($('a-email').value);
     const studentId  = $('a-student-id')?.value.trim() ?? '';
     const yearLevel  = $('a-year-level')?.value ?? '';
     const role       = $('a-role').value;
@@ -676,10 +761,13 @@ async function createAccount() {
     // student has no employee record at all, so requiring it here was
     // what made the single-account form unable to create a student even
     // after "University Student" is selectable in the dropdown.
-    if (!first)     return showMsg(boxId, 'Enter a first name.');
-    if (!last)      return showMsg(boxId, 'Enter a last name.');
+    const firstProblem = CurriculogicNameRules.problem(first, 'first name');
+    if (firstProblem) return showMsg(boxId, firstProblem);
+    const lastProblem = CurriculogicNameRules.problem(last, 'last name');
+    if (lastProblem) return showMsg(boxId, lastProblem);
     if (!email)     return showMsg(boxId, 'Enter an email address.');
-    if (!EMAIL_RE.test(email)) return showMsg(boxId, 'Enter a valid email address.');
+    const emailProblem = CurriculogicEmailRules.problem(email);
+    if (emailProblem) return showMsg(boxId, emailProblem);
 
     // Staff (faculty, registrar, department) get their EMP- number from the
     // database when the account is created; nothing is typed for them.
@@ -978,17 +1066,47 @@ function downloadBulkTemplate() {
     XLSX.writeFile(wb, CurriculogicBulkAccounts.templateFileName(selected, selectedRole));
 }
 
+/* ---- the status bar ----
+   state: 'working' | 'done' | 'wait' | 'error' | null (hide). The percentage is
+   measured work, not an estimate: see shared/js/uploadprogress.js. */
+function bulkStatus(state, text, percent = null) {
+    const box = $('bulk-status');
+    if (!box) return;
+    if (!state) { box.hidden = true; return; }
+    box.hidden = false;
+    box.className = 'gu-status' + (state === 'working' ? '' : ' is-' + state);
+    setText('bulk-status-text', text);
+    const pct = percent == null ? null : Math.max(0, Math.min(100, Math.round(percent)));
+    setText('bulk-status-pct', pct == null ? '' : pct + '%');
+    const fill = $('bulk-status-fill');
+    if (fill) fill.style.width = (pct ?? 0) + '%';
+}
+const bulkProgress = (u) => bulkStatus('working', u.detail ? `${u.label}: ${u.detail}` : u.label, u.percent);
+const yieldToUi = () => new Promise(r => setTimeout(r, 0));
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 async function handleBulkFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
 
     showMsg('bulk-msg', '');
 
+    const t = window.UploadProgress.tracker([
+        { id: 'read',  weight: 70, label: 'Reading the file' },
+        { id: 'check', weight: 30, label: 'Checking the rows' },
+    ]);
+    bulkProgress(t.update('read', 0));
+    await yieldToUi();                       // let the bar paint before the file is parsed
+
     try {
         const rows = await readBulkFile(file);
+        bulkProgress(t.update('check', 0, plural(rows.length, 'row')));
+        await yieldToUi();
         validateBulkRows(rows, file.name);
+        bulkStatus('done', `${plural(rows.length, 'row')} read and checked`, t.finish().percent);
     } catch (err) {
         console.error('bulk parse failed:', err);
+        bulkStatus('error', 'Could not read that file.');
         showMsg('bulk-msg', 'Could not read that file. ' + err.message);
     }
 }
@@ -1000,7 +1118,7 @@ async function readBulkFile(file) {
     if (typeof XLSX === 'undefined') {
         await new Promise((resolve, reject) => {
             const s = document.createElement('script');
-            s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+            s.src = '../../shared/js/vendor/xlsx.full.min.js';
             s.onload = resolve;
             s.onerror = () => reject(new Error('Spreadsheet library failed to load.'));
             document.head.appendChild(s);
@@ -1040,9 +1158,9 @@ function validateBulkRows(rows, fileName) {
     const seenStudentIds = new Set();
 
     for (const r of rows) {
-        const first = r.first_name || '';
-        const last = r.last_name || '';
-        const email = (r.email || '').toLowerCase();
+        const first = CurriculogicNameRules.clean(r.first_name);
+        const last = CurriculogicNameRules.clean(r.last_name);
+        const email = CurriculogicEmailRules.clean(r.email);
         const role = (r.role || '').toLowerCase();
         const employeeId = (r.employee_id || '').toUpperCase();
         const studentId = (r.student_id || '').replace(/[\s-]/g, '');
@@ -1054,10 +1172,13 @@ function validateBulkRows(rows, fileName) {
         const base = { line: r.__line, first, last, email, role, employeeId, studentId, programCode: '', department, yearLevel, password, username };
 
         // Basic validation
-        if (!first) { bad.push({ ...base, why: 'Missing first name.' }); continue; }
-        if (!last) { bad.push({ ...base, why: 'Missing last name.' }); continue; }
+        const firstProblem = first ? CurriculogicNameRules.problem(first, 'first name') : 'Missing first name.';
+        if (firstProblem) { bad.push({ ...base, why: firstProblem }); continue; }
+        const lastProblem = last ? CurriculogicNameRules.problem(last, 'last name') : 'Missing last name.';
+        if (lastProblem) { bad.push({ ...base, why: lastProblem }); continue; }
         if (!email) { bad.push({ ...base, why: 'Missing email.' }); continue; }
-        if (!EMAIL_RE.test(email)) { bad.push({ ...base, why: `"${email}" is not a valid email.` }); continue; }
+        const emailProblem = CurriculogicEmailRules.problem(email);
+        if (emailProblem) { bad.push({ ...base, why: emailProblem }); continue; }
         if (!VALID_ROLES.includes(role)) { bad.push({ ...base, why: `"${role}" is not a valid role.` }); continue; }
 
         // With a programme chosen above the upload, a row for any other
@@ -1254,10 +1375,21 @@ async function commitBulk(fileName, bad) {
     const success = [];
     const failed = [];
 
-    for (const row of toCreate) {
+    const total = toCreate.length;
+    const t = window.UploadProgress.tracker([
+        { id: 'create',  weight: 95, label: 'Creating accounts' },
+        { id: 'history', weight: 5,  label: 'Saving the upload history' },
+    ]);
+    bulkProgress(t.update('create', 0, `0 of ${total}`));
+    await yieldToUi();
+
+    for (const [i, row] of toCreate.entries()) {
+        // i accounts are finished before this one starts
+        bulkProgress(t.update('create', window.UploadProgress.fraction(i, total), `${i} of ${total}`));
         try {
             if (PREVIEW) {
-                // Just simulate success in preview
+                // Just simulate success in preview, slowly enough to see the bar
+                await new Promise(r => setTimeout(r, 120));
                 success.push(row);
                 continue;
             }
@@ -1291,10 +1423,22 @@ async function commitBulk(fileName, bad) {
         }
     }
 
+    bulkProgress(t.update('create', 1, `${total} of ${total}`));
+
     // Save history (if not preview)
     if (!PREVIEW) {
+        bulkProgress(t.update('history', 0));
         await saveBulkHistory(fileName, success.length, failed.length);
     }
+
+    const finished = t.finish();
+    bulkStatus(
+        failed.length ? 'wait' : 'done',
+        failed.length
+            ? `Created ${success.length} of ${total}, ${failed.length} failed`
+            : `Created ${plural(success.length, 'account')}`,
+        finished.percent,
+    );
 
     // Render results
     const box = $('bulk-preview');
