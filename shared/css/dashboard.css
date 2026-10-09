@@ -329,6 +329,19 @@ ul { list-style: none; }
 
 .btn-logout:hover { border-color: #fca5a5; color: #b91c1c; }
 
+/* Light / dark switch, beside Log out. Drawn only where theme.js is loaded. */
+.btn-theme {
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border-radius: 8px;
+    color: var(--slate);
+    font-size: 0.9rem;
+}
+.btn-theme:hover { color: var(--indigo); border-color: var(--indigo); }
+
 
 /* Content */
 
@@ -449,13 +462,13 @@ ul { list-style: none; }
 .notice strong { display: block; margin-bottom: 0.15rem; }
 
 .notice.pending {
-    background: #fffbeb;
-    border: 1px solid #fde68a;
-    border-left: 3px solid #f59e0b;
-    color: #78350f;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-left: 3px solid #ef4444;
+    color: #7f1d1d;
 }
 
-.notice.pending i { color: #d97706; }
+.notice.pending i { color: #dc2626; }
 
 .notice.info {
     background: var(--canvas);
@@ -683,6 +696,94 @@ ul { list-style: none; }
 
 .form-grid select { cursor: pointer; }
 
+/* A long form is split into titled sections, each with its own grid, so the
+   fields keep a readable width instead of being squeezed into one row. */
+.form-section + .form-section {
+    margin-top: var(--s3);
+    padding-top: var(--s3);
+    border-top: 1px solid var(--line);
+}
+
+.form-section-head { margin-bottom: var(--s2); }
+
+.form-section-title {
+    display: block;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--slate);
+}
+
+.form-section-sub {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: #94a3b8;
+}
+
+.form-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-grid.cols-2 .field-sm,
+.form-grid.cols-3 .field-sm { max-width: none; }
+.form-grid .field-span-2 { grid-column: span 2; }
+
+/* Explanatory line under a group of fields, inside the card's padding. */
+.field-hint {
+    margin-top: var(--s2);
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--slate);
+    max-width: 70ch;
+}
+
+/* A short list inside a notice, for instructions with several parts. */
+.notice-list {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0.4rem 0 0 1.1rem;
+    padding: 0;
+    line-height: 1.55;
+}
+.notice-list b { color: var(--ink); font-weight: 600; }
+.notice-list .mono {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 0.82rem;
+    color: var(--ink);
+}
+
+/* A password box with its show/hide button inside the right edge. */
+.input-wrap { position: relative; }
+.input-wrap input { padding-right: 2.7rem; }
+
+.input-wrap .toggle-pw {
+    position: absolute;
+    top: 50%;
+    right: 0.3rem;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.85rem;
+}
+.input-wrap .toggle-pw:hover { background: rgba(79, 70, 229, 0.08); color: var(--indigo); border-color: transparent; }
+
+@media (max-width: 900px) {
+    .form-grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+    .form-grid.cols-2,
+    .form-grid.cols-3 { grid-template-columns: minmax(0, 1fr); }
+    .form-grid .field-span-2 { grid-column: auto; }
+}
+
 .btn-accent {
     display: inline-flex;
     align-items: center;
@@ -750,6 +851,7 @@ ul { list-style: none; }
 
 .msg.error   { display: block; background: #fef2f2; color: #b91c1c; border-left: 3px solid #ef4444; }
 .msg.success { display: block; background: #ecfdf5; color: #047857; border-left: 3px solid #10b981; }
+.msg.pending { display: block; background: #fef2f2; color: #b91c1c; border-left: 3px solid #ef4444; }
 
 
 /* Prose */
@@ -921,8 +1023,8 @@ ul { list-style: none; }
     line-height: 1.6;
     color: var(--ink);
     padding: 0.55rem 0.75rem;
-    background: #fffbeb;
-    border-left: 3px solid #f59e0b;
+    background: #fef2f2;
+    border-left: 3px solid #ef4444;
     border-radius: 7px;
     margin-bottom: var(--s2);
 }
@@ -1570,7 +1672,7 @@ input[type="password"]::-ms-clear {
    drift away from the subject it belongs to. */
 .req-reject-reason {
     font-size: 0.78rem;
-    color: #b45309;
+    color: #b91c1c;
 }
 
 /* Load bar under the picker: the meter and the submit button stay
@@ -1781,24 +1883,24 @@ input[type="password"]::-ms-clear {
 
 .tile:hover .tile-cta i { transform: translateX(3px); }
 
-/* Integrity tile — clean state green, warning state amber. Only the
+/* Integrity tile — clean state green, warning state red. Only the
    second variant stands out from the neutral card styling. */
 .tile[data-tile="integrity"].is-clean .tile-number {
     color: var(--green, #0f8a5f);
 }
 
 .tile[data-tile="integrity"]:not(.is-clean) {
-    background: #fffbeb;
-    border-color: #fde68a;
+    background: #fef2f2;
+    border-color: #fecaca;
 }
 
 .tile[data-tile="integrity"]:not(.is-clean) .tile-number {
-    color: #b45309;
+    color: #b91c1c;
 }
 
 .tile[data-tile="integrity"]:not(.is-clean):hover {
-    border-color: #f59e0b;
-    box-shadow: 0 6px 18px rgba(245, 158, 11, 0.12);
+    border-color: #ef4444;
+    box-shadow: 0 6px 18px rgba(239, 68, 68, 0.12);
 }
 
 /* On narrow screens the tiles stack. */
@@ -2362,10 +2464,10 @@ input[type="password"]::-ms-clear {
 .term-confirm {
     margin-top: var(--s2);
     padding: var(--s2) var(--s3);
-    border: 1px solid #fde68a;
-    border-left: 3px solid #f59e0b;
+    border: 1px solid #fecaca;
+    border-left: 3px solid #ef4444;
     border-radius: 8px;
-    background: #fffbeb;
+    background: #fef2f2;
     font-size: 0.88rem;
 }
 .term-confirm[hidden] { display: none; }
@@ -2383,10 +2485,17 @@ input[type="password"]::-ms-clear {
 .unit-meter-fill.is-planned { background: var(--green); }
 
 /* Admin: programmes page. */
-.prog-form { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--s2); }
-.prog-form .prog-wide { flex: 1 1 16rem; }
+.prog-form {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 1.3fr) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--s2) var(--s3);
+}
 .prog-form .term-field input { width: 100%; }
-.prog-form .btn-primary { margin-top: 1.45rem; }
+.prog-form .btn-primary { grid-column: 1 / -1; justify-self: start; margin-top: var(--s1); }
+@media (max-width: 760px) {
+    .prog-form { grid-template-columns: minmax(0, 1fr); }
+}
 .prog-edit-name, .prog-edit-college {
     width: 100%;
     min-width: 10rem;
@@ -2555,6 +2664,390 @@ input[type="password"]::-ms-clear {
 .gu-status-track { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
 .gu-status-fill { height: 100%; width: 0; background: var(--indigo); border-radius: 999px; transition: width 0.25s linear; max-width: 100%; }
 .gu-status.is-done  { border-left-color: #059669; } .gu-status.is-done  .gu-status-fill { background: #059669; } .gu-status.is-done  .gu-status-pct { color: #059669; }
-.gu-status.is-wait  { border-left-color: #d97706; } .gu-status.is-wait  .gu-status-fill { background: #d97706; } .gu-status.is-wait  .gu-status-pct { color: #d97706; }
+.gu-status.is-wait  { border-left-color: #dc2626; } .gu-status.is-wait  .gu-status-fill { background: #dc2626; } .gu-status.is-wait  .gu-status-pct { color: #dc2626; }
 .gu-status.is-error { border-left-color: #dc2626; background: #fef2f2; } .gu-status.is-error .gu-status-fill { background: #dc2626; } .gu-status.is-error .gu-status-pct { color: #dc2626; }
-.is-attn { outline: 2px solid #f59e0b; outline-offset: 2px; border-radius: 6px; }
+.is-attn { outline: 2px solid #ef4444; outline-offset: 2px; border-radius: 6px; }
+
+
+/* ---- Motion ----
+   Small, quick and purposeful: what is new on a page rises into place one
+   piece after another, a clickable tile lifts under the pointer, a button
+   presses. Everything here is off for people who ask for reduced motion
+   (and the block above already shortens any other transition). */
+
+@media (prefers-reduced-motion: no-preference) {
+
+    @keyframes rise-in {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: none; }
+    }
+
+    /* Each part of a page, in order, when the page is opened */
+    .view:not([hidden]) > * {
+        animation: rise-in 0.42s cubic-bezier(0.23, 1, 0.32, 1) both;
+    }
+    .view:not([hidden]) > *:nth-child(2) { animation-delay: 0.04s; }
+    .view:not([hidden]) > *:nth-child(3) { animation-delay: 0.08s; }
+    .view:not([hidden]) > *:nth-child(4) { animation-delay: 0.12s; }
+    .view:not([hidden]) > *:nth-child(5) { animation-delay: 0.16s; }
+    .view:not([hidden]) > *:nth-child(6) { animation-delay: 0.20s; }
+    .view:not([hidden]) > *:nth-child(7) { animation-delay: 0.24s; }
+    .view:not([hidden]) > *:nth-child(n+8) { animation-delay: 0.28s; }
+
+    /* The tiles of a row arrive one by one */
+    .view:not([hidden]) .stats > .stat,
+    .view:not([hidden]) .dashboard-tiles > .tile {
+        animation: rise-in 0.42s cubic-bezier(0.23, 1, 0.32, 1) both;
+    }
+    .view:not([hidden]) .stats > :nth-child(1),
+    .view:not([hidden]) .dashboard-tiles > :nth-child(1) { animation-delay: 0.10s; }
+    .view:not([hidden]) .stats > :nth-child(2),
+    .view:not([hidden]) .dashboard-tiles > :nth-child(2) { animation-delay: 0.16s; }
+    .view:not([hidden]) .stats > :nth-child(3),
+    .view:not([hidden]) .dashboard-tiles > :nth-child(3) { animation-delay: 0.22s; }
+    .view:not([hidden]) .stats > :nth-child(4),
+    .view:not([hidden]) .dashboard-tiles > :nth-child(4) { animation-delay: 0.28s; }
+
+    /* A message appears rather than snapping in */
+    .msg.error, .msg.success, .msg.pending {
+        animation: rise-in 0.28s cubic-bezier(0.23, 1, 0.32, 1) both;
+    }
+
+    /* Only things that can be clicked react to the pointer */
+    .tile { transition: transform 0.18s cubic-bezier(0.23, 1, 0.32, 1), border-color 0.2s, box-shadow 0.2s; }
+    .tile:hover { transform: translateY(-2px); }
+
+    .btn-primary:active, .btn-accent:active, .btn-small:active, .btn-danger:active {
+        transform: translateY(1px);
+    }
+
+    /* The sidebar's current page eases in */
+    .side-nav a { transition: background 0.18s, color 0.18s, padding-left 0.18s; }
+    .side-nav a:hover { padding-left: calc(0.75rem + 2px); }
+}
+
+
+/* ---- Build your plan: Auto-select my plan ----
+   One panel above the subject list: what the button does, the button, and,
+   after it is pressed, what was selected and what was left out and why. */
+
+.auto-plan {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--s2) var(--s3);
+    margin-bottom: var(--s3);
+    padding: var(--s2) var(--s3);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--indigo);
+    border-radius: 12px;
+    background: var(--canvas);
+}
+.auto-plan[hidden] { display: none; }
+
+.auto-plan-text { display: flex; align-items: flex-start; gap: 0.85rem; min-width: 0; }
+.auto-plan-icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 10px;
+    background: rgba(79, 70, 229, 0.12);
+    color: var(--indigo);
+}
+.auto-plan-text strong { display: block; font-size: 0.95rem; color: var(--ink); }
+.auto-plan-text > div > span {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.84rem;
+    line-height: 1.55;
+    color: var(--slate);
+}
+.auto-plan .btn-primary { white-space: nowrap; display: inline-flex; align-items: center; gap: 0.5rem; }
+
+.auto-plan-result {
+    grid-column: 1 / -1;
+    padding: 0.7rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.86rem;
+    line-height: 1.55;
+}
+.auto-plan-result[hidden] { display: none; }
+.auto-plan-result p { margin: 0; }
+.auto-plan-result.is-ok   { background: #ecfdf5; color: #047857; border-left: 3px solid #10b981; }
+.auto-plan-result.is-none { background: #fef2f2; color: #b91c1c; border-left: 3px solid #ef4444; }
+.auto-plan-left-head {
+    margin-top: 0.55rem !important;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+.auto-plan-left { margin: 0.25rem 0 0 1.1rem; display: grid; gap: 0.2rem; list-style: disc; }
+.auto-plan-left strong { color: inherit; }
+
+@media (max-width: 640px) {
+    .auto-plan { grid-template-columns: minmax(0, 1fr); }
+    .auto-plan .btn-primary { width: 100%; justify-content: center; }
+}
+
+
+/* ---- My requests: one card per request ----
+   A header that says what it is (term, when, how many subjects and units) and
+   where it stands; inside, a three-step progress line and a table of subjects. */
+
+.req-card {
+    margin-bottom: var(--s3);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+}
+.req-card > summary { list-style: none; cursor: pointer; }
+.req-card > summary::-webkit-details-marker { display: none; }
+
+.req-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    padding: var(--s2) var(--s3);
+}
+.req-card-head::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 2px solid var(--slate);
+    border-bottom: 2px solid var(--slate);
+    transform: rotate(-45deg);
+    transition: transform 0.2s ease;
+}
+.req-card[open] > .req-card-head::before { transform: rotate(45deg); }
+.req-card-head:hover .req-card-title strong { color: var(--indigo); }
+.req-card-head:focus-visible { outline: 2px solid var(--indigo); outline-offset: -2px; border-radius: 12px; }
+
+.req-card-title { flex: 1; min-width: 0; display: grid; gap: 0.1rem; }
+.req-card-title strong { font-size: 1rem; transition: color 0.15s; }
+.req-card-title .dim { font-size: 0.82rem; }
+
+.req-card-body { padding: 0 var(--s3) var(--s3); border-top: 1px solid var(--line); }
+.req-card-body .notice { margin: var(--s2) 0 0; }
+.req-card-body .table-wrap { margin-top: var(--s2); }
+
+/* Submitted -> Adviser review -> Decision */
+.req-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    padding: var(--s3) 0 0;
+    list-style: none;
+}
+.req-steps li {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--slate);
+}
+.req-step-dot {
+    position: relative;
+    z-index: 1;
+    width: 0.95rem;
+    height: 0.95rem;
+    border: 2px solid var(--line);
+    border-radius: 50%;
+    background: var(--canvas);
+}
+.req-steps li:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 0.42rem;
+    left: 1.2rem;
+    right: 0.3rem;
+    height: 2px;
+    background: var(--line);
+}
+.req-steps li.is-done { color: var(--ink); }
+.req-steps li.is-done .req-step-dot { background: var(--green); border-color: var(--green); }
+.req-steps li.is-done:not(:last-child)::after { background: var(--green); }
+.req-steps li.is-current { color: var(--indigo); }
+.req-steps li.is-current .req-step-dot { border-color: var(--indigo); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15); }
+.req-steps li.is-bad { color: #b91c1c; }
+.req-steps li.is-bad .req-step-dot { background: #ef4444; border-color: #ef4444; }
+
+/* The subjects */
+.my-req-table td { white-space: normal; vertical-align: top; }
+.my-req-table .req-code { display: inline-block; min-width: 7.5rem; }
+.my-req-table .req-item-title { font-weight: 500; }
+.req-item-note { display: block; margin-top: 0.25rem; font-size: 0.8rem; line-height: 1.5; color: var(--slate); }
+.req-item-note.is-bad { color: #b91c1c; }
+.req-item-section { min-width: 12rem; font-size: 0.8rem; }
+
+.req-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: var(--s2) 0 0;
+    font-size: 0.86rem;
+    color: var(--slate);
+}
+.req-foot.is-ok { color: #047857; font-weight: 600; }
+
+@media (max-width: 640px) {
+    .req-card-head { flex-wrap: wrap; }
+    .req-steps li { font-size: 0.72rem; }
+}
+
+
+/* ---- Academic record: a header for each year, two semester panels under it ---- */
+
+.rec-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s2);
+    margin: var(--s3) 0 var(--s2);
+}
+.rec-head-title { font-size: 1.05rem; font-weight: 700; }
+
+.rec-year { margin-top: var(--s4); }
+.rec-year:first-of-type { margin-top: var(--s3); }
+
+.rec-year-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s2);
+    margin-bottom: var(--s2);
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--ink);
+}
+.rec-year-head h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.2px; }
+
+.rec-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s3);
+    align-items: start;
+}
+.rec-summer { margin-top: var(--s3); }
+
+.rec-panel {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.rec-panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s2);
+    padding: var(--s2) var(--s3);
+    border-bottom: 1px solid var(--line);
+}
+.rec-panel-head h4 { font-size: 0.92rem; font-weight: 700; }
+.rec-panel-head .dim { font-size: 0.78rem; }
+
+.rec-panel .table-wrap { margin: 0; padding: 0 var(--s2); }
+.rec-panel .data-table td { white-space: normal; vertical-align: top; }
+.rec-panel .data-table td.mono { white-space: nowrap; }
+.rec-panel .data-table th { padding-left: 0.4rem; padding-right: 0.4rem; }
+.rec-panel .data-table td { padding-left: 0.4rem; padding-right: 0.4rem; }
+
+.rec-taken { display: block; margin-top: 0.15rem; font-size: 0.74rem; color: var(--slate); }
+.rec-empty { margin: 0; padding: var(--s3); font-size: 0.86rem; color: var(--slate); }
+
+@media (max-width: 900px) {
+    .rec-split { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Academic record on a phone: each row is a small card (code and status on top,
+   title and units under) instead of a four-column table that does not fit. */
+@media (max-width: 640px) {
+    .rec-panel .table-wrap { overflow: visible; }
+    .rec-panel .data-table, .rec-panel .data-table tbody { display: block; }
+    .rec-panel .data-table thead { display: none; }
+    .rec-panel .data-table tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 0.75rem;
+        row-gap: 0.15rem;
+        padding: 0.65rem 0;
+        border-bottom: 1px solid var(--line);
+    }
+    .rec-panel .data-table tbody tr:last-child { border-bottom: none; }
+    .rec-panel .data-table td { display: block; padding: 0; border: 0; }
+    .rec-panel .data-table td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    .rec-panel .data-table td:nth-child(2) { grid-column: 1; grid-row: 2; }
+    .rec-panel .data-table td:nth-child(3) { grid-column: 2; grid-row: 2; text-align: right; font-size: 0.78rem; color: var(--slate); }
+    .rec-panel .data-table td:nth-child(3)::after { content: ' units'; }
+    .rec-panel .data-table td:nth-child(4) { grid-column: 2; grid-row: 1; text-align: right; }
+}
+
+
+/* Staff management: the Programme column. The pill has a fixed width, so the
+   Edit links line up in one column whatever the programme is called, and the
+   link is small and borderless so a row is no taller than its other cells. */
+.prog-cell { display: flex; align-items: center; gap: 0.6rem; }
+.prog-cell .pill { min-width: 4.25rem; justify-content: center; }
+
+.prog-cell .btn-link,
+.prog-edit .btn-link {
+    padding: 0.2rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--indigo);
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+.prog-cell .btn-link:hover,
+.prog-edit .btn-link:hover { background: rgba(79, 70, 229, 0.08); border-color: transparent; }
+
+.prog-edit .prog-select { height: 2rem; min-width: 5.5rem; }
+
+/* Students list: 20 a page, with Previous / Next under the table. */
+.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; margin-top: 0.9rem; font-size: 0.82rem; }
+.pager-btns { display: inline-flex; align-items: center; gap: 0.6rem; }
+.pager-btns button:disabled { opacity: 0.45; cursor: default; }
+
+/* Profile photo (shared/js/profilephoto.js). The picture fills the round avatar;
+   the camera button sits on its lower-right edge. */
+.avatar, .prof-avatar { overflow: hidden; }
+.avatar img, .prof-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar.has-photo, .prof-avatar.has-photo { background: var(--line); }
+
+.photo-pick { position: relative; flex: 0 0 auto; }
+.photo-btn {
+    position: absolute;
+    right: -0.15rem;
+    bottom: -0.15rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 2px solid var(--surface, #fff);
+    border-radius: 50%;
+    background: var(--indigo);
+    color: #fff;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.photo-btn:hover { transform: scale(1.08); }
+.photo-btn:active { transform: scale(0.95); }
+.photo-btn:disabled { opacity: 0.6; cursor: progress; }
+.photo-btn:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+
+.photo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; margin: 0.5rem 0 0; font-size: 0.82rem; }
+.photo-actions .btn-link { padding: 0; border: 0; background: none; color: var(--indigo); font: inherit; font-weight: 600; cursor: pointer; }
+.photo-actions .btn-link:hover { text-decoration: underline; }
+.photo-msg { color: var(--slate); }
+.photo-msg.is-error { color: #b91c1c; }
+@media (prefers-reduced-motion: reduce) { .photo-btn { transition: none; } }

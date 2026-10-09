@@ -21,7 +21,13 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 if (!supabase) console.error('register.js: Supabase client not created. Is config.js loaded?');
 
 const $ = (id) => document.getElementById(id);
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/* A student ID is 7 digits. A leading "uc-" (the sign-in prefix) is accepted
+   and dropped, the same as the database does. null when it is not valid. */
+const studentIdDigits = (raw) => {
+    const digits = String(raw ?? '').trim().replace(/^uc-/i, '');
+    return /^\d{7}$/.test(digits) ? digits : null;
+};
 
 let path = 'new';
 
@@ -137,15 +143,19 @@ function validate() {
     const mark = (id, message) => { $(id)?.classList.add('invalid'); return message; };
 
     if (path === 'new') {
-        if (!$('first-name').value.trim()) return mark('first-name', 'Enter your first name.');
-        if (!$('last-name').value.trim())  return mark('last-name', 'Enter your last name.');
+        const firstProblem = CurriculogicNameRules.problem($('first-name').value, 'first name');
+        if (firstProblem) return mark('first-name', firstProblem);
+        const lastProblem = CurriculogicNameRules.problem($('last-name').value, 'last name');
+        if (lastProblem) return mark('last-name', lastProblem);
     } else {
         if (!$('student-id').value.trim()) return mark('student-id', 'Enter your student ID.');
+        if (!studentIdDigits($('student-id').value)) return mark('student-id', 'Student ID is 7 digits, for example 2401187.');
     }
 
-    const email = $('email').value.trim();
-    if (!email)                return mark('email', 'Enter your university email.');
-    if (!EMAIL_RE.test(email)) return mark('email', 'That does not look like a valid email address.');
+    const email = CurriculogicEmailRules.clean($('email').value);
+    if (!email) return mark('email', 'Enter your university email.');
+    const emailProblem = CurriculogicEmailRules.problem(email);
+    if (emailProblem) return mark('email', emailProblem);
 
     // Checked here, before the account is created: failing after signUp
     // would leave a sign-in with no student record behind it.
@@ -192,7 +202,7 @@ async function handleRegister() {
     btn.disabled = true;
     btn.textContent = 'Submitting…';
 
-    const email = $('email').value.trim();
+    const email = CurriculogicEmailRules.clean($('email').value);
 
     try {
         const { data, error } = await supabase.auth.signUp({
@@ -223,12 +233,12 @@ async function handleRegister() {
         };
 
         if (path === 'new') {
-            row.first_name = $('first-name').value.trim();
-            row.last_name  = $('last-name').value.trim();
+            row.first_name = CurriculogicNameRules.clean($('first-name').value);
+            row.last_name  = CurriculogicNameRules.clean($('last-name').value);
             // No student ID is sent: the database issues one when the
             // Registrar approves the request (db/045).
         } else {
-            row.student_id = $('student-id').value.trim();
+            row.student_id = studentIdDigits($('student-id').value);
         }
 
         // The chosen program. Left out when none could be chosen (the list

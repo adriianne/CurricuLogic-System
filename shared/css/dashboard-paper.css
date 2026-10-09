@@ -1,0 +1,287 @@
+/* CurricuLogic - dashboard "paper" theme (trial), light and dark
+   The warm paper, ink and serif headlines of the landing and login pages, with
+   the faint green grid of the login pages behind it. Applied to a dashboard by
+   adding class="theme-paper" to its <body> and loading this file after
+   dashboard.css. Remove the class to go back to the original look.
+
+   Dark mode: <html data-theme="dark"> (set by shared/js/theme.js, which also
+   remembers the choice and follows the system setting at first).
+
+   Only values change here; no layout does. Colours match
+   features/auth/css/loginpage.css. */
+
+.theme-paper {
+    --canvas:  #f6f2e9;   /* page, and the hover wash */
+    --paper:   #f6f2e9;
+    --surface: #fffdf7;
+    --line:    #ddd6c6;
+    --ink:     #1d1b16;
+    --slate:   #5c574c;
+    --indigo:      #4338ca;
+    --indigo-dark: #3730a3;
+    --green:       #0f8a5f;
+
+    --grid:        rgba(15, 138, 95, 0.09);
+    --soft-ink:    #3b382f;   /* labels */
+    --faint-ink:   #8c8677;   /* placeholders, table heads */
+    --wash:        rgba(29, 27, 22, 0.035);
+    --card-shadow: 0 1px 0 rgba(29, 27, 22, 0.03), 0 8px 24px -18px rgba(29, 27, 22, 0.25);
+
+    --font-display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --font-mono:    ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+    color-scheme: light;
+    background-color: var(--paper);
+    background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 36px 36px;
+    background-attachment: fixed;
+}
+
+/* Surfaces that were plain white */
+.theme-paper .sidebar,
+.theme-paper .topbar,
+.theme-paper .card,
+.theme-paper .stat,
+.theme-paper .mode-switch,
+.theme-paper .btn-logout,
+.theme-paper button:where(:not(.btn-primary):not(.btn-accent):not(.toggle-pw)) {
+    background: var(--surface);
+}
+
+.theme-paper .card,
+.theme-paper .stat {
+    box-shadow: var(--card-shadow);
+}
+
+.theme-paper .form-grid input,
+.theme-paper .form-grid select,
+.theme-paper .term-field input,
+.theme-paper .term-field select {
+    background: var(--surface);
+    color: var(--ink);
+}
+
+.theme-paper .form-grid label { color: var(--soft-ink); }
+.theme-paper .form-grid input::placeholder { color: var(--faint-ink); opacity: 0.8; }
+
+/* Serif for the things people read first */
+.theme-paper .page-title,
+.theme-paper .stat-value {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.4px;
+}
+.theme-paper .page-title { font-size: 1.85rem; }
+
+/* Mono for small labels, as on the login pages */
+.theme-paper .form-section-title,
+.theme-paper .stat-label,
+.theme-paper .data-table th,
+.theme-paper .side-nav-label {
+    font-family: var(--font-mono);
+    letter-spacing: 0.8px;
+}
+
+.theme-paper .data-table th { color: var(--slate); }
+.theme-paper .data-table tbody tr:hover { background: var(--wash); }
+
+.theme-paper .side-nav a.active { background: #ece8fb; color: var(--indigo-dark); }
+
+
+/* ---- Dark ----
+   The light theme turned over: its ink becomes the page, its cream paper
+   becomes the text. The same warm tones, the same faint green grid (dimmer),
+   the same serif headlines and mono labels, the same indigo and green accents
+   (lightened so they read on a dark ground). Cards stay solid with a soft
+   shadow, pills stay tinted, the current page keeps its indigo wash.
+   <html data-theme="dark"> is set by shared/js/theme.js. */
+
+html[data-theme="dark"] .theme-paper {
+    --canvas:  #050505;     /* plain black */
+    --paper:   #050505;
+    --surface: #0d0e0d;     /* cards and boxes: a breath lighter than the page */
+    --line:    #272a27;
+    --ink:     #f3f3ee;
+    --slate:   #a9aca4;
+    --indigo:      #9d97ff;
+    --indigo-dark: #c1bdff;
+    --green:       #34d399;
+
+    --grid:        rgba(52, 211, 153, 0.15);   /* the green grid, stronger so it shows on black */
+    --soft-ink:    #dcdcd5;
+    --faint-ink:   #7f827a;
+    --wash:        rgba(243, 243, 238, 0.05);
+    --card-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 28px -18px rgba(0, 0, 0, 0.9);
+
+    --btn-indigo:     #5b52f0;
+    --btn-indigo-hov: #6c64f5;
+
+    color-scheme: dark;
+}
+
+/* The current page and the hand-coloured things */
+html[data-theme="dark"] .theme-paper .side-nav a.active { background: rgba(157, 151, 255, 0.16); color: var(--indigo-dark); }
+html[data-theme="dark"] .theme-paper .stat-value.muted { color: #3b3e3a; }
+
+/* Buttons: the same indigo, a step deeper so white text stays readable */
+html[data-theme="dark"] .theme-paper .btn-primary,
+html[data-theme="dark"] .theme-paper .btn-accent,
+html[data-theme="dark"] .theme-paper button.btn-primary,
+html[data-theme="dark"] .theme-paper #p-save {
+    background: var(--btn-indigo);
+    border-color: var(--btn-indigo);
+    color: #fff;
+}
+html[data-theme="dark"] .theme-paper .btn-primary:hover,
+html[data-theme="dark"] .theme-paper .btn-accent:hover,
+html[data-theme="dark"] .theme-paper button.btn-primary:hover { background: var(--btn-indigo-hov); border-color: var(--btn-indigo-hov); }
+html[data-theme="dark"] .theme-paper .btn-small:hover,
+html[data-theme="dark"] .theme-paper .btn-theme:hover { background: rgba(157, 151, 255, 0.14); }
+html[data-theme="dark"] .theme-paper .btn-danger { background: transparent; color: #fca5a5; border-color: rgba(248, 113, 113, 0.4); }
+html[data-theme="dark"] .theme-paper .btn-logout:hover { border-color: #f87171; color: #fca5a5; }
+
+/* Status colours: the light tints become translucent tints, the dark text becomes light */
+html[data-theme="dark"] .theme-paper .pill.ok      { background: rgba(52, 211, 153, 0.16);  color: #6ee7b7; }
+html[data-theme="dark"] .theme-paper .pill.info    { background: rgba(157, 151, 255, 0.18); color: #cfcbff; }
+html[data-theme="dark"] .theme-paper .pill.waiting { background: rgba(251, 191, 36, 0.16);  color: #fcd34d; }
+html[data-theme="dark"] .theme-paper .pill.bad     { background: rgba(248, 113, 113, 0.17); color: #fca5a5; }
+
+html[data-theme="dark"] .theme-paper .notice.pending {
+    background: rgba(248, 113, 113, 0.10);
+    border-color: rgba(248, 113, 113, 0.28);
+    border-left-color: #f87171;
+    color: #fecaca;
+}
+html[data-theme="dark"] .theme-paper .notice.pending i { color: #fca5a5; }
+html[data-theme="dark"] .theme-paper .notice.success {
+    background: rgba(52, 211, 153, 0.10);
+    border-color: rgba(52, 211, 153, 0.28);
+    border-left-color: #34d399;
+    color: #a7f3d0;
+}
+html[data-theme="dark"] .theme-paper .notice.info { border-left-color: rgba(157, 151, 255, 0.6); }
+
+html[data-theme="dark"] .theme-paper .msg.error,
+html[data-theme="dark"] .theme-paper .msg.pending { background: rgba(248, 113, 113, 0.12); color: #fca5a5; border-left-color: #f87171; }
+html[data-theme="dark"] .theme-paper .msg.success { background: rgba(52, 211, 153, 0.12); color: #6ee7b7; border-left-color: #34d399; }
+
+/* Tables, tabs, files, progress, loading */
+html[data-theme="dark"] .theme-paper .data-table .row-link:hover { background: var(--wash); }
+html[data-theme="dark"] .theme-paper .mode-opt.on { background: var(--surface); color: var(--indigo-dark); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
+html[data-theme="dark"] .theme-paper .upload-row input[type="file"]::file-selector-button { background: var(--surface); }
+html[data-theme="dark"] .theme-paper .upload-row input[type="file"]:hover { border-color: rgba(157, 151, 255, 0.6); }
+html[data-theme="dark"] .theme-paper .gu-status { background: var(--surface); }
+html[data-theme="dark"] .theme-paper .gu-status-track { background: rgba(255, 255, 255, 0.10); }
+html[data-theme="dark"] .theme-paper .gu-status.is-error { background: rgba(248, 113, 113, 0.10); }
+html[data-theme="dark"] .theme-paper .gu-status.is-done .gu-status-pct { color: #6ee7b7; }
+html[data-theme="dark"] .theme-paper .skeleton {
+    background: linear-gradient(90deg, #161816 25%, #202320 50%, #161816 75%);
+    background-size: 200% 100%;
+}
+html[data-theme="dark"] .theme-paper .empty .dim { color: var(--faint-ink); }
+html[data-theme="dark"] .theme-paper .prof-stat { background: rgba(255, 255, 255, 0.03); }
+html[data-theme="dark"] .theme-paper .avatar,
+html[data-theme="dark"] .theme-paper .prof-avatar { background: var(--btn-indigo); color: #fff; }
+
+/* Every text box and dropdown follows the theme, wherever it is */
+html[data-theme="dark"] .theme-paper input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]),
+html[data-theme="dark"] .theme-paper select,
+html[data-theme="dark"] .theme-paper textarea {
+    background-color: var(--surface);
+    color: var(--ink);
+    border-color: var(--line);
+}
+html[data-theme="dark"] .theme-paper input::placeholder,
+html[data-theme="dark"] .theme-paper textarea::placeholder { color: var(--faint-ink); opacity: 0.85; }
+html[data-theme="dark"] .theme-paper .search-box,
+html[data-theme="dark"] .theme-paper .search-wrap { background: var(--surface); border-color: var(--line); }
+
+
+/* ---- The student pages' extra stylesheets ----
+   prospectus.css and ai-chat.css use a few variables the dashboard itself never
+   defined (they fell back to cool greys). Defined here so those pages follow
+   the paper theme, light and dark. */
+
+.theme-paper {
+    --surface-2:   #f0ebdd;
+    --ink-2:       #5c574c;
+    --ink-3:       #8c8677;
+    --accent:      var(--indigo);
+    --accent-soft: #ece8fb;
+    --line-strong: #c9c1ad;
+}
+
+html[data-theme="dark"] .theme-paper {
+    --surface-2:   #161816;
+    --ink-2:       #a9aca4;
+    --ink-3:       #7f827a;
+    --accent:      var(--indigo);
+    --accent-soft: rgba(157, 151, 255, 0.14);
+    --line-strong: #3a3d3a;
+}
+
+/* Prospectus status chips */
+html[data-theme="dark"] .theme-paper .pg-chip.ok     { background: rgba(52, 211, 153, 0.16);  color: #6ee7b7; }
+html[data-theme="dark"] .theme-paper .pg-chip.info   { background: rgba(157, 151, 255, 0.18); color: #cfcbff; }
+html[data-theme="dark"] .theme-paper .pg-chip.open   { background: rgba(56, 189, 248, 0.14);  color: #7dd3fc; }
+html[data-theme="dark"] .theme-paper .pg-chip.danger { background: rgba(251, 191, 36, 0.15);  color: #fcd34d; }
+html[data-theme="dark"] .theme-paper .pg-chip.locked { background: rgba(248, 113, 113, 0.17); color: #fca5a5; }
+
+/* Selected states and anything else with a solid indigo ground: the deeper indigo, so white text reads */
+html[data-theme="dark"] .theme-paper .rec-chip.is-active,
+html[data-theme="dark"] .theme-paper .pref-choice[aria-pressed="true"],
+html[data-theme="dark"] .theme-paper .nav-count,
+html[data-theme="dark"] .theme-paper .unit-meter-fill:not(.is-planned),
+html[data-theme="dark"] .theme-paper .profile-avatar,
+html[data-theme="dark"] .theme-paper .chat-msg-user {
+    background: var(--btn-indigo);
+    border-color: var(--btn-indigo);
+    color: #fff;
+}
+html[data-theme="dark"] .theme-paper .rec-chip:hover,
+html[data-theme="dark"] .theme-paper .chat-chip:hover { background: rgba(157, 151, 255, 0.12); border-color: var(--indigo); }
+
+/* Chat */
+html[data-theme="dark"] .theme-paper .chat-form,
+html[data-theme="dark"] .theme-paper .chat-table,
+html[data-theme="dark"] .theme-paper .chat-chip { background: var(--surface); }
+
+/* ---- Build your plan ---- */
+.theme-paper .plan-bar { background: var(--surface); }
+.theme-paper .req-section-pick { background: var(--surface); }
+html[data-theme="dark"] .theme-paper .req-row:hover { background: rgba(157, 151, 255, 0.08); }
+html[data-theme="dark"] .theme-paper .req-row.has-clash { background: rgba(248, 113, 113, 0.10); border-color: rgba(248, 113, 113, 0.45); }
+html[data-theme="dark"] .theme-paper .req-clash { color: #fca5a5; }
+html[data-theme="dark"] .theme-paper .plan-bar-load .cb-hint.over-cap { color: #fca5a5; }
+html[data-theme="dark"] .theme-paper .unit-meter { background: rgba(255, 255, 255, 0.10); }
+html[data-theme="dark"] .theme-paper .unit-meter-fill.over-cap { background: #f87171; }
+html[data-theme="dark"] .theme-paper .req-reject-reason { color: #fca5a5; }
+html[data-theme="dark"] .theme-paper .btn-primary:disabled,
+html[data-theme="dark"] .theme-paper button.btn-primary:disabled { background: var(--btn-indigo); opacity: 0.5; }
+
+/* ---- Auto-select my plan, in the paper theme ---- */
+.theme-paper .auto-plan { background: var(--surface); box-shadow: var(--card-shadow); }
+html[data-theme="dark"] .theme-paper .auto-plan-icon { background: rgba(157, 151, 255, 0.16); }
+html[data-theme="dark"] .theme-paper .auto-plan-result.is-ok   { background: rgba(52, 211, 153, 0.12);  color: #6ee7b7; border-left-color: #34d399; }
+html[data-theme="dark"] .theme-paper .auto-plan-result.is-none { background: rgba(248, 113, 113, 0.12); color: #fca5a5; border-left-color: #f87171; }
+
+/* ---- My requests, in the paper theme ---- */
+.theme-paper .req-card { background: var(--surface); box-shadow: var(--card-shadow); }
+html[data-theme="dark"] .theme-paper .req-foot.is-ok { color: #6ee7b7; }
+html[data-theme="dark"] .theme-paper .req-item-note.is-bad,
+html[data-theme="dark"] .theme-paper .req-steps li.is-bad { color: #fca5a5; }
+html[data-theme="dark"] .theme-paper .req-steps li.is-bad .req-step-dot { background: #f87171; border-color: #f87171; }
+html[data-theme="dark"] .theme-paper .req-steps li.is-current .req-step-dot { box-shadow: 0 0 0 4px rgba(157, 151, 255, 0.2); }
+
+/* ---- Academic record, in the paper theme ---- */
+.theme-paper .rec-panel { background: var(--surface); box-shadow: var(--card-shadow); }
+.theme-paper .rec-year-head h3,
+.theme-paper .rec-head-title { font-family: var(--font-display); font-weight: 600; }
+.theme-paper .rec-year-head h3 { font-size: 1.35rem; }
+
+/* Profile photo buttons: the generic paper button surface (above) would turn
+   the camera badge cream and give the Remove link a box. Keep them as designed. */
+.theme-paper .photo-pick .photo-btn { background: var(--btn-indigo, var(--indigo)); border-color: var(--surface); color: #fff; }
+.theme-paper .photo-actions .btn-link { background: none; border: 0; }

@@ -6,7 +6,9 @@
 //
 //   - at least 8 characters, and at least one special character
 //   - an ADMIN account needs at least 12 characters (same special character rule)
-//   - at most 72: bcrypt ignores everything after that
+//   - spaces do not count toward the minimum: 8 spaces and a ! is not a password
+//   - at most 72 BYTES: bcrypt ignores everything after that, and an accented
+//     letter is 2 bytes, a Japanese character 3, an emoji 4
 //
 // A special character is anything that is not a letter, a digit or a space.
 //
@@ -29,6 +31,12 @@ const MAX       = 72;
 const isAdmin   = (role) => String(role ?? '').trim().toLowerCase() === 'admin';
 const minLength = (role) => (isAdmin(role) ? MIN_ADMIN : MIN);
 
+/* Length bcrypt sees: UTF-8 bytes, not characters. */
+const byteLength = (password) => new TextEncoder().encode(String(password ?? '')).length;
+
+/* Characters that are not whitespace; only these count toward the minimum. */
+const visibleLength = (password) => [...String(password ?? '').replace(/\s/g, '')].length;
+
 /* Not a letter, digit or space (any alphabet). */
 const hasSpecial = (password) => /[^\p{L}\p{N}\s]/u.test(String(password ?? ''));
 
@@ -36,8 +44,12 @@ const hasSpecial = (password) => /[^\p{L}\p{N}\s]/u.test(String(password ?? ''))
 function problem(password, role) {
     const pw  = typeof password === 'string' ? password : '';
     const min = minLength(role);
-    if (pw.length < min) return `Password must be at least ${min} characters.`;
-    if (pw.length > MAX) return `Password must be at most ${MAX} characters.`;
+    if (visibleLength(pw) < min) {
+        return `Password must be at least ${min} characters` + (/\s/.test(pw) ? ' (spaces do not count).' : '.');
+    }
+    if (byteLength(pw) > MAX) {
+        return `Password must be at most ${MAX} bytes (accented, emoji and non-Latin characters count as 2 to 4 each).`;
+    }
     if (!hasSpecial(pw)) return 'Password must include a special character, such as ! @ # $ or %.';
     return null;
 }
@@ -72,5 +84,5 @@ function generate(role, pick) {
     return chars.join('');
 }
 
-return { MIN, MIN_ADMIN, MAX, minLength, hasSpecial, problem, hint, generate };
+return { MIN, MIN_ADMIN, MAX, minLength, byteLength, hasSpecial, problem, hint, generate };
 }));

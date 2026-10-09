@@ -149,6 +149,7 @@ function readRows(picked) {
 function normCode(v) {
     return String(v ?? '')
         .trim()
+        .normalize('NFKC')
         .replace(/[‐-―−]/g, '-')
         .replace(/\s+/g, '')
         .toUpperCase();

@@ -105,5 +105,42 @@ function planRows(summary) {
     });
 }
 
-return { build, planRows, meetingText };
+const DAY_ORDER = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU'];
+const DAY_NAME = { M: 'Monday', T: 'Tuesday', W: 'Wednesday', TH: 'Thursday', F: 'Friday', S: 'Saturday', SU: 'Sunday' };
+
+/* The same rows laid out by day: Monday to Saturday always (Sunday only when something meets
+   on it), each day's meetings in time order, so "what do I have on Wednesday" is one look.
+   A meeting on several days ("MW") appears under each. Subjects with no meeting time are
+   returned in "unscheduled" so nothing silently disappears.
+     [{ code: 'M', name: 'Monday', items: [{ code, title, section, kind, start, end, span }] }] */
+function byDay(rows) {
+    const parse = SC && SC.parseDays ? SC.parseDays : () => [];
+    const minutes = (t) => { const [h, m] = String(t ?? '').split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
+    const days = new Map(DAY_ORDER.map(d => [d, []]));
+    const unscheduled = [];
+
+    for (const r of rows ?? []) {
+        let placed = false;
+        for (const m of r.meetings ?? []) {
+            for (const d of parse(m.days)) {
+                if (!days.has(d)) continue;
+                const span = m.start && m.end ? `${clock(m.start)}–${clock(m.end)}` : '';
+                days.get(d).push({ code: r.code, title: r.title, section: r.section, kind: m.kind, start: m.start, end: m.end, span });
+                placed = true;
+            }
+        }
+        if (!placed) unscheduled.push({ code: r.code, title: r.title, section: r.section });
+    }
+
+    const list = DAY_ORDER
+        .filter(d => d !== 'SU' || days.get(d).length)
+        .map(d => ({
+            code: d,
+            name: DAY_NAME[d],
+            items: days.get(d).sort((a, b) => (minutes(a.start) ?? 1e9) - (minutes(b.start) ?? 1e9) || a.code.localeCompare(b.code)),
+        }));
+    return { days: list, unscheduled };
+}
+
+return { build, planRows, meetingText, byDay };
 }));

@@ -160,3 +160,34 @@ test('an empty or missing summary gives no plan rows', () => {
     assert.deepEqual(T.planRows(null), []);
     assert.deepEqual(T.planRows({}), []);
 });
+
+test('by day: Monday to Saturday in order, each day in time order, a "MW" meeting under both days', () => {
+    const a = subj('DA'), b = subj('DB'), c = subj('DC');
+    const s = summaryOf([a, b, c], [
+        meet(a, '1', 'LEC', 'MW', '10:00', '11:30'),
+        meet(b, '1', 'LEC', 'MW', '08:00', '09:30'), meet(b, '1', 'LAB', 'SAT', '13:00', '16:00'),
+        meet(c, '1', 'LEC', 'TTH', '08:00', '09:30'),
+    ]);
+    const { days, unscheduled } = T.byDay(T.build(s).rows);
+    assert.deepEqual(days.map(d => d.name), ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']);
+    assert.deepEqual(days[0].items.map(i => i.code), ['DB', 'DA']);          // Monday, 8:00 before 10:00
+    assert.deepEqual(days[2].items.map(i => i.code), ['DB', 'DA']);          // Wednesday too
+    assert.deepEqual(days[1].items.map(i => i.code), ['DC']);                // Tuesday
+    assert.deepEqual(days[4].items, []);                                     // Friday is free
+    assert.equal(days[5].items[0].kind, 'LAB');                              // "SAT" is Saturday only
+    assert.equal(days[5].items[0].span, '1:00 PM–4:00 PM');
+    assert.deepEqual(unscheduled, []);
+});
+
+test('by day: Sunday appears only when something meets on it, and subjects with no time are kept aside', () => {
+    const a = subj('EA');
+    const s = summaryOf([a], [meet(a, '1', 'LEC', 'SUN', '09:00', '10:00')]);
+    const rows = [...T.build(s).rows, { code: 'EB', title: 'EB title', section: null, meetings: [] }];
+    const withSunday = T.byDay(rows);
+    assert.equal(withSunday.days.at(-1).name, 'Sunday');
+    assert.deepEqual(withSunday.unscheduled.map(u => u.code), ['EB']);
+
+    const none = T.byDay([]);
+    assert.equal(none.days.length, 6);
+    assert.deepEqual(none.unscheduled, []);
+});

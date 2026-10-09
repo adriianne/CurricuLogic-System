@@ -29,7 +29,7 @@ describe('problem', () => {
 
     test('a space is not a special character', () => {
         assert.match(P.problem('abcd efgh'), /special character/);
-        assert.match(P.problem('        '), /special character/);
+        assert.match(P.problem('        '), /at least 8/);
     });
 
     test('any symbol counts', () => {
@@ -45,6 +45,22 @@ describe('problem', () => {
     test('longer than 72 characters is refused', () => {
         assert.match(P.problem('a!'.repeat(37)), /at most 72/);   // 74
         assert.equal(P.problem('a!'.repeat(36)), null);           // 72
+    });
+
+    test('spaces do not count toward the minimum', () => {
+        assert.match(P.problem('        !'), /at least 8.*spaces do not count/);   // 8 spaces + !
+        assert.match(P.problem('a b c d e f!'), /at least 8/);                      // 7 visible
+        assert.equal(P.problem('abcd efg!'), null);                                 // 8 visible
+    });
+
+    test('the 72 limit counts bytes, not characters', () => {
+        assert.equal(P.byteLength('abc'), 3);
+        assert.equal(P.byteLength('é'), 2);
+        assert.equal(P.byteLength('田'), 3);
+        assert.equal(P.byteLength('😀'), 4);
+        assert.equal(P.problem('田'.repeat(23) + '!'), null);                       // 24 chars, 70 bytes
+        assert.match(P.problem('田'.repeat(24) + '!'), /at most 72 bytes/);         // 25 chars, 73 bytes
+        assert.match(P.problem('😀'.repeat(18) + '!'), /at most 72 bytes/);         // 19 chars, 73 bytes
     });
 
     test('missing or non-string input is refused, not thrown on', () => {
