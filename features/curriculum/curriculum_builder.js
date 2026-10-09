@@ -28,10 +28,14 @@ const YEARS = { 1: 'I — First Year', 2: 'II — Second Year',
 const TERMS = { 1: 'First Semester', 2: 'Second Semester', 3: 'Summer' };
 
 /* Real subject codes in this prospectus: CC-INTCOM11, ENGL 100, PE 101,
-   ELPHP1, IT-EL______. Uppercase letters, digits, hyphen, space and
-   underscore covers all of them; anything else is a typo. */
-// Must begin with a letter. "123123" is a typo, not a subject code.
-const CODE_OK  = /^[A-Z][A-Z0-9 \-_]*$/;
+   ELPHP1, IT-EL______. Letters, digits, hyphen, space and underscore
+   cover all of them; anything else is a typo. */
+// The shape rule (starts with a letter; "123123" is a typo) is SC.problem().
+
+/* How a code is cleaned and compared (shared/js/subjectcode.js): kept as typed,
+   but upper case, one kind of dash, single spaces. Two codes are the same
+   subject when their letters and digits match (ENGL 101 = ENGL-101). */
+const SC = window.CurriculogicSubjectCode;
 
 /* Titles are not letters-only. The prospectus has "Computer Programming 1",
    "Web Design & Development", "Applications Dev't & Emerging Tech.",
@@ -191,15 +195,15 @@ function validate() {
 
     for (const r of ROWS) {
         r.errors = [];
-        const code = r.code.trim().toUpperCase();
+        const code = SC.clean(r.code);
 
         // A wholly empty row is a row not filled in yet, not an error.
         if (!code && !r.title.trim() && r.lec === null && r.lab === null) continue;
 
         if (!code) {
             r.errors.push('Code is required.');
-        } else if (!CODE_OK.test(code)) {
-            r.errors.push('Use letters, digits, hyphens and spaces only.');
+        } else if (SC.problem(code)) {
+            r.errors.push(SC.problem(code));
         }
 
         if (!r.title.trim()) {
@@ -229,8 +233,8 @@ if (code) {
     const isPlaceholder = ph !== null && ph.num === null;
 
     if (!isPlaceholder) {
-        if (seen.has(code)) r.errors.push('This code is already used.');
-        else seen.set(code, code);
+        if (seen.has(SC.key(code))) r.errors.push('This code is already used.');
+        else seen.set(SC.key(code), code);
     }
 }
     }
@@ -945,7 +949,7 @@ async function existingCodes() {
         return null;                            // distinct from "none found"
     }
 
-    return new Set((data ?? []).map(r => String(r.code).toUpperCase()));
+    return new Set((data ?? []).map(r => SC.key(r.code)));
 }
 
 function preflight(taken) {
@@ -989,8 +993,8 @@ function preflight(taken) {
         // that is not a collision, it is the same row. Only a genuinely
         // new row (no dbId yet) whose code matches something already
         // saved is a real clash.
-        const clash = rows.filter(r => !r.dbId && taken.has(r.code.trim().toUpperCase()))
-                          .map(r => r.code.trim().toUpperCase());
+        const clash = rows.filter(r => !r.dbId && taken.has(SC.key(r.code)))
+                          .map(r => SC.clean(r.code));
         if (clash.length) {
             blockers.push(
                 `Already in this curriculum year: ${clash.slice(0, 6).join(', ')}` +
@@ -1201,9 +1205,8 @@ function fileToBase64(file) {
 async function analyzeDocument(file) {
     if (!file) return;
 
-    if (file.type !== 'application/pdf') {
-        return showAiStatus('Please upload a PDF file.', 'error');
-    }
+    const fileIssue = CurriculogicUploadLimits.fileProblem(file, 'pdf');
+    if (fileIssue) return showAiStatus(fileIssue, 'error');
 
     showAiStatus('Reading document\u2026');
     startProgress();
@@ -1226,7 +1229,12 @@ async function analyzeDocument(file) {
     if (error) {
         console.error('analyze-curriculum-document failed:', error);
         stopProgress();
-        return showAiStatus('The analysis service failed. Try again in a moment.', 'error');
+        // A refusal (signed out, wrong role, too large) is the person's to fix;
+        // anything else is the service having a bad moment.
+        return showAiStatus(
+            CurriculogicUploadLimits.aiProblem(error?.context?.status)
+                || 'The analysis service failed. Try again in a moment.',
+            'error');
     }
 
     if (!data || data.is_curriculum_document !== true) {
@@ -1266,7 +1274,7 @@ async function analyzeDocument(file) {
                 // Fall back to the code if the AI didn't return a type: FRE*
                 // is a free elective, EL* a programme elective, with or
                 // without a programme prefix (IT-EL1, BSN-FRE).
-                const code = String(item.code ?? '').toUpperCase();
+                const code = SC.clean(item.code);
                 if (/^(?:[A-Z0-9]+-)?FRE/.test(code))      electiveType = 'FREE';
                 else if (/^(?:[A-Z0-9]+-)?EL/.test(code))  electiveType = 'IT';
             }
@@ -1276,11 +1284,11 @@ async function analyzeDocument(file) {
         // Word-authored prospectus PDFs (BSN's is one) autocorrect a typed
         // "-" into an en dash (–) or em dash (—) in codes like
         // "HUM – REP 101". Gemini reads the document as an image and
-        // can carry that character through verbatim, which CODE_OK below
+        // can carry that character through verbatim, which the code check
         // would then reject as punctuation it doesn't recognize -- so it
         // is normalized back to a plain hyphen here, the one place raw
         // AI-extracted text enters ROWS.
-        row.code  = String(item.code ?? '').trim().toUpperCase().replace(/[–—]/g, '-');
+        row.code  = SC.clean(item.code);
         row.title = String(item.title ?? '').trim();
         row.lec   = Number.isFinite(item.lecture_units) ? item.lecture_units : null;
         row.lab   = Number.isFinite(item.laboratory_units) ? item.laboratory_units : null;
@@ -1288,7 +1296,7 @@ async function analyzeDocument(file) {
         row._aiNotes  = Array.isArray(item.prerequisite_notes) ? item.prerequisite_notes : [];
         row._aiMarker = item.footnote_marker ?? null;
         ROWS.push(row);
-        if (row.code) byCode.set(row.code, row);
+        if (row.code) byCode.set(SC.key(row.code), row);
     }
 
     const FN = window.CurriculogicFootnotes;
@@ -1300,7 +1308,7 @@ async function analyzeDocument(file) {
 
     for (const row of ROWS) {
         for (const prereqCode of row._aiPrereqCodes) {
-            const target = byCode.get(String(prereqCode).trim().toUpperCase());
+            const target = byCode.get(SC.key(prereqCode));
             // A prerequisite the AI named but that does not match any
             // extracted subject is dropped rather than guessed at -- the
             // reviewer sees the row with that prerequisite simply absent
@@ -1486,9 +1494,8 @@ function bind() {
             const file = e.target.files?.[0];
             e.target.value = '';   // allow re-selecting the same file later
             if (!file) return;
-            if (file.type !== 'application/pdf') {
-                return showAiStatus('Only PDF files are supported.', 'error');
-            }
+            const fileIssue = CurriculogicUploadLimits.fileProblem(file, 'pdf');
+            if (fileIssue) return showAiStatus(fileIssue, 'error');
             PENDING_AI_FILE = file;
             render();              // rebuilds the card so it shows the file
             return;
@@ -1719,7 +1726,7 @@ function toSubjectRows() {
     return filled().filter(r => !r.dbId).map(r => ({
         prospectus_id: OPTS.prospectusId,
         created_by:    OPTS.staffId,
-        code:          r.code.trim().toUpperCase(),
+        code:          SC.clean(r.code),
         title:         r.title.trim(),
         units:         unitsOf(r),
         lec_units:     r.lec ?? 0,
@@ -1791,7 +1798,7 @@ async function saveDraft() {
         .select('id, code')
         .eq('prospectus_id', OPTS.prospectusId);
 
-    const existingCodes = new Set((existingSubjects ?? []).map(s => s.code.toUpperCase()));
+    const existingCodes = new Set((existingSubjects ?? []).map(s => SC.key(s.code)));
 
     // After inserting subjects, refresh the version status from database
 const { data: freshVersion } = await SB
@@ -1815,7 +1822,7 @@ if (freshVersion) {
     // STEP 3: Filter out rows that already exist
     // ──────────────────────────────────────────────────────────────
     const newRows = rowsToSave.filter(r => 
-        r.code.trim() && !existingCodes.has(r.code.trim().toUpperCase())
+        r.code.trim() && !existingCodes.has(SC.key(r.code))
     );
 
     const validRows = newRows.filter(r => r.errors.length === 0);
@@ -1855,7 +1862,7 @@ if (freshVersion) {
     const subjectRows = validRows.map(r => ({
         prospectus_id: OPTS.prospectusId,
         created_by: OPTS.staffId,
-        code: r.code.trim().toUpperCase(),
+        code: SC.clean(r.code),
         title: r.title.trim(),
         units: (r.lec || 0) + (r.lab || 0),
         lec_units: r.lec || 0,
@@ -1884,7 +1891,7 @@ if (freshVersion) {
     // STEP 5: ⭐ BUILD COMPLETE CODE → ID MAP (EXISTING + NEW)
     // ──────────────────────────────────────────────────────────────
     const allSubjects = [...(existingSubjects ?? []), ...inserted];
-    const byCode = new Map(allSubjects.map(s => [s.code.toUpperCase(), s.id]));
+    const byCode = new Map(allSubjects.map(s => [SC.key(s.code), s.id]));
 
     // ──────────────────────────────────────────────────────────────
     // STEP 6: Save prerequisites using the complete map
@@ -1892,7 +1899,7 @@ if (freshVersion) {
     const ruleRows = [];
 
     for (const r of validRows) {
-        const subjectId = byCode.get(r.code.trim().toUpperCase());
+        const subjectId = byCode.get(SC.key(r.code));
         if (!subjectId) continue;
 
         // Check if prerequisites already exist for this subject
@@ -1926,7 +1933,7 @@ if (freshVersion) {
                 // Find the target subject
                 const target = rowByUid.get(p.uid);
                 if (target) {
-                    const targetCode = target.code.trim().toUpperCase();
+                    const targetCode = SC.key(target.code);
                     const targetId = byCode.get(targetCode);
 
                     // ⭐ This will now work for BOTH new AND existing subjects
@@ -1968,9 +1975,9 @@ if (freshVersion) {
     // ──────────────────────────────────────────────────────────────
     // STEP 8: Mark rows as saved and update counts
     // ──────────────────────────────────────────────────────────────
-    const insertedMap = new Map(inserted.map(s => [s.code, s.id]));
+    const insertedMap = new Map(inserted.map(s => [SC.key(s.code), s.id]));
     for (const r of validRows) {
-        const savedId = insertedMap.get(r.code.trim().toUpperCase());
+        const savedId = insertedMap.get(SC.key(r.code));
         if (savedId) r.dbId = savedId;
     }
 
@@ -2045,7 +2052,7 @@ function applyExisting(data) {
 
     for (const r of data.subjects) {
         const row = blank(r.year_level, r.term);
-        row.code       = String(r.code ?? '').toUpperCase();
+        row.code       = SC.clean(r.code);
         row.title      = r.title ?? '';
         row.lec        = r.lec_units == null ? null : Number(r.lec_units);
         row.lab          = Number(r.lab_units) || null;
@@ -2106,7 +2113,7 @@ function applyDraft(draft) {
     const byCode = new Map();
     for (const r of draft.subjects) {
         const row = blank(r.year_level, r.term);
-        row.code  = String(r.code ?? '').toUpperCase();
+        row.code  = SC.clean(r.code);
         row.title = r.title ?? '';
 
         // stg_subject holds total units only; split it the way the builder
@@ -2117,17 +2124,17 @@ function applyDraft(draft) {
         row.labTouched = true;
 
         ROWS.push(row);
-        byCode.set(row.code, row);
+        byCode.set(SC.key(row.code), row);
     }
 
     for (const rule of draft.rules) {
-        const owner = byCode.get(String(rule.subject_code ?? '').toUpperCase());
+        const owner = byCode.get(SC.key(rule.subject_code));
         if (!owner) continue;
 
         if (rule.requirement_type === 'standing') {
             owner.prereqs.push(standingFromDb(rule.threshold_value));
         } else {
-            const target = byCode.get(String(rule.prerequisite_code ?? '').toUpperCase());
+            const target = byCode.get(SC.key(rule.prerequisite_code));
             if (target) owner.prereqs.push({ uid: target.uid });
         }
     }
@@ -2223,9 +2230,9 @@ async function commit() {
     // with dbId) -- without this, a brand-new subject's prerequisite on
     // one of those already-saved subjects can't find its id in `data`
     // (which only holds rows inserted *this* call) and silently drops.
-    const byCode = new Map(data.map(s => [s.code, s.id]));
+    const byCode = new Map(data.map(s => [SC.key(s.code), s.id]));
     for (const r of filled()) {
-        if (r.dbId) byCode.set(r.code.trim().toUpperCase(), r.dbId);
+        if (r.dbId) byCode.set(SC.key(r.code), r.dbId);
     }
     const rules  = [];
 
@@ -2233,7 +2240,7 @@ async function commit() {
     // already-saved subject's rules were written when IT was saved;
     // rebuilding them again would insert duplicates alongside them.
     for (const r of filled().filter(row => !row.dbId)) {
-        const id = byCode.get(r.code.trim().toUpperCase());
+        const id = byCode.get(SC.key(r.code));
         if (!id) continue;
 
         r.prereqs.forEach((p, i) => {
@@ -2241,7 +2248,7 @@ async function commit() {
             rules.push({
                 subject_id:              id,
                 prerequisite_subject_id: target
-                    ? byCode.get(target.code.trim().toUpperCase())
+                    ? byCode.get(SC.key(target.code))
                     : null,
                 requirement_type: p.standing ? 'standing' : 'prerequisite',
                 rule_type:        'and',

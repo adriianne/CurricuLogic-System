@@ -10,10 +10,16 @@
 (function () {
 'use strict';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey, authOptions } = window.CURRICULOGIC ?? {};
 
+// Bucketed storage key (see config.js) -- faculty, registrar and
+// department share the "staff" bucket, since they already share one
+// login page/form; this just keeps that bucket separate from student
+// and admin sessions in other tabs.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: authOptions ? authOptions(['faculty_staff']) : { storageKey: authStorageKey?.(['faculty_staff']) },
+    })
     : null;
 
 const $ = (id) => document.getElementById(id);
@@ -69,6 +75,7 @@ const VIEWS = {
     students:  'Students',
     student:   'Student detail',
     requests:  'Advising requests',
+    prospectus: 'Prospectus',
     profile:   'Profile',
 };
 
@@ -101,6 +108,7 @@ function showView(name, param) {
 
     if (name === 'students') loadStudents();
     if (name === 'student' && param) openStudent(param);
+    if (name === 'prospectus') loadProspectusPage();
 
     if (name === 'requests') {
         const inDetail = !!param;
@@ -111,6 +119,27 @@ function showView(name, param) {
         if (inDetail) loadRequestDetail(param);
         else          loadRequestQueue();
     }
+}
+
+/* The curriculum, by year, read-only. Every published version of the
+   adviser's own programme (access rules already limit it to that), including
+   older ones a student may still be on. */
+async function loadProspectusPage() {
+    const body = $('prospectus-grid');
+    const sel  = $('pros-version');
+    if (!body || !sel) return;
+
+    if (typeof window.ProspectusGrid === 'undefined') {
+        console.error('prospectusgrid.js not loaded');
+        body.innerHTML = '<div class="empty"><h3>Could not load the curriculum</h3></div>';
+        return;
+    }
+    if (PREVIEW) {
+        body.innerHTML = '<div class="empty"><h3>Preview mode</h3>' +
+            '<p>The curriculum is not loaded in preview.</p></div>';
+        return;
+    }
+    await window.ProspectusGrid.mountVersions(supabase, { select: sel, body, title: $('pros-title') });
 }
 
 function route() {
@@ -155,6 +184,14 @@ function setText(id, value, className) {
     if (className) el.className = className;
 }
 
+/* A student's degree, looked up from their program_id rather than typed.
+   No programme set reads "—". Preview has no database, so it shows the
+   sample programme its fixtures describe. */
+function programName(student) {
+    return window.CurriculogicPrograms?.nameOf(student?.program_id, PREVIEW ? 'BS Information Technology' : '—')
+        ?? '—';
+}
+
 function ordinal(n) {
     const map = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year', 5: '5th Year' };
     return map[n] || null;
@@ -175,7 +212,8 @@ function statusClass(s) {
 }
 
 function statusLabel(s) {
-    return { PASSED: 'Passed', FAILED: 'Failed', ENROLLED: 'Enrolled', DROPPED: 'Dropped' }[s] || s;
+    // An unknown status is shown as it is, but as text: this goes into HTML.
+    return { PASSED: 'Passed', FAILED: 'Failed', ENROLLED: 'Enrolled', DROPPED: 'Dropped' }[s] || escapeHtml(s);
 }
 
 function showMsg(id, text, type = 'error') {
@@ -280,7 +318,8 @@ async function submitPasswordChange(close) {
     const confirm = $('pw-confirm')?.value ?? '';
 
     if (!current) return showMsg('pw-msg', 'Enter your current password.');
-    if (next.length < 8) return showMsg('pw-msg', 'New password must be at least 8 characters.');
+    const pwProblem = CurriculogicPasswordRules.problem(next);
+    if (pwProblem) return showMsg('pw-msg', pwProblem);
     if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
 
     const btn = $('pw-submit');
@@ -312,9 +351,7 @@ async function submitPasswordChange(close) {
 
     // 3. Clear the must-change flag if it was set.
     if (FACULTY?.must_change_password && FACULTY?.id) {
-        await supabase.from('faculty_staff')
-            .update({ must_change_password: false })
-            .eq('id', FACULTY.id);
+        await supabase.rpc('clear_must_change_password');
         FACULTY = { ...FACULTY, must_change_password: false };
     }
 
@@ -345,7 +382,7 @@ async function loadStudents(force = false) {
 
     const { data, error } = await supabase
         .from('university_student')
-        .select('id, user_id, first_name, last_name, student_id, email, year_level, is_approved, record_verified, prospectus_id')
+        .select('id, user_id, first_name, last_name, student_id, email, year_level, is_approved, record_verified, prospectus_id, program_id')
         .order('last_name', { ascending: true });
 
     if (error) {
@@ -539,7 +576,7 @@ async function kbFor(prospectusId) {
 
     const [subs, rules] = await Promise.all([
         supabase.from('subject')
-            .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, category')
+            .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, elective_type, category, is_active')
             .eq('prospectus_id', prospectusId),
         supabase.from('prerequisite')
             .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
@@ -627,7 +664,7 @@ async function openStudent(studentRowId) {
 
     setText('detail-name', fullName(student) || '—');
     setText('detail-sub',
-        `${student.student_id || 'No ID'} · ${ordinal(student.year_level) || 'Year not set'} · BS Information Technology`);
+        `${student.student_id || 'No ID'} · ${ordinal(student.year_level) || 'Year not set'} · ${programName(student)}`);
 
     const eligNote = $('detail-elig-note');
     const eligBody = $('detail-elig-body');
@@ -728,6 +765,10 @@ async function openStudent(studentRowId) {
             label: document.querySelector('.topbar-term')?.textContent?.trim() ?? '',
         },
         adviser: fullName(FACULTY) || 'Faculty adviser',
+        program: {
+            name: programName(student),
+            college: window.CurriculogicPrograms?.collegeOf(student.program_id, '') ?? '',
+        },
     };
     const slipBtn = $('print-slip');
     if (slipBtn) slipBtn.hidden = false;
@@ -1012,32 +1053,33 @@ async function loadRequestDetail(requestId) {
 
     bodyEl.innerHTML = renderRequestTable(items);
 
-    // There is deliberately no print action here. The plan Faculty
-    // approves still needs the Registrar's final sign-off, and printing
-    // it at this stage would produce a document a student could carry
-    // to enrollment before it's actually final -- the same ambiguity as
-    // having two "official" approvals. The printable plan lives on the
-    // Registrar's Advising queue, gated on their approval.
+    // The adviser's approval is final, so the adviser prints the enrollment
+    // form once the plan is approved (see shared/js/requeststatus.js). A plan
+    // the Registrar sent back under the old two-step flow stays closed.
     if (footEl) {
-        if (req.registrar_status === 'approved') {
+        const RS = window.CurriculogicRequestStatus;
+        if (RS.finalApproved(req)) {
             footEl.innerHTML = `
                 <p class="dim">
                     <i class="fa-solid fa-check" aria-hidden="true"></i>
-                    Approved by the Registrar. The student's plan is printable from the
-                    Registrar's Advising queue.
-                </p>`;
-        } else if (req.registrar_status === 'rejected') {
+                    Approved for enrollment. Print the enrollment form for the student to sign.
+                </p>
+                <button class="btn-small" id="print-enrollment-form" data-print-request="${req.id}">
+                    <i class="fa-solid fa-print" aria-hidden="true"></i>
+                    Print enrollment form
+                </button>`;
+            footEl.querySelector('[data-print-request]')?.addEventListener('click', async () => {
+                const result = await window.AdvisingSlip.printApprovedRequest(supabase, req.id, {
+                    programName: (s) => window.CurriculogicPrograms?.nameOf(s?.program_id, '') ?? '',
+                });
+                if (!result.ok) showMsg('req-detail-msg', result.error);
+            });
+        } else if (RS.sentBack(req)) {
             footEl.innerHTML = `
                 <p class="dim">
                     <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
-                    Sent back by the Registrar. This request is closed; the student will
+                    This plan was sent back earlier. It is closed; the student will
                     submit a new one.
-                </p>`;
-        } else if (req.status === 'approved' || req.status === 'partially_approved') {
-            footEl.innerHTML = `
-                <p class="dim">
-                    <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i>
-                    Awaiting the Registrar's final review before this plan is printable.
                 </p>`;
         } else {
             footEl.innerHTML = '';
@@ -1184,6 +1226,13 @@ async function reviewRequestItem(itemId, decision, note = null) {
     loadRequestCount();
 }
 
+// The database refuses a longer rejection reason (db/050). A prompt() box has
+// no length limit of its own, so the length is checked here, before saving.
+const REMARK_MAX = 500;
+const remarkTooLong = (text) => (text && text.length > REMARK_MAX
+    ? `That reason is ${text.length} characters. Please keep it under ${REMARK_MAX}.`
+    : null);
+
 async function reviewRequestBulk(requestId, decision) {
     if (!supabase || !FACULTY) return;
 
@@ -1197,6 +1246,8 @@ async function reviewRequestBulk(requestId, decision) {
             return showMsg('req-detail-msg', 'A reason is required when rejecting.');
         }
         note = note.trim();
+        const tooLong = remarkTooLong(note);
+        if (tooLong) return showMsg('req-detail-msg', tooLong);
     }
 
     const { data: items, error } = await supabase
@@ -1292,7 +1343,13 @@ async function recordReview(requestId, status, remarks) {
         .limit(1)
         .maybeSingle();
 
-    const row = { status, remarks, reviewed_at: new Date().toISOString() };
+    // The joined reasons of a long plan can pass the database's 5000-character
+    // limit on a review (db/050); cut rather than fail the review.
+    const row = {
+        status,
+        remarks: remarks == null ? null : String(remarks).slice(0, 5000),
+        reviewed_at: new Date().toISOString(),
+    };
 
     const { error } = existing
         ? await supabase.from('request_review').update(row).eq('id', existing.id)
@@ -1330,17 +1387,27 @@ async function notifyStudentOfReview(requestId) {
 
     if (error || !request?.student?.user_id) return;
 
-    const label = {
-        approved:           'approved',
-        partially_approved: 'partially approved',
-        rejected:           'rejected',
-    }[request.status] ?? 'reviewed';
+    // The adviser's approval is final, so the notice says what it now means.
+    const note = {
+        approved: {
+            title: 'Advising plan approved for enrollment',
+            message: 'Your adviser approved your plan. It is now approved for enrollment, and your adviser can print your enrollment form.',
+        },
+        partially_approved: {
+            title: 'Advising plan partly approved',
+            message: 'Your adviser approved part of your plan. Open it to see which subjects were approved, and the remarks.',
+        },
+        rejected: {
+            title: 'Advising plan not approved',
+            message: 'Your adviser did not approve your plan. Open it to see the remarks, then send a new one.',
+        },
+    }[request.status] ?? { title: 'Advising plan reviewed', message: 'Your adviser reviewed your plan. Open it to see the decisions.' };
 
     await supabase.from('notification').insert({
         user_id: request.student.user_id,
         type: 'request_reviewed',
-        title: `Advising request ${label}`,
-        message: `Your adviser has ${label} your advising request. Open it to see the decisions.`,
+        title: note.title,
+        message: note.message,
         related_request_id: request.id,
         is_read: false,
     });
@@ -1382,6 +1449,8 @@ $('view-requests')?.addEventListener('click', (e) => {
     if (reject) {
         const reason = window.prompt('Reason for rejecting this subject?');
         if (reason === null) return;
+        const tooLong = remarkTooLong(reason.trim());
+        if (tooLong) return showMsg(parseHash().param ? 'req-detail-msg' : 'req-msg', tooLong);
         return reviewRequestItem(
             Number(reject.dataset.rejectItem), 'rejected', reason.trim() || null);
     }
@@ -1456,6 +1525,10 @@ $('view-requests')?.addEventListener('click', (e) => {
     FACULTY = staff;
     renderProfile(staff, session.user.email);
     renderNotice(staff);
+    window.CurriculogicForcePassword?.run(supabase, 'faculty');
+
+    // Looked up, not typed: each student's line names their own degree.
+    await window.CurriculogicPrograms?.load(supabase);
 
     await loadStudents();
     loadRequestCount();

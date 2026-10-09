@@ -244,7 +244,8 @@ function renderProfile(student, authEmail) {
     const full  = [first, last].filter(Boolean).join(' ');
     const email = student?.email || authEmail || '—';
 
-    $('avatar').textContent    = initials(first, last, email);
+    PHOTO_INITIALS = initials(first, last, email);
+    $('avatar').textContent    = PHOTO_INITIALS;
     $('user-name').textContent = full || email;
     $('user-sub').textContent  = student?.student_id || '';
 
@@ -266,11 +267,79 @@ function renderProfile(student, authEmail) {
         : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Pending with Registrar</span>';
 
     // Profile header: the same facts again, given a face.
-    setText('prof-avatar', initials(first, last, email));
+    setText('prof-avatar', PHOTO_INITIALS);
     setText('prof-name', full || email);
     setText('prof-sub', [student?.student_id, programName(student), ordinal(student?.year_level)]
         .filter(Boolean).join(' · '));
 }
+
+/* Profile photo. Stored privately per account (db/064); everything the page
+   needs is in shared/js/profilephoto.js. Preview has no storage, so a picture
+   chosen there is only held in memory until the page is closed. */
+let PHOTO_URL = null;
+let PHOTO_INITIALS = '';
+
+function showPhoto(url) {
+    PHOTO_URL = url || null;
+    window.CurriculogicPhoto.paint($('avatar'), PHOTO_URL, PHOTO_INITIALS);
+    window.CurriculogicPhoto.paint($('prof-avatar'), PHOTO_URL, PHOTO_INITIALS);
+    const rm = $('photo-remove');
+    if (rm) rm.hidden = !PHOTO_URL;
+}
+
+async function loadPhoto() {
+    if (PREVIEW || !supabase || !AUTH_UID) return;
+    showPhoto(await window.CurriculogicPhoto.signedUrl(supabase, AUTH_UID));
+}
+
+function photoMessage(text, isError) {
+    const box = $('photo-msg');
+    if (!box) return;
+    box.textContent = text || '';
+    box.classList.toggle('is-error', !!isError);
+}
+
+$('photo-change')?.addEventListener('click', () => $('photo-file')?.click());
+
+$('photo-file')?.addEventListener('change', async (e) => {
+    const input = e.target;
+    const file = input.files?.[0];
+    input.value = '';                      // choosing the same file again must still fire
+    if (!file) return;
+
+    const Photo = window.CurriculogicPhoto;
+    const bad = Photo.problem(file);
+    if (bad) return photoMessage(bad, true);
+
+    photoMessage('Saving…');
+    $('photo-change').disabled = true;
+    try {
+        const blob = await Photo.prepare(file);
+        if (PREVIEW || !supabase || !AUTH_UID) {
+            showPhoto(URL.createObjectURL(blob));
+            photoMessage('Photo updated (preview only, not saved).');
+        } else {
+            await Photo.upload(supabase, AUTH_UID, blob);
+            showPhoto(await Photo.signedUrl(supabase, AUTH_UID));
+            photoMessage('Photo updated.');
+        }
+    } catch (err) {
+        photoMessage(err.message || 'The photo could not be saved.', true);
+    } finally {
+        $('photo-change').disabled = false;
+    }
+});
+
+$('photo-remove')?.addEventListener('click', async () => {
+    photoMessage('Removing…');
+    try {
+        if (!PREVIEW && supabase && AUTH_UID) await window.CurriculogicPhoto.remove(supabase, AUTH_UID);
+        showPhoto(null);
+        photoMessage('Photo removed.');
+    } catch (err) {
+        photoMessage(err.message || 'The photo could not be removed.', true);
+    }
+});
 
 /* The parts of Profile that need data beyond the student row: progress
    from the assessment already computed at boot, and the curriculum
@@ -1417,7 +1486,7 @@ function showChatFollowUps(lastReply) {
     box.hidden = questions.length === 0;
 }
 
-function appendChatMessage(role, text, table, schedule) {
+function appendChatMessage(role, text, table, schedule, scheduleLayout) {
     const log = $('chat-log');
     if (!log) return null;
 
@@ -1429,7 +1498,7 @@ function appendChatMessage(role, text, table, schedule) {
         // as activity, not as a message the assistant sent.
         bubble.innerHTML = '<span class="typing" aria-label="Cura is typing"><i></i><i></i><i></i></span>';
     } else {
-        bubble.innerHTML = `<p>${escapeHtml(text)}</p>` + renderChatTable(table) + renderScheduleTable(schedule);
+        bubble.innerHTML = `<p>${escapeHtml(text)}</p>` + renderChatTable(table) + renderScheduleTable(schedule && { ...schedule, layout: scheduleLayout });
     }
 
     // The assistant gets its avatar; the student's own messages do not
@@ -1471,12 +1540,52 @@ function renderScheduleTable(schedule) {
             ? ' — ' + (schedule.changes ?? []).map(escapeHtml).join('; ') : ''}.</p>`
         : '';
 
-    return `${head}
-        <table class="chat-table chat-schedule">
-            <thead><tr><th>Code</th><th>Section</th><th>When</th></tr></thead>
-            <tbody>${rows}</tbody>
-        </table>${left}`;
+    // The same plan laid out by day, Monday first (shared/js/scheduletable.js). Both views are
+    // drawn; the toggle only switches which one shows, so nothing is fetched or recomputed.
+    const T = window.CurriculogicScheduleTable;
+    const grouped = T?.byDay ? T.byDay(schedule.rows ?? []) : null;
+    const dayRows = grouped ? grouped.days.map(d => `
+        <tr>
+            <th scope="row" class="sched-day">${escapeHtml(d.name)}</th>
+            <td>${d.items.length
+                ? d.items.map(i => `<span class="sched-line${i.kind === 'LAB' ? ' is-lab' : ''}"><span class="mono">${escapeHtml(i.code)}</span>${i.section ? ` <span class="dim">${escapeHtml(i.section)}</span>` : ''} &middot; ${escapeHtml(i.span || 'time not set')}${i.kind === 'LAB' ? ' (lab)' : ''}</span>`).join('')
+                : '<span class="dim">No classes</span>'}</td>
+        </tr>`).join('') : '';
+    const noTime = grouped?.unscheduled.length
+        ? `<p class="chat-notinplan"><strong>No meeting time yet:</strong> ${grouped.unscheduled.map(u => escapeHtml(u.code)).join(', ')}.</p>`
+        : '';
+
+    const layout = schedule.layout === 'byDay' && grouped ? 'byDay' : 'bySubject';
+    const toggle = grouped
+        ? `<div class="chat-sched-toggle" role="group" aria-label="Schedule layout">
+            <button type="button" data-sched-layout="bySubject" aria-pressed="${layout === 'bySubject'}">By subject</button>
+            <button type="button" data-sched-layout="byDay" aria-pressed="${layout === 'byDay'}">By day</button>
+        </div>` : '';
+
+    return `${head}${toggle}
+        <div class="chat-sched" data-layout="${layout}">
+            <table class="chat-table chat-schedule chat-sched-subject">
+                <thead><tr><th>Code</th><th>Section</th><th>When</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+            <table class="chat-table chat-schedule chat-sched-day">
+                <thead><tr><th>Day</th><th>Classes</th></tr></thead>
+                <tbody>${dayRows}</tbody>
+            </table>
+            <div class="chat-sched-day">${noTime}</div>
+        </div>${left}`;
 }
+
+/* The By subject / By day switch under a schedule table. */
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-sched-layout]');
+    if (!btn) return;
+    const wrap = btn.closest('.chat-msg')?.querySelector('.chat-sched');
+    if (!wrap) return;
+    wrap.dataset.layout = btn.dataset.schedLayout;
+    btn.parentElement.querySelectorAll('[data-sched-layout]').forEach(b =>
+        b.setAttribute('aria-pressed', String(b === btn)));
+});
 
 function renderChatTable(entries) {
     if (!entries || !entries.length) return '';
@@ -1534,7 +1643,7 @@ $('chat-form')?.addEventListener('submit', async (e) => {
     try {
         const result = await window.EligibilityChat.sendChatMessage(supabase, text);
         pending?.remove();
-        appendChatMessage('model', result.text, result.table, result.schedule);
+        appendChatMessage('model', result.text, result.table, result.schedule, result.scheduleLayout);
         showChatFollowUps({ table: !!result.table?.length });
     } catch (err) {
         console.warn('chat send failed:', err);
@@ -2441,6 +2550,7 @@ $('notif-mark-read')?.addEventListener('click', async () => {
 
 function render(student, email) {
     renderProfile(student, email);
+    loadPhoto();
     renderNotice(student);
     renderStats();
     renderEligibility(student);

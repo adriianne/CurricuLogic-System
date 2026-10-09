@@ -12,11 +12,11 @@
     <link rel="stylesheet" href="grade_upload.css">
     <link rel="stylesheet" href="../prospectus/prospectus.css">
     <link rel="stylesheet" href="../curriculum/curriculum_builder.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha384-PPIZEGYM1v8zp5Py7UjFb79S58UeqCL9pYVnVPURKEqvioPROaVAJKKLzvH2rDnI" crossorigin="anonymous">
+    <script src="../../shared/js/vendor/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" integrity="sha384-Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz" crossorigin="anonymous"></script>
 </head>
-<body>
+<body data-idle-role="department_staff">
 
 <div class="shell" id="shell">
 
@@ -77,7 +77,7 @@
             <label class="topbar-program" id="dept-program-wrap">
                 <span class="topbar-program-label">Programme</span>
                 <input type="text" id="dept-program" class="topbar-program-field" value="—"
-                       readonly tabindex="-1" aria-label="Programme this account belongs to">
+                    eadonly tabindex="-1" aria-label="Programme this account belongs to">
             </label>
 
             <div class="topbar-user">
@@ -291,7 +291,7 @@
                                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                                 <input type="search" id="subject-search"
                                        placeholder="Search code or title"
-                                       autocomplete="off" aria-label="Search subjects">
+                                       autocomplete="off" aria-label="Search subjects" maxlength="100">
                             </div>
                             <select id="year-filter" aria-label="Filter by year">
                                 <option value="all">All years</option>
@@ -316,7 +316,7 @@
             </section>
 
             <!-- Subject detail -->
-            <section class="view" id="view-subject" hidden>
+            <section class="view view-wide" id="view-subject" hidden>
 
                 <div class="page-head">
                     <a href="#curriculum" class="back-link">
@@ -338,11 +338,11 @@
                         <div class="form-grid">
                             <div class="field">
                                 <label for="e-code">Code</label>
-                                <input type="text" id="e-code" autocomplete="off">
+                                <input type="text" id="e-code" autocomplete="off" maxlength="20">
                             </div>
                             <div class="field">
                                 <label for="e-title">Descriptive title</label>
-                                <input type="text" id="e-title" autocomplete="off">
+                                <input type="text" id="e-title" autocomplete="off" maxlength="150">
                             </div>
                             <div class="field field-sm">
                                 <label for="e-lec">Lecture units</label>
@@ -748,7 +748,7 @@
 </section>
 
             <!-- Profile -->
-<section class="view" id="view-profile" hidden>
+<section class="view view-wide" id="view-profile" hidden>
 
     <div class="page-head">
         <h1 class="page-title">Profile</h1>
@@ -804,15 +804,15 @@
                 <div class="form-grid">
                     <div class="field">
                         <label for="p-first">First name</label>
-                        <input type="text" id="p-first" autocomplete="given-name">
+                        <input type="text" id="p-first" autocomplete="given-name" maxlength="60">
                     </div>
                     <div class="field">
                         <label for="p-last">Last name</label>
-                        <input type="text" id="p-last" autocomplete="family-name">
+                        <input type="text" id="p-last" autocomplete="family-name" maxlength="60">
                     </div>
                     <div class="field">
                         <label for="p-dept">Department</label>
-                        <input type="text" id="p-dept" autocomplete="organization">
+                        <input type="text" id="p-dept" autocomplete="organization" maxlength="100">
                     </div>
                 </div>
                 <div class="review-actions">
@@ -900,16 +900,16 @@
 
             <div class="field" style="margin-bottom: var(--s2);">
                 <label for="pw-current">Current password</label>
-                <input type="password" id="pw-current" autocomplete="current-password">
+                <input type="password" id="pw-current" autocomplete="current-password" maxlength="72">
             </div>
             <div class="field" style="margin-bottom: var(--s2);">
                 <label for="pw-new">New password</label>
-                <input type="password" id="pw-new" autocomplete="new-password">
-                <p class="pw-hint">At least 8 characters.</p>
+                <input type="password" id="pw-new" autocomplete="new-password" maxlength="72">
+                <p class="pw-hint">At least 8 characters, including a special character (! @ # $ %).</p>
             </div>
             <div class="field" style="margin-bottom: var(--s3);">
                 <label for="pw-confirm">Confirm new password</label>
-                <input type="password" id="pw-confirm" autocomplete="new-password">
+                <input type="password" id="pw-confirm" autocomplete="new-password" maxlength="72">
             </div>
 
             <div class="act-actions">
@@ -944,7 +944,7 @@
                     Type <code id="del-year-code"></code> to confirm
                 </label>
                 <input type="text" id="del-confirm-input" autocomplete="off"
-                    inputmode="numeric" spellcheck="false">
+                    inputmode="numeric" spellcheck="false" maxlength="20">
             </div>
 
             <div class="del-actions">
@@ -956,8 +956,9 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
 <script src="../../shared/js/config.js"></script>
+<script src="../../shared/js/idlesignout.js"></script>
 <script src="../../shared/js/systemconfig.js"></script>
 <script src="../../shared/js/programs.js"></script>
 <script src="../../shared/js/requeststatus.js"></script>
@@ -967,7 +968,11 @@
 <script src="../../shared/js/prospectusgrid.js"></script>
 <script src="../../shared/js/electives.js"></script>
 <script src="../../shared/js/footnotes.js"></script>
+<script src="../../shared/js/uploadlimits.js"></script>
+<script src="../../shared/js/subjectcode.js"></script>
 <script src="../curriculum/curriculum_builder.js"></script>
+<script src="../../shared/js/passwordrules.js"></script>
+<script src="../../shared/js/forcepasswordchange.js"></script>
 <script src="departmentdashboard.js"></script>
 </body>
 </html>

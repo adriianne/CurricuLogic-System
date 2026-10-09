@@ -391,7 +391,13 @@
                     </div>
 
                     <section class="card prof-hero">
-                        <div class="prof-avatar" id="prof-avatar" aria-hidden="true"></div>
+                        <div class="photo-pick">
+                            <div class="prof-avatar" id="prof-avatar" aria-hidden="true"></div>
+                            <button type="button" class="photo-btn" id="photo-change" aria-label="Change profile photo" title="Change photo">
+                                <i class="fa-solid fa-camera" aria-hidden="true"></i>
+                            </button>
+                            <input type="file" id="photo-file" accept="image/jpeg,image/png,image/webp" hidden>
+                        </div>
                         <div class="prof-id">
                             <h2 class="prof-name" id="prof-name"><span class="skeleton"></span></h2>
                             <p class="prof-sub" id="prof-sub"></p>
@@ -399,6 +405,10 @@
                                 <span id="d-status"><span class="skeleton"></span></span>
                                 <span id="d-verified"><span class="skeleton"></span></span>
                             </div>
+                            <p class="photo-actions">
+                                <button type="button" class="btn-link" id="photo-remove" hidden>Remove photo</button>
+                                <span class="photo-msg" id="photo-msg" role="status" aria-live="polite"></span>
+                            </p>
                         </div>
                     </section>
 
@@ -504,6 +514,7 @@
 <script src="../../shared/js/forcepasswordchange.js"></script>
     <script src="../../shared/js/autoplan.js"></script>
     <script src="../../shared/js/motion.js"></script>
+    <script src="../../shared/js/profilephoto.js"></script>
     <script src="../../shared/js/theme.js"></script>
     <script src="studentpreview.js"></script>
     <script src="studentdashboard.js"></script>

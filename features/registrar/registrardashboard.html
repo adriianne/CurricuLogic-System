@@ -10,7 +10,7 @@
     <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
     <link rel="stylesheet" href="../../shared/css/dashboard.css">
     <link rel="stylesheet" href="../prospectus/prospectus.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha384-PPIZEGYM1v8zp5Py7UjFb79S58UeqCL9pYVnVPURKEqvioPROaVAJKKLzvH2rDnI" crossorigin="anonymous">
     <style>
         /* Change-password modal. Self-contained: this page does not
            load curriculum_builder.css, so nothing else styles these
@@ -85,7 +85,7 @@
         .act-go:disabled { opacity: 0.6; cursor: not-allowed; }
     </style>
 </head>
-<body>
+<body data-idle-role="registrar_staff">
 
 <div class="shell" id="shell">
 
@@ -106,7 +106,7 @@
                 <i class="fa-solid fa-gauge" aria-hidden="true"></i> Dashboard
             </a>
             <a href="#advising" data-view="advising">
-                <i class="fa-solid fa-inbox" aria-hidden="true"></i> Advising queue
+                <i class="fa-solid fa-print" aria-hidden="true"></i> Approved plans
                 <span class="nav-count" id="nav-advising" hidden>0</span>
             </a>
             <a href="#requests" data-view="requests">
@@ -125,7 +125,7 @@
         </nav>
 
         <p class="side-foot">
-            University of Cebu<br>College of Computer Studies
+            University of Cebu
         </p>
 
     </aside>
@@ -157,7 +157,7 @@
         <div class="content">
 
             <!-- Dashboard -->
-            <section class="view" id="view-dashboard">
+            <section class="view view-wide" id="view-dashboard">
 
                 <div class="page-head">
                     <h1 class="page-title" id="greeting">Welcome back</h1>
@@ -171,9 +171,9 @@
 
                 <div class="stats">
                     <div class="stat">
-                        <span class="stat-label">Awaiting Registrar</span>
+                        <span class="stat-label">Approved plans</span>
                         <span class="stat-value muted" id="stat-advising">—</span>
-                        <span class="stat-hint">Advising plans, Faculty-approved</span>
+                        <span class="stat-hint">Approved by an adviser, ready to print</span>
                     </div>
                     <div class="stat">
                         <span class="stat-label">Awaiting review</span>
@@ -213,18 +213,18 @@
 
             </section>
 
-            <!-- Advising queue -->
+            <!-- Approved plans (read-only: the adviser's approval is final) -->
             <section class="view view-wide" id="view-advising" hidden>
 
                 <!-- Sub-view: queue -->
                 <div id="adv-sub-queue">
 
                     <div class="page-head">
-                        <h1 class="page-title">Advising queue</h1>
+                        <h1 class="page-title">Approved plans</h1>
                         <p class="page-sub">
-                            Subject plans already reviewed and approved by Faculty.
-                            Review the plan as a whole, then approve it for enrollment
-                            or send it back to the student with a reason.
+                            Subject plans the faculty adviser has approved for enrollment.
+                            Nothing here needs a decision: look a plan up and reprint its
+                            enrollment form if the student needs another copy.
                         </p>
                     </div>
 
@@ -232,7 +232,7 @@
 
                     <section class="card">
                         <div class="card-head">
-                            <span class="card-title">Awaiting Registrar review</span>
+                            <span class="card-title">Approved for enrollment</span>
                             <span class="card-note" id="adv-queue-count"></span>
                         </div>
                         <div class="card-body" id="adv-queue">
@@ -252,7 +252,7 @@
                     <div class="page-head">
                         <a href="#advising" class="back-link">
                             <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
-                            <span>Back to queue</span>
+                            <span>Back to approved plans</span>
                         </a>
                         <h1 class="page-title" id="adv-detail-name">Plan</h1>
                         <p class="page-sub" id="adv-detail-sub"></p>
@@ -274,7 +274,7 @@
             </section>
 
             <!-- Account requests -->
-            <section class="view" id="view-requests" hidden>
+            <section class="view view-wide" id="view-requests" hidden>
 
                 <div class="page-head">
                     <h1 class="page-title">Account requests</h1>
@@ -313,7 +313,7 @@
             </section>
 
             <!-- Students -->
-            <section class="view" id="view-students" hidden>
+            <section class="view view-wide" id="view-students" hidden>
 
                 <div class="page-head">
                     <h1 class="page-title">Students</h1>
@@ -338,7 +338,7 @@
                                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                                 <input type="search" id="student-search"
                                        placeholder="Search name or student ID"
-                                       autocomplete="off" aria-label="Search students">
+                                       autocomplete="off" aria-label="Search students" maxlength="100">
                             </div>
                             <select id="student-filter" aria-label="Filter by status">
                                 <option value="all">All students</option>
@@ -363,7 +363,7 @@
             </section>
 
             <!-- Student detail -->
-            <section class="view" id="view-student" hidden>
+            <section class="view view-wide" id="view-student" hidden>
 
                 <div class="page-head">
                     <a href="#students" class="back-link">
@@ -409,7 +409,7 @@
 
                 <section class="card">
                     <div class="card-head">
-                        <span class="card-title">BS Information Technology</span>
+                        <span class="card-title" id="pros-title">Prospectus</span>
                         <span class="card-note">
                             <label for="pros-version">Curriculum year</label>
                             <select id="pros-version"></select>
@@ -423,7 +423,7 @@
             </section>
 
             <!-- Profile -->
-            <section class="view" id="view-profile" hidden>
+            <section class="view view-wide" id="view-profile" hidden>
 
                 <div class="page-head">
                     <h1 class="page-title">Profile</h1>
@@ -497,16 +497,16 @@
 
             <div class="field" style="margin-bottom: var(--s2);">
                 <label for="pw-current">Current password</label>
-                <input type="password" id="pw-current" autocomplete="current-password">
+                <input type="password" id="pw-current" autocomplete="current-password" maxlength="72">
             </div>
             <div class="field" style="margin-bottom: var(--s2);">
                 <label for="pw-new">New password</label>
-                <input type="password" id="pw-new" autocomplete="new-password">
-                <p class="pw-hint">At least 8 characters.</p>
+                <input type="password" id="pw-new" autocomplete="new-password" maxlength="72">
+                <p class="pw-hint">At least 8 characters, including a special character (! @ # $ %).</p>
             </div>
             <div class="field" style="margin-bottom: var(--s3);">
                 <label for="pw-confirm">Confirm new password</label>
-                <input type="password" id="pw-confirm" autocomplete="new-password">
+                <input type="password" id="pw-confirm" autocomplete="new-password" maxlength="72">
             </div>
 
             <div class="act-actions">
@@ -518,11 +518,17 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
 <script src="../../shared/js/config.js"></script>
+<script src="../../shared/js/idlesignout.js"></script>
 <script src="../../shared/js/systemconfig.js"></script>
+<script src="../../shared/js/programs.js"></script>
+<script src="../../shared/js/requeststatus.js"></script>
 <script src="../../shared/js/prospectusgrid.js"></script>
 <script src="../../shared/js/advisingslip.js"></script>
+<script src="../../shared/js/passwordrules.js"></script>
+<script src="../../shared/js/forcepasswordchange.js"></script>
+<script src="../../shared/js/accountmatches.js"></script>
 <script src="registrardashboard.js"></script>
 </body>
 </html>

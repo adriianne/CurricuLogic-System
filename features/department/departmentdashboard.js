@@ -12,7 +12,7 @@
 (function () {
 'use strict';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC ?? {};
+const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey, authOptions } = window.CURRICULOGIC ?? {};
 
 // Bucketed storage key (see config.js) -- department, faculty and
 // registrar share the "staff" bucket, since they already share one
@@ -20,7 +20,7 @@ const { SUPABASE_URL, SUPABASE_ANON_KEY, authStorageKey } = window.CURRICULOGIC 
 // and admin sessions in other tabs.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: { storageKey: authStorageKey?.(['department_staff']) },
+        auth: authOptions ? authOptions(['department_staff']) : { storageKey: authStorageKey?.(['department_staff']) },
     })
     : null;
 
@@ -500,7 +500,8 @@ async function submitPasswordChange(close) {
     const confirm = $('pw-confirm')?.value ?? '';
 
     if (!current) return showMsg('pw-msg', 'Enter your current password.');
-    if (next.length < 8) return showMsg('pw-msg', 'New password must be at least 8 characters.');
+    const pwProblem = CurriculogicPasswordRules.problem(next);
+    if (pwProblem) return showMsg('pw-msg', pwProblem);
     if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
 
     const btn = $('pw-submit');
@@ -1895,7 +1896,6 @@ function confirmDeleteDraft(version, check) {
             check.subjects           ? `${check.subjects} subject(s)` : '',
             check.prerequisites      ? `${check.prerequisites} prerequisite rule(s)` : '',
             check.elective_groups    ? `${check.elective_groups} elective group(s)` : '',
-            check.ai_recommendations ? `${check.ai_recommendations} AI recommendation(s)` : '',
         ].filter(Boolean);
 
         const list = $('del-removal-list');
@@ -2730,7 +2730,20 @@ async function commitPending() {
     const problems = [];
     const seenEdps = new Set();
 
+    // The same limits the database enforces (db/050). Rows reach this grid
+    // from the file upload and the photo as well as from typing, so this one
+    // check covers all three; a value over the limit is named here instead of
+    // failing the whole save.
+    const OFFERING_LIMITS = { edp_code: 20, schedule_days: 20, room: 50, instructor: 150 };
+    const OFFERING_LABEL  = { edp_code: 'EDP code', schedule_days: 'Days', room: 'Room', instructor: 'Instructor' };
+
     for (const r of sectionRows) {
+        for (const field of Object.keys(OFFERING_LIMITS)) {
+            const v = String(r[field] ?? '').trim();
+            if (v.length > OFFERING_LIMITS[field]) {
+                problems.push(`${OFFERING_LABEL[field]} "${v.slice(0, 20)}…" is too long (${OFFERING_LIMITS[field]} characters at most).`);
+            }
+        }
         if (!r.edp_code?.trim()) problems.push('Every row needs an EDP code.');
         if (seenEdps.has(r.edp_code)) problems.push(`EDP ${r.edp_code} is used more than once.`);
         seenEdps.add(r.edp_code);
@@ -2833,7 +2846,7 @@ function rowHtmlFor(o, section, year, term) {
 
     return `<tr data-row="${o.__key}"${isLab ? ' class="sched-row-lab"' : ''}>
         <td><input data-field="edp_code" value="${escapeHtml(o.edp_code || '')}"
-                   placeholder="61251" autocomplete="off"></td>
+                   placeholder="61251" autocomplete="off" maxlength="20"></td>
         <td>
             <div class="sched-subject-cell">
                 ${isLab ? '<span class="sched-lab-arrow" aria-hidden="true">↳</span>' : ''}
@@ -2851,8 +2864,8 @@ function rowHtmlFor(o, section, year, term) {
         <td class="num">${units}</td>
         <td><input type="time" data-field="start_time" value="${(o.start_time || '').slice(0, 5)}"></td>
         <td><input type="time" data-field="end_time"   value="${(o.end_time   || '').slice(0, 5)}"></td>
-        <td><input data-field="schedule_days" value="${escapeHtml(o.schedule_days || '')}" placeholder="MW"></td>
-        <td><input data-field="room" value="${escapeHtml(o.room || '')}" placeholder="215"></td>
+        <td><input data-field="schedule_days" value="${escapeHtml(o.schedule_days || '')}" placeholder="MW" maxlength="20"></td>
+        <td><input data-field="room" value="${escapeHtml(o.room || '')}" placeholder="215" maxlength="50"></td>
         <td class="num">
             <button class="btn-icon" data-drop="${o.__key}" aria-label="Remove row">
                 <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
@@ -3199,6 +3212,12 @@ $('sched-photo')?.addEventListener('change', async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const photoIssue = CurriculogicUploadLimits.fileProblem(file, 'photo');
+    if (photoIssue) {
+        e.target.value = '';
+        return showMsg('sched-msg', photoIssue);
+    }
+
     PHOTO_FILE = file;
 
     // Small thumbnail for the file card. The real payload is downscaled
@@ -3278,6 +3297,9 @@ renderPhotoStage('idle');
    of 08:00 must not come back as a fraction of a day, and a section of
    1A must not be coerced to a number. */
 async function readScheduleFile(file) {
+    const fileIssue = CurriculogicUploadLimits.fileProblem(file, 'schedule');
+    if (fileIssue) throw new Error(fileIssue);
+
     if (typeof XLSX === 'undefined') {
         throw new Error('The spreadsheet library did not load. Check your connection.');
     }
@@ -3293,6 +3315,10 @@ async function readScheduleFile(file) {
     // the first row that contains 'edp_code' in any cell and treat
     // that as the header.
     const aoa = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false, header: 1 });
+    // Minus the header row, so the number named is the number of schedule rows.
+    const rowsIssue = CurriculogicUploadLimits.rowsProblem(
+        Math.max(0, CurriculogicUploadLimits.dataRows(aoa) - 1), 'schedule');
+    if (rowsIssue) throw new Error(rowsIssue);
     if (aoa.length === 0) throw new Error('The sheet is empty.');
 
     const normalize = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, '_');
@@ -3427,7 +3453,9 @@ async function readSchedulePhoto(file, section) {
         }),
     });
 
-    if (!res.ok) throw new Error(`The scanner returned ${res.status}.`);
+    if (!res.ok) {
+        throw new Error(CurriculogicUploadLimits.aiProblem(res.status) || `The scanner returned ${res.status}.`);
+    }
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'The scanner could not read that photo.');
 
@@ -4290,10 +4318,13 @@ async function loadSubjectMap(students) {
 }
 
 async function readGradeFile(file, options = {}) {
+    const fileIssue = window.CurriculogicUploadLimits.fileProblem(file, 'grades');
+    if (fileIssue) throw new Error(fileIssue);
+
     if (typeof XLSX === 'undefined') {
         await new Promise((resolve, reject) => {
             const s = document.createElement('script');
-            s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+            s.src = '../../shared/js/vendor/xlsx.full.min.js';
             s.onload = resolve;
             s.onerror = () => reject(new Error('SheetJS failed to load.'));
             document.head.appendChild(s);
@@ -4310,6 +4341,11 @@ async function readGradeFile(file, options = {}) {
         aoa: XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '', raw: false, header: 1 }),
     }));
     if (sheets.every(s => s.aoa.length < 2)) throw new Error('File is empty.');
+
+    // Minus the header row, so the number named is the number of grade rows.
+    const gradeRows = Math.max(0, Math.max(...sheets.map(s => window.CurriculogicUploadLimits.dataRows(s.aoa))) - 1);
+    const rowsIssue = window.CurriculogicUploadLimits.rowsProblem(gradeRows, 'grades');
+    if (rowsIssue) throw new Error(rowsIssue);
 
     const picked = window.GradeFile.pickSheet(sheets, options);
     if (!picked) throw new Error(`Could not find the grade table. ${window.GradeFile.ACCEPTED_HEADERS_HELP}`);
@@ -4769,7 +4805,7 @@ function renderGradePreview(ok, bad, fileName, passing) {
                 <div>
                     <strong>${warned.length} name warning${warned.length > 1 ? 's' : ''}</strong>
                     ${warned.slice(0, 5).map(r =>
-                        `<span class="dim">Line ${r.line}: ${r.name_warning}</span>`
+                        `<span class="dim">Line ${r.line}: ${escapeHtml(r.name_warning)}</span>`
                     ).join('<br>')}
                     ${warned.length > 5 ? `<span class="dim">and ${warned.length - 5} more</span>` : ''}
                     <span class="dim">These are soft — the rows were still accepted.</span>
@@ -4809,7 +4845,7 @@ function renderGradePreview(ok, bad, fileName, passing) {
                             <td>${escapeHtml(r.student.first_name)} ${escapeHtml(r.student.last_name)}</td>
                             <td class="mono">${escapeHtml(r.subject.code)}</td>
                             <td class="num">${r.grade_points == null ? '—' : r.grade_points.toFixed(2)}</td>
-                            <td><span class="pill ${r.status === 'PASSED' ? 'ok' : r.status === 'FAILED' ? 'bad' : r.status === 'DROPPED' ? 'waiting' : 'info'}">${r.status}</span></td>
+                            <td><span class="pill ${r.status === 'PASSED' ? 'ok' : r.status === 'FAILED' ? 'bad' : r.status === 'DROPPED' ? 'waiting' : 'info'}">${escapeHtml(r.status)}</span></td>
                             <td>${r.change === 'unchanged'
                                 ? '<span class="pill waiting">Already recorded</span>'
                                 : r.change === 'changed'
@@ -4921,7 +4957,7 @@ async function commitGrades(fileName, bad, passing) {
             .from('grade_file')
             .insert([{
                 uploaded_by: STAFF_ID,
-                file_name: fileName,
+                file_name: String(fileName ?? '').slice(0, 255),
                 status: 'processing',
                 row_count: gradeState.rows.length + bad.length,
                 matched_count: toWrite.length,
@@ -4935,14 +4971,18 @@ async function commitGrades(fileName, bad, passing) {
 
         if (fe) throw new Error('Audit failed: ' + fe.message);
 
+        // The row log keeps what the file said, cut to the database's limits
+        // (db/050): one long cell must not fail a whole upload's audit log.
+        const clip = (v, n) => (v == null ? v : String(v).slice(0, n));
+
         const rowPayload = [
             ...toWrite.map(r => ({
                 grade_file_id: file.id,
                 row_number: r.line,
                 raw_student_id: r.raw_student_id,
-                raw_student_name: r.raw_student_name,
-                raw_subject_code: r.raw_subject_code,
-                raw_grade: r.raw_grade,
+                raw_student_name: clip(r.raw_student_name, 200),
+                raw_subject_code: clip(r.raw_subject_code, 60),
+                raw_grade: clip(r.raw_grade, 20),
                 student_id: r.student.id,
                 subject_id: r.subject.id,
                 grade_points: r.grade_points,
@@ -4950,17 +4990,17 @@ async function commitGrades(fileName, bad, passing) {
                 term: r.term,
                 academic_year: r.academic_year,
                 validation_status: 'matched',
-                error_message: r.name_warning,
+                error_message: clip(r.name_warning, 500),
             })),
             ...bad.map(b => ({
                 grade_file_id: file.id,
                 row_number: b.line,
                 raw_student_id: b.raw_student_id,
-                raw_student_name: b.raw_student_name,
-                raw_subject_code: b.raw_subject_code,
-                raw_grade: b.raw_grade,
+                raw_student_name: clip(b.raw_student_name, 200),
+                raw_subject_code: clip(b.raw_subject_code, 60),
+                raw_grade: clip(b.raw_grade, 20),
                 validation_status: 'rejected',
-                error_message: b.why,
+                error_message: clip(b.why, 500),
             })),
         ];
 
@@ -5120,7 +5160,7 @@ async function loadGradeHistory() {
                             <td class="num">${f.row_count ?? '—'}</td>
                             <td class="num">${f.matched_count ?? '—'}</td>
                             <td class="num">${f.error_count ? `<span class="pill bad">${f.error_count}</span>` : '0'}</td>
-                            <td><span class="pill ${f.status === 'completed' ? 'ok' : f.status === 'failed' ? 'bad' : 'waiting'}">${f.status}</span></td>
+                            <td><span class="pill ${f.status === 'completed' ? 'ok' : f.status === 'failed' ? 'bad' : 'waiting'}">${escapeHtml(f.status)}</span></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -5222,6 +5262,7 @@ $('grade-template')?.addEventListener('click', () => {
     renderProfile(staff, session.user.email);
     fillProfileForm(staff);
     renderNotice(staff);
+    window.CurriculogicForcePassword?.run(supabase, 'department');
 
     // Programme names are looked up, not typed. The working programme has to
     // be known before anything reads a version or counts a schedule.
