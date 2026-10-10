@@ -40,7 +40,7 @@ const PREVIEW_HOSTS = ['localhost', '127.0.0.1', ''];
 const PREVIEW_FACULTY = {
     first_name: 'Rhea', last_name: 'Lumactod',
     employee_id: 'EMP-00871', email: 'rhea.lumactod@uc.edu.ph',
-    department: 'College of Computer Studies', is_approved: true,
+    department: 'College of Computer Studies', program_id: 1, is_approved: true,
 };
 
 const PREVIEW_STUDENTS = [
@@ -195,6 +195,20 @@ function programName(student) {
 function ordinal(n) {
     const map = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year', 5: '5th Year' };
     return map[n] || null;
+}
+
+/* The programme this account is assigned to, shown next to the term in the
+   header. Static: it only changes when an admin reassigns the account. */
+function paintProgramChip() {
+    const chip = document.getElementById('topbar-program');
+    if (!chip) return;
+    const id = FACULTY?.program_id;
+    const P = window.CurriculogicPrograms;
+    const code = id == null ? '' : P?.codeOf(id, '');
+    if (!code) { chip.hidden = true; return; }
+    chip.textContent = code;
+    chip.title = P.nameOf(id, code);
+    chip.hidden = false;
 }
 
 function termLabel(t) {
@@ -425,12 +439,21 @@ function filteredStudents() {
     });
 }
 
+const STUDENT_PAGE_SIZE = 20;
+let STUDENT_PAGE = 1;
+
 function renderStudents() {
     const body  = $('students-body');
     const count = $('students-count');
     if (!body) return;
 
     const list = filteredStudents();
+
+    // 20 students a page; a search or filter change goes back to page 1.
+    const pages = Math.max(1, Math.ceil(list.length / STUDENT_PAGE_SIZE));
+    STUDENT_PAGE = Math.min(Math.max(1, STUDENT_PAGE), pages);
+    const from = (STUDENT_PAGE - 1) * STUDENT_PAGE_SIZE;
+    const shown = list.slice(from, from + STUDENT_PAGE_SIZE);
 
     if (count) {
         count.textContent = STUDENTS.length
@@ -458,7 +481,7 @@ function renderStudents() {
         return;
     }
 
-    const rows = list.map((s) => `
+    const rows = shown.map((s) => `
         <tr class="row-link" data-open="${escapeHtml(s.id)}" tabindex="0" role="button">
             <td class="mono">${escapeHtml(s.student_id || '—')}</td>
             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
@@ -485,7 +508,16 @@ function renderStudents() {
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
-        </div>`;
+        </div>
+        ${pages > 1 ? `
+        <div class="pager">
+            <span class="dim">${from + 1}–${from + shown.length} of ${list.length}</span>
+            <span class="pager-btns">
+                <button type="button" class="btn-small" data-student-page="prev" ${STUDENT_PAGE === 1 ? 'disabled' : ''}>Previous</button>
+                <span class="pager-now">Page ${STUDENT_PAGE} of ${pages}</span>
+                <button type="button" class="btn-small" data-student-page="next" ${STUDENT_PAGE === pages ? 'disabled' : ''}>Next</button>
+            </span>
+        </div>` : ''}`;
 
     body.querySelectorAll('[data-open]').forEach((row) => {
         const go = () => { window.location.hash = `#student/${row.dataset.open}`; };
@@ -496,8 +528,14 @@ function renderStudents() {
     });
 }
 
-$('student-search')?.addEventListener('input', renderStudents);
-$('student-filter')?.addEventListener('change', renderStudents);
+$('student-search')?.addEventListener('input', () => { STUDENT_PAGE = 1; renderStudents(); });
+$('student-filter')?.addEventListener('change', () => { STUDENT_PAGE = 1; renderStudents(); });
+$('students-body')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-student-page]');
+    if (!b || b.disabled) return;
+    STUDENT_PAGE += b.dataset.studentPage === 'next' ? 1 : -1;
+    renderStudents();
+});
 
 $('print-slip')?.addEventListener('click', () => {
     if (!CURRENT_SLIP) return;
@@ -1495,7 +1533,7 @@ $('view-requests')?.addEventListener('click', (e) => {
 
     const { data: staff, error } = await supabase
         .from('faculty_staff')
-        .select('id, user_id, first_name, last_name, employee_id, email, department, is_approved, must_change_password')
+        .select('id, user_id, first_name, last_name, employee_id, email, department, program_id, is_approved, must_change_password')
         .eq('user_id', AUTH_UID)
         .maybeSingle();
 
@@ -1529,6 +1567,7 @@ $('view-requests')?.addEventListener('click', (e) => {
 
     // Looked up, not typed: each student's line names their own degree.
     await window.CurriculogicPrograms?.load(supabase);
+    paintProgramChip();
 
     await loadStudents();
     loadRequestCount();
