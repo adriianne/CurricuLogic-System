@@ -657,6 +657,24 @@ function assess(student, records, knowledgeBase, options = {}) {
        a failed subject is owed whatever term it was originally placed in. */
     const term = Number(options.term) || null;
 
+    /* Can this subject be enrolled in THIS semester? Eligible only means the
+       prerequisites are met; this adds the schedule and the semester:
+         - it has a section this term                                  yes
+         - its block is being scheduled but it is not run              no (even a retake)
+         - nothing says otherwise (no schedule, or its block is not
+           scheduled yet): it must belong to the current semester of the
+           curriculum, or be a retake, which is owed whatever its term
+         - an elective choice (no semester of its own) needs a section
+       With no current term given there is nothing to judge by, so it stays yes. */
+    for (const e of eligible) {
+        let ok;
+        if (e.scheduleState === 'offered') ok = true;
+        else if (e.scheduleState === 'not-run') ok = false;
+        else if (isCatalogue(e.subject)) ok = false;
+        else ok = e.retake || term === null || Number(e.subject.term) === term;
+        e.availableThisTerm = ok;
+    }
+
     const recommended = [];
     let units = 0;
 
@@ -666,14 +684,10 @@ function assess(student, records, knowledgeBase, options = {}) {
            units, and it is what gets recommended. */
         if (isCatalogue(e.subject)) continue;
 
-        /* A subject in a block the department is scheduling, but which it
-           is not running, is not a recommendation. Sending a student to
-           enrol in something with no section is the failure this replaces. */
-        if (e.scheduleState === 'not-run') continue;
-
-        const leansOnCurriculum = e.scheduleState === 'none' || e.scheduleState === 'pending';
-        if (leansOnCurriculum && term !== null && !e.retake
-            && Number(e.subject.term) !== term) continue;
+        /* Not run this term, or not this semester's subject: not a
+           recommendation. Sending a student to enrol in something with no
+           section is the failure this replaces. */
+        if (!e.availableThisTerm) continue;
 
         const u = Number(e.subject.units) || 0;
         if (units + u > availableUnits) continue;

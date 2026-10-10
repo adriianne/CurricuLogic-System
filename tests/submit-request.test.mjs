@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { lockedSubjectIds, evaluateSelections } = require('../supabase/functions/submit-advising-request/core.js');
+const { lockedSubjectIds, evaluateSelections, submissionLimit, MAX_PER_DAY } = require('../supabase/functions/submit-advising-request/core.js');
 const engine = require('../shared/engine/engine.js');
 
 let id = 500;
@@ -87,5 +87,76 @@ describe('lockedSubjectIds', () => {
 
     test('nothing in, nothing locked', () => {
         assert.equal(lockedSubjectIds(null).size, 0);
+    });
+});
+
+describe('submissionLimit', () => {
+    const now = Date.parse('2026-10-10T12:00:00Z');
+    const ago = (seconds) => ({ created_at: new Date(now - seconds * 1000).toISOString() });
+
+    test('a first request is allowed', () => {
+        assert.equal(submissionLimit([], now).ok, true);
+    });
+
+    test('a second request seconds after the first is refused', () => {
+        const r = submissionLimit([ago(5)], now);
+        assert.equal(r.ok, false);
+        assert.ok(r.retryAfterSeconds > 0 && r.retryAfterSeconds <= 30);
+    });
+
+    test('a few requests spread out through the day are fine', () => {
+        const reqs = [ago(120), ago(3600), ago(7200), ago(10800)];
+        assert.equal(submissionLimit(reqs, now).ok, true);
+    });
+
+    test('the daily maximum is refused until the oldest one is a day old', () => {
+        const reqs = Array.from({ length: MAX_PER_DAY }, (_, i) => ago(3600 * (i + 1)));
+        const r = submissionLimit(reqs, now);
+        assert.equal(r.ok, false);
+        assert.equal(r.retryAfterSeconds, 24 * 3600 - 3600 * MAX_PER_DAY);
+    });
+
+    test('requests older than a day do not count', () => {
+        const reqs = Array.from({ length: MAX_PER_DAY + 3 }, (_, i) => ago(86400 + 60 * (i + 1)));
+        assert.equal(submissionLimit(reqs, now).ok, true);
+    });
+
+    test('bad dates are ignored rather than crashing', () => {
+        assert.equal(submissionLimit([{ created_at: 'nope' }, { created_at: null }], now).ok, true);
+    });
+});
+
+
+describe('evaluateSelections: availability this semester', () => {
+    // Block 1st year 1st sem has one scheduled subject (A), so B in the same block is "not run".
+    const x = subj('X', 2, 1), y = subj('Y', 2, 2);
+    const items = [A, B, C, x, y];
+    const offs = [{ id: 9101, subject_id: A.id }, { id: 9102, subject_id: C.id }];
+    const go = (selections) => evaluateSelections({ engine }, {
+        student, program: null, records: [], subjects: items, rules: [], offerings: offs, term: 1, selections,
+    });
+
+    test('a subject with a section this term is accepted', () => {
+        const [r] = go([{ subjectId: A.id, offeringId: 9101 }]);
+        assert.equal(r.valid, true);
+        assert.ok(!r.unavailable);
+    });
+
+    test('a subject its block is not running is refused as unavailable', () => {
+        const [r] = go([{ subjectId: B.id, offeringId: null }]);
+        assert.equal(r.valid, false);
+        assert.equal(r.unavailable, true);
+        assert.match(r.reason, /not running this subject/);
+    });
+
+    test('another semester\'s subject with no section is refused as unavailable', () => {
+        const [r] = go([{ subjectId: y.id, offeringId: null }]);
+        assert.equal(r.unavailable, true);
+        assert.match(r.reason, /another semester/);
+    });
+
+    test('a subject of this semester in an unscheduled block is still accepted', () => {
+        const [r] = go([{ subjectId: x.id, offeringId: null }]);
+        assert.equal(r.valid, true);
     });
 });

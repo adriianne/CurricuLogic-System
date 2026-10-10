@@ -345,6 +345,8 @@ function apply(result, prefs) {
         }
     }
 
+    const loadNotes = [...notes];
+
     const planned = planSections(fits, p.timeOfDay);
     const { out, leftOut, notes: sectionNotes } = planned;
     notes.push(...sectionNotes);
@@ -373,11 +375,81 @@ function apply(result, prefs) {
             ceiling,
             deferred: deferred.map(d => d.subject.code),
             deferredForClash: leftOut.map(d => d.subject.code),
+            loadNotes,
             notes,
         },
     };
 }
 
-return { apply, clean, TIMES, LOADS, LOAD_UNITS };
+/* ---- what to tell the student ----
+
+   The engine's own notes are one line per subject, which is a wall of text when
+   several subjects miss the preferred time. This turns the same plan into a short
+   summary: a headline, the subjects left out, and the detail grouped (shown behind
+   "See details"). The engine's notes are untouched; Cura still reads those.
+
+   returns { headline, body, leftOut, loadNotes, details: [string] } */
+const stripSection = (label) => String(label).replace(/\s*\([^)]*\)\s*$/, '');
+const listOf = (items) => items.length <= 1 ? (items[0] || '')
+    : items.length === 2 ? items.join(' and ')
+    : items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
+
+function summarize(plan) {
+    const pref = plan?.preference ?? {};
+    const wanted = pref.timeOfDay || null;
+    const timed = (plan?.recommended ?? []).filter(e => e.chosenSection);
+    const missed = wanted ? timed.filter(e => e.timeMatch !== 'match' && e.timeMatch !== 'any') : [];
+    const matched = wanted ? timed.filter(e => e.timeMatch === 'match').length : 0;
+    const word = wanted ? timeWord(wanted) : '';
+    const when = (e) => e.chosenSection.timeOfDay ? timeWord(e.chosenSection.timeOfDay) : 'mixed times';
+
+    let headline = '';
+    let body = '';
+    if (wanted && timed.length) {
+        // The closest times that were used instead, biggest group last ("... for the rest").
+        const groups = new Map();
+        for (const e of missed) {
+            const k = when(e);
+            if (!groups.has(k)) groups.set(k, []);
+            groups.get(k).push(e.subject.code);
+        }
+        const ordered = [...groups.entries()].sort((a, b) => a[1].length - b[1].length);
+        const used = ordered.map(([k, codes], i) =>
+            ordered.length === 1 ? k
+                : i === ordered.length - 1 ? `${k} for the rest`
+                : `${k} for ${listOf(codes)}`);
+        const closest = ordered.length === 1
+            ? `the closest time was used: ${used[0]}.`
+            : `the closest times were used: ${listOf(used)}.`;
+
+        if (matched === timed.length) {
+            headline = `All ${timed.length} of your scheduled subjects fit your ${word} preference.`;
+        } else if (!matched && missed.length === timed.length) {
+            headline = `No ${word} classes could be fitted this term.`;
+            body = `None of your ${timed.length} subject${timed.length === 1 ? '' : 's'} has ${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word} section that works, so ${closest}`;
+        } else {
+            headline = `${matched} of ${timed.length} scheduled subjects fit your ${word} preference.`;
+            body = missed.length ? `For the others, ${closest}` : '';
+        }
+    }
+
+    const left = (plan?.leftOutForClash ?? []).map(e => e.subject.code);
+    const leftOut = left.length
+        ? `Left out: ${listOf(left)} ${left.length === 1 ? 'clashes' : 'clash'} with the rest of your plan.`
+        : '';
+
+    const details = [];
+    if (missed.length) {
+        details.push(`No ${word} section that fits: ${missed.map(e => `${e.subject.code} (${when(e)})`).join(', ')}.`);
+    }
+    for (const e of plan?.leftOutForClash ?? []) {
+        const by = (e.blockedBy ?? []).map(stripSection);
+        details.push(`${e.subject.code} was left out because every section clashes with ${listOf([...new Set(by)])}.`);
+    }
+
+    return { headline, body, leftOut, loadNotes: pref.loadNotes ?? [], details };
+}
+
+return { apply, summarize, clean, TIMES, LOADS, LOAD_UNITS };
 
 }));

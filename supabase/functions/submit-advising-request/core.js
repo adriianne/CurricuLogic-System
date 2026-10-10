@@ -33,6 +33,39 @@ function lockedSubjectIds(requests) {
     return locked;
 }
 
+/* How often one student may send a plan. Subjects already awaiting a decision
+   are refused separately (lockedSubjectIds); this stops someone from sending
+   request after request to flood their adviser's queue.
+   requests: the student's requests, any order, each { created_at }.
+   Returns { ok: true } or { ok: false, error, retryAfterSeconds }. */
+const MAX_PER_DAY = 5;
+const MIN_GAP_SECONDS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function submissionLimit(requests, now = Date.now()) {
+    const times = (requests ?? [])
+        .map(r => new Date(r.created_at).getTime())
+        .filter(t => Number.isFinite(t) && t <= now)
+        .sort((a, b) => b - a);
+
+    const sinceLast = times.length ? Math.ceil((now - times[0]) / 1000) : Infinity;
+    if (sinceLast < MIN_GAP_SECONDS) {
+        const wait = MIN_GAP_SECONDS - sinceLast;
+        return { ok: false, retryAfterSeconds: wait,
+                 error: `Please wait ${wait} second${wait === 1 ? '' : 's'} before sending another request.` };
+    }
+
+    const recent = times.filter(t => now - t < DAY_MS);
+    if (recent.length >= MAX_PER_DAY) {
+        const oldest = recent[MAX_PER_DAY - 1];
+        const wait = Math.ceil((oldest + DAY_MS - now) / 1000);
+        const hours = Math.ceil(wait / 3600);
+        return { ok: false, retryAfterSeconds: wait,
+                 error: `You have already sent ${MAX_PER_DAY} requests in the last 24 hours. Try again in about ${hours} hour${hours === 1 ? '' : 's'}, or talk to your adviser.` };
+    }
+    return { ok: true };
+}
+
 /* deps:  { engine }
    input: { student, program, records, subjects, rules, offerings, term, selections }
    selections: [{ subjectId, offeringId }]
@@ -74,6 +107,17 @@ function evaluateSelections(deps, input) {
         }
         if (!open.has(sel.subjectId)) return no('Subject not found in the current curriculum.');
 
+        // Eligible is not enough: it must be something that can be enrolled in this semester.
+        const entry = open.get(sel.subjectId);
+        if (entry.availableThisTerm === false) {
+            const why = entry.scheduleState === 'not-run'
+                ? 'The department is not running this subject this term.'
+                : entry.subject.year_level == null
+                    ? 'No section is open for this elective this term.'
+                    : 'This subject belongs to another semester and has no section this term.';
+            return { ...no(why), unavailable: true };
+        }
+
         if (base.offeringId != null && offeringSubject.get(base.offeringId) !== sel.subjectId) {
             return no('The chosen section is not offered for this subject this term.');
         }
@@ -81,4 +125,4 @@ function evaluateSelections(deps, input) {
     });
 }
 
-module.exports = { lockedSubjectIds, evaluateSelections };
+module.exports = { lockedSubjectIds, evaluateSelections, submissionLimit, MAX_PER_DAY, MIN_GAP_SECONDS };

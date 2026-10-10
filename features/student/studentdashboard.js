@@ -707,6 +707,35 @@ function personalised() {
         : RESULT;
 }
 
+/* Whether "See details" under the preference summary is open. It survives the
+   re-render that every preference pick causes. */
+let PREF_DETAILS_OPEN = false;
+
+/* The short version of what the preferences did to the suggested load. The
+   engine's own one-line-per-subject notes still go to Cura, unchanged. */
+function prefNoteHtml(plan) {
+    const P = window.CurricuLogicPreferences;
+    const s = P?.summarize ? P.summarize(plan) : null;
+    if (!s) return '';
+    const hasAny = s.headline || s.leftOut || s.loadNotes.length;
+    if (!hasAny) return '';
+
+    return `
+        <div class="pref-note">
+            ${s.headline ? `<p><strong>${escapeHtml(s.headline)}</strong>${s.body ? ` ${escapeHtml(s.body)}` : ''}</p>` : ''}
+            ${s.leftOut ? `<p>${escapeHtml(s.leftOut)}</p>` : ''}
+            ${s.loadNotes.map(n => `<p>${escapeHtml(n)}</p>`).join('')}
+            ${s.details.length ? `
+            <button type="button" class="why-toggle ${PREF_DETAILS_OPEN ? 'is-open' : ''}" id="pref-details-toggle"
+                    aria-expanded="${PREF_DETAILS_OPEN}" aria-controls="pref-details">
+                <i class="fa-solid fa-chevron-right" aria-hidden="true"></i> See details
+            </button>
+            <ul class="pref-notes" id="pref-details" ${PREF_DETAILS_OPEN ? '' : 'hidden'}>
+                ${s.details.map(d => `<li>${escapeHtml(d)}</li>`).join('')}
+            </ul>` : ''}
+        </div>`;
+}
+
 function renderPrefBar(plan) {
     const bar = $('pref-bar');
     if (!bar) return;
@@ -718,8 +747,6 @@ function renderPrefBar(plan) {
     const choice = (kind, value, label) => `
         <button type="button" class="pref-choice" data-pref="${kind}" data-value="${value}"
                 aria-pressed="${pressed(kind, value)}">${label}</button>`;
-
-    const notes = (plan.preference?.notes ?? []);
 
     bar.innerHTML = `
         <div class="pref-row">
@@ -739,12 +766,19 @@ function renderPrefBar(plan) {
                 ${choice('load', 'light', `Light · up to ${Math.min(cap, L.light)}`)}
             </div>
         </div>
-        ${notes.length ? `<ul class="pref-notes">${notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : ''}
+        ${prefNoteHtml(plan)}
         <span class="pref-hint">
             Preferences only choose between sections and how much to take.
             They never unlock a subject you are not eligible for.
             ${PREF_STORAGE === 'account' ? 'Saved to your account.' : 'Saved on this device only.'}
         </span>`;
+
+    $('pref-details-toggle')?.addEventListener('click', (e) => {
+        PREF_DETAILS_OPEN = !PREF_DETAILS_OPEN;
+        e.currentTarget.classList.toggle('is-open', PREF_DETAILS_OPEN);
+        e.currentTarget.setAttribute('aria-expanded', String(PREF_DETAILS_OPEN));
+        $('pref-details').hidden = !PREF_DETAILS_OPEN;
+    });
 
     bar.querySelectorAll('[data-pref]').forEach(b => b.addEventListener('click', async () => {
         const kind = b.dataset.pref;
@@ -1792,7 +1826,10 @@ function pickerCandidates() {
         .filter(e => !recommended.some(r => r.subject.id === e.subject.id));
     const all = [...recommended, ...alsoEligible];
 
-    return all.filter(entry => !SUBJECT_LOCKS.locked.has(entry.subject.id));
+    // Only what can really be enrolled in this semester: eligible alone is not enough
+    // (the department may not run it, or it belongs to the other semester).
+    return all.filter(entry => entry.availableThisTerm !== false
+        && !SUBJECT_LOCKS.locked.has(entry.subject.id));
 }
 
 /* Built from the same RESULT the rest of the dashboard already
@@ -1959,8 +1996,27 @@ async function loadRequestPicker() {
    what is on screen and shows the result. The checkboxes and section boxes are
    the same ones the student could have used by hand, so everything stays
    editable, and nothing is sent until Submit for review is pressed. */
-function runAutoPlan() {
+let autoPlanBusy = false;
+
+async function runAutoPlan() {
     if (!window.CurriculogicAutoPlan || !window.ScheduleConflicts) return;
+    if (autoPlanBusy) return;
+    autoPlanBusy = true;
+
+    // A short "scanning" screen so the tap visibly does something; the choosing
+    // itself is instant. Skipped down to a blink when motion is reduced.
+    const btn = $('auto-plan-btn');
+    const box = $('auto-plan-result');
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (btn) btn.disabled = true;
+    if (box) {
+        box.className = 'auto-plan-result is-scanning';
+        box.innerHTML = '<span class="auto-plan-spinner" aria-hidden="true"></span><p>Scanning, please wait…</p>';
+        box.hidden = false;
+    }
+    await new Promise(r => setTimeout(r, reduce ? 250 : 1600));
+    if (btn) btn.disabled = false;
+    autoPlanBusy = false;
 
     const suggestedIds = new Set((personalised()?.recommended ?? []).map(r => r.subject.id));
     const cap = RESULT?.availableUnits ?? unitLimits(STUDENT).maxUnits;

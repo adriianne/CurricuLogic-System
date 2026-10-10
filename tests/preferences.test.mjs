@@ -432,3 +432,65 @@ describe('alternative plans', () => {
         }
     });
 });
+
+
+describe('summarize (the short version shown to the student)', () => {
+    const a = subj('A'), b = subj('B'), c = subj('C');
+    const run = (offerings, prefs, subjects = [a, b, c]) =>
+        P.summarize(P.apply(E.assess(student(), [], kbOf(subjects, offerings)), prefs));
+
+    test('says so once when no subject has the wanted time, instead of one line each', () => {
+        const s = run([
+            meet(a, '1-A', 'MW', '14:00', '15:30'),
+            meet(b, '1-A', 'TTH', '14:00', '15:30'),
+            meet(c, '1-A', 'F', '08:00', '09:30'),
+        ], { timeOfDay: 'evening' });
+        assert.equal(s.headline, 'No evening classes could be fitted this term.');
+        assert.match(s.body, /^None of your 3 subjects has an evening section that works/);
+        assert.match(s.body, /afternoon for the rest|morning for C/);
+        assert.equal(s.details.length, 1);
+        for (const code of ["A", "B", "C"]) assert.ok(s.details[0].includes(`${code} (`));
+    });
+
+    test('reports the share that fit when only some do', () => {
+        const s = run([
+            meet(a, '1-A', 'MW', '08:00', '09:30'),
+            meet(b, '1-A', 'TTH', '14:00', '15:30'),
+        ], { timeOfDay: 'morning' }, [a, b]);
+        assert.equal(s.headline, '1 of 2 scheduled subjects fit your morning preference.');
+        assert.match(s.body, /^For the others, the closest time was used: afternoon\.$/);
+    });
+
+    test('says all of them fit when they do', () => {
+        const s = run([
+            meet(a, '1-A', 'MW', '08:00', '09:30'),
+            meet(b, '1-A', 'TTH', '08:00', '09:30'),
+        ], { timeOfDay: 'morning' }, [a, b]);
+        assert.match(s.headline, /^All 2 of your scheduled subjects fit your morning preference\.$/);
+        assert.equal(s.body, '');
+        assert.deepEqual(s.details, []);
+    });
+
+    test('a left-out subject is named without its section codes', () => {
+        const s = run([
+            meet(a, '1-A', 'MW', '08:00', '09:30'),
+            meet(b, '1-A', 'MW', '08:30', '10:00'),
+        ], {}, [a, b]);
+        assert.match(s.leftOut, /^Left out: [AB] clashes with the rest of your plan\.$/);
+        assert.equal(s.details.length, 1);
+        assert.doesNotMatch(s.details[0], /\(1-A\)/);
+    });
+
+    test('with no preference there is no headline and nothing to expand', () => {
+        const s = run([meet(a, '1-A', 'MW', '08:00', '09:30')], {}, [a]);
+        assert.equal(s.headline, '');
+        assert.equal(s.leftOut, '');
+        assert.deepEqual(s.details, []);
+    });
+
+    test('the engine\'s own notes are left as they were', () => {
+        const r = E.assess(student(), [], kbOf([a], [meet(a, '1-A', 'MW', '14:00', '15:30')]));
+        const plan = P.apply(r, { timeOfDay: 'morning' });
+        assert.match(plan.preference.notes.join(' '), /A has no morning section/);
+    });
+});

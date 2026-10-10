@@ -1022,3 +1022,55 @@ describe('partial schedule', () => {
         assert.ok(out.eligible.every(e => e.scheduleState === 'none'));
     });
 });
+
+
+describe('availableThisTerm (what the Build your plan picker may offer)', () => {
+    const a = subj('AV11', { year: 1, term: 1 });
+    const c = subj('AV12', { year: 1, term: 2 });
+    const x = subj('AV21', { year: 2, term: 1 });
+    const y = subj('AV22', { year: 2, term: 1 });
+    const elective = { ...subj('ELX', { year: 1, term: 1 }), year_level: null, term: null, is_elective: true };
+    const all = [a, c, x, y, elective];
+    const offerings = [{ subject_id: x.id, section: 'BSIT-2A' }];
+    const flag = (out, code) => out.eligible.find(e => e.subject.code === code)?.availableThisTerm;
+
+    test('a subject with a section this term is available', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        assert.equal(flag(out, 'AV21'), true);
+    });
+
+    test('a subject its block is not running is not available', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        assert.equal(flag(out, 'AV22'), false);
+    });
+
+    test('with no schedule published, the other semester\'s subject is not available', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        assert.equal(flag(out, 'AV11'), true, 'this semester, no schedule yet: judged by the curriculum');
+        assert.equal(flag(out, 'AV12'), false, 'a 2nd-semester subject is not for the 1st semester');
+    });
+
+    test('a retake stays available whatever its term, unless its block is not running it', () => {
+        const out = assess(student(), [rec(c, FAILED)], kbOf(all, [], offerings), { term: 1 });
+        assert.equal(flag(out, 'AV12'), true);
+        const out2 = assess(student(), [rec(y, FAILED)], kbOf(all, [], offerings), { term: 1 });
+        assert.equal(flag(out2, 'AV22'), false);
+    });
+
+    test('an elective choice needs a section', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        assert.equal(flag(out, 'ELX'), false);
+        const withSection = assess(student(), [], kbOf(all, [], [...offerings, { subject_id: elective.id, section: 'E-1' }]), { term: 1 });
+        assert.equal(flag(withSection, 'ELX'), true);
+    });
+
+    test('with no current term there is nothing to judge by, so it stays available', () => {
+        const out = assess(student(), [], kbOf([a, c]), ignoreOfferings);
+        assert.equal(flag(out, 'AV12'), true);
+    });
+
+    test('recommended is exactly the available subjects that fit the load', () => {
+        const out = assess(student(), [], kbOf(all, [], offerings), { term: 1 });
+        for (const r of out.recommended) assert.equal(r.availableThisTerm, true);
+    });
+});

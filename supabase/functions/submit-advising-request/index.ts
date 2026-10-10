@@ -158,7 +158,22 @@ serve(async (req) => {
     });
     const flaggedCount = evaluated.filter((e: { valid: boolean }) => !e.valid).length;
 
+    // A subject that cannot be enrolled in this semester is refused outright
+    // rather than flagged for the adviser: it should never reach the queue.
+    const unavailable = evaluated.filter((e: { unavailable?: boolean }) => e.unavailable);
+    if (unavailable.length > 0) {
+      const byId = new Map((subjects ?? []).map((s: { id: number; code: string }) => [s.id, s]));
+      const codes = unavailable.map((e: { subjectId: number }) => (byId.get(e.subjectId) as any)?.code).filter(Boolean);
+      return json(422, {
+        error: `Not available this semester: ${codes.join(", ")}. Refresh Build Your Plan and choose again.`,
+      });
+    }
+
     if (dryRun) return json(200, { requestId: null, items: evaluated, flaggedCount, dryRun: true });
+
+    // Real submissions only: a student cannot flood their adviser with requests.
+    const limit = core.submissionLimit(requestsRes.data ?? []);
+    if (!limit.ok) return json(429, { error: limit.error });
 
     const { data: request, error: requestError } = await db
       .from("request")
