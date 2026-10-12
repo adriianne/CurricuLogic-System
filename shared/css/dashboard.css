@@ -273,9 +273,6 @@ ul { list-style: none; }
     white-space: nowrap;
 }
 
-.topbar-program[hidden] { display: none; }
-.topbar-program { font-weight: 700; color: var(--indigo-dark, var(--ink)); }
-
 .topbar-user {
     margin-left: auto;
     display: flex;
@@ -1485,7 +1482,6 @@ body.is-preview .topbar  { top: var(--preview-bar); }
     .menu-toggle { display: inline-flex; }
     .topbar { padding: 0 var(--s3); }
     .topbar-term { display: none; }
-    .topbar-program { display: none; }
     .user-meta { display: none; }
     .content { padding: var(--s3); }
 
@@ -3075,3 +3071,75 @@ input[type="password"]::-ms-clear {
 }
 @keyframes auto-plan-spin { to { transform: rotate(360deg); } }
 @keyframes auto-plan-pulse { 50% { opacity: 0.55; } }
+
+/* Curriculum grid: Grade column and the units-passed line (Faculty student page) */
+.pg-panel th.pg-gr-h, .pg-panel td.pg-gr { text-align: center; }
+.pg-panel td.pg-gr { width: 9%; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+.pg-panel td.pg-gr.pass { color: #047857; }
+.pg-panel td.pg-gr.fail { color: #b91c1c; }
+.pg-progress { margin: 0 0 var(--s3); padding: 0.25rem 0.1rem 0; }
+.pg-progress-text { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s2); margin-bottom: 0.6rem; font-size: 0.85rem; }
+.pg-progress-pct { color: var(--slate); font-size: 0.8rem; }
+
+/* Faculty student page: Full record, grouped by term */
+.rec-group + .rec-group { margin-top: var(--s3); }
+.rec-term {
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline;
+    gap: 0.25rem 0.75rem; margin: 0 0 0.35rem; font-size: 0.88rem; font-weight: 700;
+}
+.rec-term span { font-weight: 400; font-size: 0.78rem; color: var(--slate); }
+.rec-table { table-layout: fixed; }
+.rec-table th:nth-child(1), .rec-table td:nth-child(1) { width: 8.5rem; }
+.rec-table th:nth-child(3), .rec-table td:nth-child(3) { width: 4.5rem; }
+.rec-table th:nth-child(4), .rec-table td:nth-child(4) { width: 5.5rem; }
+.rec-table th:nth-child(5), .rec-table td:nth-child(5) { width: 7rem; }
+.rec-grade { font-weight: 600; font-variant-numeric: tabular-nums; }
+.rec-grade.pass { color: #047857; }
+.rec-grade.fail { color: #b91c1c; }
+
+/* Prospectus: curriculum-year chips */
+.pv-chips { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; justify-content: flex-end; }
+.pv-chip {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0.8rem; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface, #fff); color: var(--ink); font: inherit; font-size: 0.82rem;
+    font-weight: 600; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.pv-chip:hover { border-color: var(--indigo); }
+.pv-chip:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+.pv-chip.on { background: var(--indigo); border-color: var(--indigo); color: #fff; }
+.pv-tag { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; font-weight: 600; opacity: 0.9; }
+.pv-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #10b981; }
+.pv-chip.on .pv-dot { background: #6ee7b7; }
+.pv-meta { margin: 0 0 var(--s2); font-size: 0.82rem; color: var(--slate); }
+@media (prefers-reduced-motion: reduce) { .pv-chip { transition: none; } }
+
+/* A pill with the hidden attribute stays hidden (inline-flex would show it) */
+.pill[hidden] { display: none; }
+
+/* Department: Subjects list, by year and semester */
+.sub-tabs { display: flex; gap: 4px; margin-bottom: var(--s3); border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.sub-tab {
+    padding: 9px 16px; margin-bottom: -1px; border: none; border-bottom: 2px solid transparent; background: none;
+    color: var(--slate); font: inherit; font-size: 0.85rem; font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+.sub-tab:hover { color: var(--ink); }
+.sub-tab.on { color: var(--indigo); border-bottom-color: var(--indigo); }
+.sub-tab:focus-visible { outline: 2px solid var(--indigo); outline-offset: -2px; }
+.sub-tab-n { margin-left: 0.35rem; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--wash, rgba(0,0,0,0.05)); color: var(--slate); font-size: 0.72rem; }
+.sub-sems { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); align-items: start; }
+.sub-extra { margin-top: var(--s3); }
+.sub-panel { border: 1px solid var(--line); border-radius: 10px; background: var(--surface, #fff); overflow: hidden; }
+.sub-panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); }
+.sub-panel-head h3 { margin: 0; font-size: 0.92rem; }
+.sub-panel-head span { font-size: 0.78rem; color: var(--slate); }
+.sub-panel .table-wrap { margin: 0; }
+.row-link.is-retired { opacity: 0.55; }
+@media (max-width: 1000px) { .sub-sems { grid-template-columns: 1fr; } }
+
+/* Registrar: sortable column headings on the Approved plans list */
+.sort-btn { padding: 0; border: none; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.sort-btn:hover { color: var(--ink); }
+.sort-btn:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; border-radius: 3px; }
+th.num .sort-btn { text-align: right; }

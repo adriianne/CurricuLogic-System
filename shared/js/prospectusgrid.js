@@ -147,6 +147,33 @@ function statusCell(subject) {
     return `<td class="pg-st"><span class="pg-chip ${cls}"${why}>${label}</span></td>`;
 }
 
+/* The Grade column. Present only when the page supplies grades (statuses.showGrade),
+   so the Student and Department views are unchanged. */
+function gradeCell(subject) {
+    const st = STATUS?.get(subject.id);
+    if (!st || !st.grade) return '<td class="pg-gr"></td>';
+    const tone = st.gradeTone ? ` ${esc(st.gradeTone)}` : '';
+    const why = st.gradeTitle ? ` title="${esc(st.gradeTitle)}"` : '';
+    return `<td class="pg-gr${tone}"${why}>${esc(st.grade)}</td>`;
+}
+
+/* Units passed out of the curriculum's units, above the year tabs (Grade view only). */
+function progressLine(subjects) {
+    if (!STATUS?.showGrade) return '';
+    const placed = subjects.filter(s => s.term != null);
+    const total  = placed.reduce((a, s) => a + Number(s.units || 0), 0);
+    const earned = placed.filter(s => STATUS.get(s.id)?.state === 'passed')
+                         .reduce((a, s) => a + Number(s.units || 0), 0);
+    const pct = total > 0 ? Math.min(100, Math.round((earned / total) * 100)) : 0;
+    return `<div class="pg-progress">
+        <div class="pg-progress-text"><span><strong>${earned}</strong> of ${total} units passed</span>
+            <span class="pg-progress-pct">${pct}%</span></div>
+        <div class="unit-meter" role="img" aria-label="${earned} of ${total} units passed">
+            <div class="unit-meter-fill is-planned" style="width:${pct}%"></div>
+        </div>
+    </div>`;
+}
+
 function preCell(subject, rules) {
     /* The bullet belongs to the eight placeholder slots that sit in a
        semester and mean "choose one from the catalogue". Catalogue courses
@@ -201,14 +228,17 @@ function panel(label, rows, rules, showSplit) {
                            <td class="n pg-u">${lab || ''}</td>` : ''}
             <td class="n pg-u t">${Number(s.units)}</td>
             <td class="pg-pre">${preCell(s, rules)}</td>
-            ${STATUS ? statusCell(s) : ''}
+            ${STATUS ? statusCell(s) : ''}${STATUS?.showGrade ? gradeCell(s) : ''}
         </tr>`;
     }).join('');
 
     return `<div class="pg-panel">
         <div class="pg-panel-head">
             <h3>${esc(label)}</h3>
-            <span class="pg-note">${rows.length} subject${rows.length === 1 ? '' : 's'}</span>
+            <span class="pg-note">${rows.length} subject${rows.length === 1 ? '' : 's'}${
+                STATUS?.showGrade
+                    ? ` · ${rows.filter(r => STATUS.get(r.id)?.state === 'passed').length} passed`
+                    : ''}</span>
         </div>
         <table>
             <thead><tr>
@@ -216,7 +246,7 @@ function panel(label, rows, rules, showSplit) {
                 ${showSplit ? '<th class="n">Lec</th><th class="n">Lab</th>' : ''}
                 <th class="n">${showSplit ? 'Tot' : 'Units'}</th>
                 <th>Prerequisite</th>
-                ${STATUS ? '<th>Status</th>' : ''}</tr></thead>
+                ${STATUS ? '<th>Status</th>' : ''}${STATUS?.showGrade ? '<th class="pg-gr-h">Grade</th>' : ''}</tr></thead>
             <tbody>${body}</tbody>
         </table>
         <div class="pg-foot"><span class="k">Total</span><span class="v">${total} units</span></div>
@@ -272,7 +302,7 @@ function electivePanel(label, note, rows, rules) {
         <td>${esc(s.title)}</td>
         <td class="n pg-u t">${Number(s.units)}</td>
         <td class="pg-pre">${preCell(s, rules)}</td>
-        ${STATUS ? statusCell(s) : ''}
+        ${STATUS ? statusCell(s) : ''}${STATUS?.showGrade ? gradeCell(s) : ''}
     </tr>`).join('');
 
     const panelId = 'pg-catalogue-' + label.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
@@ -284,7 +314,7 @@ function electivePanel(label, note, rows, rules) {
         <table>
             <thead><tr><th>Code</th><th>Descriptive Title</th>
             <th class="n">Units</th><th>Prerequisite</th>
-            ${STATUS ? '<th>Status</th>' : ''}</tr></thead>
+            ${STATUS ? '<th>Status</th>' : ''}${STATUS?.showGrade ? '<th class="pg-gr-h">Grade</th>' : ''}</tr></thead>
             <tbody>${body}</tbody>
         </table>
     </div>`;
@@ -428,6 +458,7 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
     ].join('');
 
     MOUNT.innerHTML = `
+        ${progressLine(subjects)}
         <div class="pg-tabs">${tabs}</div>
         <div class="pg-stage">${stage}</div>
 
@@ -470,6 +501,53 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
 
     sizeStage();
     window.addEventListener('resize', sizeStage);
+}
+
+/* ---- the curriculum-year picker (chips) ---- */
+
+const MAX_CHIPS = 5;   // more versions than this fall back to the dropdown
+
+const yearText = (v) => `${v.academic_year}\u2013${v.academic_year + 1}`;
+
+/* "Active curriculum · published 12 Aug 2024 · 54 subjects · 176 units" */
+function versionMeta(v, stats) {
+    const parts = [v.is_active ? 'Active curriculum' : 'Older version'];
+    if (v.published_at) {
+        const d = new Date(v.published_at);
+        if (!Number.isNaN(d.getTime())) {
+            parts.push('published ' + d.toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' }));
+        }
+    }
+    if (stats) {
+        parts.push(`${stats.subjects} subject${stats.subjects === 1 ? '' : 's'}`);
+        parts.push(`${stats.units} units`);
+    }
+    return parts.join(' \u00b7 ');
+}
+
+/* Subjects and units per version, from flat subject rows. Counts what the
+   printed curriculum counts: active subjects placed in a semester. */
+function versionStats(rows) {
+    const out = new Map();
+    for (const s of rows ?? []) {
+        if (s.is_active === false || s.term == null) continue;
+        const e = out.get(s.prospectus_id) ?? { subjects: 0, units: 0 };
+        e.subjects += 1;
+        e.units += Number(s.units || 0);
+        out.set(s.prospectus_id, e);
+    }
+    return out;
+}
+
+function chipsHtml(versions, selectedId) {
+    return versions.map(v => {
+        const on = v.id === selectedId;
+        return `<button type="button" class="pv-chip${on ? ' on' : ''}" role="radio"
+                aria-checked="${on}" tabindex="${on ? 0 : -1}" data-version="${v.id}">
+            <span class="pv-year">${esc(yearText(v))}</span>
+            ${v.is_active ? '<span class="pv-tag"><span class="pv-dot" aria-hidden="true"></span>Active</span>' : ''}
+        </button>`;
+    }).join('');
 }
 
 /* A read-only browser of a programme's curriculum versions, for the roles that
@@ -515,9 +593,41 @@ async function mountVersions(supabase, { select, body, title }) {
             return empty('No curriculum published', 'The department has not published a prospectus yet.');
         }
 
-        const label = (v) => `${v.academic_year}\u2013${v.academic_year + 1} \u00b7 ${v.is_active ? 'Active' : 'Older version'}`;
+        const label = (v) => `${yearText(v)} \u00b7 ${v.is_active ? 'Active' : 'Older version'}`;
         select.innerHTML = versions.map(v => `<option value="${v.id}">${label(v)}</option>`).join('');
         select.value = String((versions.find(v => v.is_active) ?? versions[0]).id);
+
+        // How big each version is, for the line under the picker. Best effort:
+        // without it the line simply leaves the counts out.
+        let stats = new Map();
+        const sub = await supabase.from('subject')
+            .select('prospectus_id, units, term, is_active')
+            .in('prospectus_id', versions.map(v => v.id));
+        if (!sub.error) stats = versionStats(sub.data);
+
+        const meta = document.createElement('p');
+        meta.className = 'pv-meta';
+        body.insertAdjacentElement('beforebegin', meta);
+        const paintMeta = () => {
+            const v = versions.find(x => x.id === Number(select.value));
+            meta.textContent = v ? versionMeta(v, stats.get(v.id)) : '';
+        };
+
+        // Chips for a handful of versions, one click each; the dropdown stays
+        // (and is shown) when there are too many to lay out.
+        let chips = null;
+        if (versions.length <= MAX_CHIPS) {
+            chips = document.createElement('div');
+            chips.className = 'pv-chips';
+            chips.setAttribute('role', 'radiogroup');
+            chips.setAttribute('aria-label', 'Curriculum year');
+            select.insertAdjacentElement('afterend', chips);
+            select.hidden = true;
+            for (const l of select.labels ?? []) l.hidden = true;
+        }
+        const paintChips = () => {
+            if (chips) chips.innerHTML = chipsHtml(versions, Number(select.value));
+        };
 
         const paintTitle = () => {
             if (!title) return;
@@ -530,15 +640,41 @@ async function mountVersions(supabase, { select, body, title }) {
         // onchange, not addEventListener: nothing stacks if this is ever re-run.
         select.onchange = () => {
             paintTitle();
+            paintMeta();
+            paintChips();
             return render(supabase, Number(select.value), body);
         };
+        if (chips) {
+            const choose = (id) => {
+                if (String(id) === select.value) return;
+                select.value = String(id);
+                select.onchange();
+            };
+            chips.addEventListener('click', (e) => {
+                const b = e.target.closest('[data-version]');
+                if (b) choose(b.dataset.version);
+            });
+            // Arrow keys move through the years, like a radio group.
+            chips.addEventListener('keydown', (e) => {
+                if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+                const ids = versions.map(v => String(v.id));
+                const at = ids.indexOf(select.value);
+                const step = (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 1;
+                const next = ids[(at + step + ids.length) % ids.length];
+                e.preventDefault();
+                choose(next);
+                chips.querySelector('[aria-checked="true"]')?.focus();
+            });
+        }
         paintTitle();
+        paintMeta();
+        paintChips();
         mounted.add(select);
     }
 
     await render(supabase, Number(select.value), body);
 }
 
-window.ProspectusGrid = { render, mountVersions };
+window.ProspectusGrid = { render, mountVersions, versionMeta, versionStats, chipsHtml, panelHtml: (label, rows, rules, showSplit, statuses) => { STATUS = statuses; return panel(label, rows, rules, showSplit); }, progressHtml: (subjects, statuses) => { STATUS = statuses; return progressLine(subjects); } };
 
 })();

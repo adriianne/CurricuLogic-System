@@ -285,3 +285,101 @@ html[data-theme="dark"] .theme-paper .req-steps li.is-current .req-step-dot { bo
    the camera badge cream and give the Remove link a box. Keep them as designed. */
 .theme-paper .photo-pick .photo-btn { background: var(--btn-indigo, var(--indigo)); border-color: var(--surface); color: #fff; }
 .theme-paper .photo-actions .btn-link { background: none; border: 0; }
+
+
+/* ---- Parts with a fixed white ground, and today's curriculum / record additions ---- */
+.theme-paper .fold,
+.theme-paper .why-body { background: var(--surface); }
+
+html[data-theme="dark"] .theme-paper .pv-chip.on {
+    background: var(--btn-indigo);
+    border-color: var(--btn-indigo);
+    color: #fff;
+}
+html[data-theme="dark"] .theme-paper .pv-chip:hover { background: rgba(157, 151, 255, 0.12); border-color: var(--indigo); }
+html[data-theme="dark"] .theme-paper .pg-panel td.pg-gr.pass,
+html[data-theme="dark"] .theme-paper .rec-grade.pass { color: #6ee7b7; }
+html[data-theme="dark"] .theme-paper .pg-panel td.pg-gr.fail,
+html[data-theme="dark"] .theme-paper .rec-grade.fail { color: #fca5a5; }
+
+
+/* ---- Department pages in dark mode ----
+   The Department's own stylesheets (curriculum builder, schedule and grade upload,
+   modals) hard-code white and dark-grey. The paper theme covers the shared parts;
+   these are the rest. */
+html[data-theme="dark"] .theme-paper .review-card,
+html[data-theme="dark"] .theme-paper .rule-group,
+html[data-theme="dark"] .theme-paper .subject-card,
+html[data-theme="dark"] .theme-paper .setup-badge,
+html[data-theme="dark"] .theme-paper .tile,
+html[data-theme="dark"] .theme-paper .pw-modal,
+html[data-theme="dark"] .theme-paper .cbp-bar,
+html[data-theme="dark"] .theme-paper .cbp-panel,
+html[data-theme="dark"] .theme-paper .cb .cb-chips,
+html[data-theme="dark"] .theme-paper .cb .cb-picker,
+html[data-theme="dark"] .theme-paper .cb button,
+html[data-theme="dark"] .theme-paper .cb-cf-foot,
+html[data-theme="dark"] .theme-paper .cb-cf-foot button,
+html[data-theme="dark"] .theme-paper .card-head #edit-prospectus,
+html[data-theme="dark"] .theme-paper .cb .cb-version select,
+html[data-theme="dark"] .theme-paper .cb-ai-upload,
+html[data-theme="dark"] .theme-paper .cb-ai-drop,
+html[data-theme="dark"] .theme-paper .cb-ai-card,
+html[data-theme="dark"] .theme-paper .act-modal,
+html[data-theme="dark"] .theme-paper .act-panel-left,
+html[data-theme="dark"] .theme-paper .act-cancel,
+html[data-theme="dark"] .theme-paper .del-modal,
+html[data-theme="dark"] .theme-paper .del-panel-left,
+html[data-theme="dark"] .theme-paper .del-cancel,
+html[data-theme="dark"] .theme-paper .sched-form,
+html[data-theme="dark"] .theme-paper .upload-source,
+html[data-theme="dark"] .theme-paper .upload-pick,
+html[data-theme="dark"] .theme-paper .upload-pick-block,
+html[data-theme="dark"] .theme-paper .photo-drop,
+html[data-theme="dark"] .theme-paper .photo-card,
+html[data-theme="dark"] .theme-paper .req-summary,
+html[data-theme="dark"] .theme-paper .sched-edit-table .sched-add-row td,
+html[data-theme="dark"] .theme-paper .preview-actions .btn-secondary,
+html[data-theme="dark"] .theme-paper #download-template,
+html[data-theme="dark"] .theme-paper .upload-source #grade-template,
+html[data-theme="dark"] .theme-paper .profile-avatar-edit {
+    background: var(--surface);
+    border-color: var(--line);
+}
+html[data-theme="dark"] .theme-paper .cb-ai-drop:hover,
+html[data-theme="dark"] .theme-paper .cb-ai-icon-btn:hover,
+html[data-theme="dark"] .theme-paper .act-cancel:hover,
+html[data-theme="dark"] .theme-paper .del-cancel:hover {
+    background: var(--surface-2);
+}
+html[data-theme="dark"] .theme-paper .pw-title,
+html[data-theme="dark"] .theme-paper .pw-modal label,
+html[data-theme="dark"] .theme-paper .act-year-value,
+html[data-theme="dark"] .theme-paper .act-title,
+html[data-theme="dark"] .theme-paper .del-year-value,
+html[data-theme="dark"] .theme-paper .del-title,
+html[data-theme="dark"] .theme-paper .cb-ai-drop,
+html[data-theme="dark"] .theme-paper .upload-source #grade-template,
+html[data-theme="dark"] .theme-paper .upload-pick-block,
+html[data-theme="dark"] .theme-paper .photo-drop,
+html[data-theme="dark"] .theme-paper .act-cancel,
+html[data-theme="dark"] .theme-paper .del-cancel,
+html[data-theme="dark"] .theme-paper .cb button,
+html[data-theme="dark"] .theme-paper .cb .cb-chips,
+html[data-theme="dark"] .theme-paper .tile-number {
+    color: var(--ink);
+}
+html[data-theme="dark"] .theme-paper .reject-chips code,
+html[data-theme="dark"] .theme-paper .del-confirm-field code {
+    background: var(--surface-2);
+    color: var(--ink);
+}
+html[data-theme="dark"] .theme-paper .pill.lec { background: rgba(157, 151, 255, 0.18); color: #cfcbff; }
+html[data-theme="dark"] .theme-paper .req-status.is-approved { background: rgba(52, 211, 153, 0.16); color: #6ee7b7; }
+html[data-theme="dark"] .theme-paper .req-table th { background: var(--surface-2); color: var(--ink-2); }
+html[data-theme="dark"] .theme-paper #e-retire,
+html[data-theme="dark"] .theme-paper [data-del] {
+    background: transparent;
+    color: #fca5a5;
+    border-color: rgba(248, 113, 113, 0.4);
+}

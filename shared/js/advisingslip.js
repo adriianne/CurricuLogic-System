@@ -1,76 +1,150 @@
 // advisingslip.js — printable enrolment advising slip.
 //
-// Load after engine.js on the faculty dashboard.
-// window.AdvisingSlip.print({ student, result, records, term, adviser, program })
-//   program: { name, college } of the STUDENT, looked up by the caller. The slip
-//   prints whatever it is given and never assumes a programme.
+// Load on the faculty and registrar dashboards.
+//   window.AdvisingSlip.print({ student, subjects, rules, records, term, adviser, program, approvedIds })
+//   window.AdvisingSlip.printApprovedRequest(supabase, requestId, helpers)
 //
-// The engine's reasoning is otherwise trapped on a screen. Enrolment
-// happens at a desk with paper, so this is the artifact the student
-// carries there: what they are cleared to take, what they have passed,
-// and an adviser's signature against it.
+// The slip follows the layout of the printed curriculum: ONE semester block of the
+// student's curriculum (their year level, in the term being enrolled), with a Grade
+// column that says PASSED, FAILED or RETAKE for what they have already taken. It is
+// the same form for the faculty adviser and the Registrar.
 //
-// Deliberately printed from the same assess() output the dashboard
-// shows. A slip that disagreed with the screen would be worse than no
-// slip at all.
+//   term:     { number: 1|2|3, year: 2023 }   the semester being enrolled
+//   program:  { name, code, college }         of the STUDENT, looked up by the caller
+//   subjects: the student's curriculum  [{ id, code, title, units, lec_units, lab_units, year_level, term, is_elective }]
+//   rules:    prerequisite rows         [{ subject_id, prerequisite_subject_id, requirement_type, rule_group, threshold_value }]
+//   records:  academic_record rows      [{ subject_id, status, taken_year, taken_term }]
+//   approvedIds: subject ids the adviser approved (Registrar reprint); marked in Remarks
+//
+// Grade column:
+//   PASSED  a passing record exists
+//   FAILED  the latest attempt was failed in the term being enrolled
+//   RETAKE  failed in an earlier term and still to be taken again
+//   (blank) not taken yet, or being taken now
 
-(function () {
+(function (root, factory) {
+    if (typeof module === 'object' && module.exports) module.exports = factory();
+    else root.AdvisingSlip = factory();
+}(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
     c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
-const TERM = { 1: '1st Semester', 2: '2nd Semester', 3: 'Summer' };
+const TERM  = { 1: '1st Semester', 2: '2nd Semester', 3: 'Summer' };
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
+const YEAR  = ['', 'FIRST', 'SECOND', 'THIRD', 'FOURTH', 'FIFTH', 'SIXTH'];
+const ORD   = ['', '1st', '2nd', '3rd', '4th', '5th', '6th'];
 
 const today = () => new Date().toLocaleDateString('en-PH',
     { year: 'numeric', month: 'long', day: 'numeric' });
 
+const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const unitText = (v) => { const n = num(v); return n ? String(n) : ''; };
 
-function slipHtml({ student, result, records, term, adviser, program }) {
+/* "AY 2023–2024" for the academic year that starts in `year`. */
+const ayText = (year) => Number.isFinite(Number(year)) ? `AY ${Number(year)}–${Number(year) + 1}` : '';
+
+/* What to print in the Grade column for one subject. */
+function gradeFor(subjectId, records, current) {
+    const mine = (records ?? []).filter(r => r.subject_id === subjectId);
+    if (mine.some(r => r.status === 'PASSED')) return 'PASSED';
+
+    const failed = mine.filter(r => r.status === 'FAILED');
+    if (!failed.length) return '';
+
+    const at = (r) => num(r.taken_year) * 10 + num(r.taken_term);
+    const latest = failed.reduce((a, b) => (at(b) > at(a) ? b : a));
+    const failedNow = current
+        && num(latest.taken_year) === num(current.year)
+        && num(latest.taken_term) === num(current.number);
+    return failedNow ? 'FAILED' : 'RETAKE';
+}
+
+/* "CC-COMPROG12, IT-SAD21" style text for a subject's requirements.
+   Groups are "and"; inside a group the choices are "or". */
+function requirementText(subjectId, rules, byId) {
+    const mine = (rules ?? []).filter(r => r.subject_id === subjectId);
+    const groups = new Map();
+    for (const r of mine) {
+        const g = r.rule_group ?? 1;
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(r);
+    }
+    const parts = [];
+    for (const [, list] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
+        const bits = list.map(r => {
+            if (r.requirement_type === 'standing') {
+                const t = num(r.threshold_value);
+                const year = t < 10 ? t : Math.floor(t / 10);
+                return `${ORD[year] || year} yr standing`;
+            }
+            const code = byId.get(r.prerequisite_subject_id)?.code;
+            if (!code) return '';
+            return r.requirement_type === 'co_requisite' ? `${code} (co)` : code;
+        }).filter(Boolean);
+        if (bits.length) parts.push(bits.join(' or '));
+    }
+    return parts.join(', ');
+}
+
+/* The rows of the one semester block being printed, in curriculum order. */
+function semesterRows({ subjects, rules, records, yearLevel, term, approvedIds }) {
+    const byId = new Map((subjects ?? []).map(s => [s.id, s]));
+    const approved = new Set(approvedIds ?? []);
+    const current = term && term.number ? { number: term.number, year: term.year } : null;
+
+    return (subjects ?? [])
+        .filter(s => s.is_active !== false
+            && s.year_level != null
+            && Number(s.year_level) === Number(yearLevel)
+            && Number(s.term) === Number(term?.number))
+        .sort((a, b) => a.id - b.id)
+        .map(s => ({
+            code: s.code,
+            title: s.title,
+            lec: unitText(s.lec_units),
+            lab: unitText(s.lab_units),
+            total: num(s.units),
+            grade: gradeFor(s.id, records, current),
+            requires: requirementText(s.id, rules, byId),
+            approved: approved.has(s.id),
+        }));
+}
+
+function slipHtml(data) {
+    const { student, subjects, rules, records, term, adviser, program, approvedIds } = data;
     const name = [student.first_name, student.last_name].filter(Boolean).join(' ');
+    const year = Number(student.year_level) || null;
 
-    const recommended = result?.recommended ?? [];
-    const recUnits    = recommended.reduce((t, r) => t + Number(r.subject.units || 0), 0);
+    const rows = year ? semesterRows({ subjects, rules, records, yearLevel: year, term, approvedIds }) : [];
+    const total = rows.reduce((t, r) => t + r.total, 0);
 
-    const passed = (records ?? []).filter(r => r.status === 'PASSED');
-    const earned = passed.reduce((t, r) => t + Number(r.units || 0), 0);
+    const termLabel = term?.number
+        ? [TERM[term.number], ayText(term.year)].filter(Boolean).join(', ')
+        : (term?.label ?? '');
 
-    /* Recommended load. The reason column is the point of the document —
-       it is what distinguishes an advising slip from a list. */
-    const recRows = recommended.length
-        ? recommended.map(r => `<tr>
-            <td class="mono">${esc(r.subject.code)}</td>
-            <td>${esc(r.subject.title)}</td>
-            <td class="n">${Number(r.subject.units)}</td>
-            <td class="why">${esc(r.reason || '')}${
-                r.retake ? ' <strong>Retake.</strong>' : ''}</td>
+    const progLine = program?.name
+        ? `${program.name}${program.code ? ` (${program.code})` : ''}`
+        : '';
+
+    const body = rows.length
+        ? rows.map(r => `<tr>
+            <td class="grade g-${esc(r.grade.toLowerCase())}">${esc(r.grade)}</td>
+            <td class="mono">${esc(r.code)}</td>
+            <td>${esc(r.title)}</td>
+            <td class="n">${esc(r.lec)}</td>
+            <td class="n">${esc(r.lab)}</td>
+            <td class="n">${esc(r.total)}</td>
+            <td class="req">${r.approved ? '<strong>Approved</strong>' : ''}${r.approved && r.requires ? '<br>' : ''}${esc(r.requires)}</td>
           </tr>`).join('')
-        : `<tr><td colspan="4" class="none">
-             No subjects recommended. Check the eligibility view for the reason.
-           </td></tr>`;
-
-    /* Academic record, newest term first — an enrolment officer is
-       checking the most recent results, not reading a history. */
-    const recSorted = [...(records ?? [])].sort((a, b) =>
-        (b.taken_year - a.taken_year) || (b.taken_term - a.taken_term) ||
-        String(a.subject_code).localeCompare(String(b.subject_code)));
-
-    const gradeRows = recSorted.length
-        ? recSorted.map(r => `<tr>
-            <td class="mono">${esc(r.subject_code)}</td>
-            <td>${esc(r.subject_title)}</td>
-            <td class="n">${esc(r.units)}</td>
-            <td class="n">${r.grade_points != null
-                ? Number(r.grade_points).toFixed(2)
-                : esc(r.grade || '\u2014')}</td>
-            <td class="n">${esc(r.status || '')}</td>
-            <td class="n">${TERM[r.taken_term] ?? ''} ${esc(r.taken_year ?? '')}</td>
-          </tr>`).join('')
-        : `<tr><td colspan="6" class="none">No subjects on record.</td></tr>`;
+        : `<tr><td colspan="7" class="none">${year
+            ? 'No subjects in this student’s curriculum for this semester.'
+            : 'This student’s year level is not set.'}</td></tr>`;
 
     return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
-<title>Advising slip \u2014 ${esc(name)}</title>
+<title>Advising slip — ${esc(name)}</title>
 <style>
   @page { size: A4; margin: 14mm 12mm; }
   * { box-sizing: border-box; }
@@ -84,96 +158,74 @@ function slipHtml({ student, result, records, term, adviser, program }) {
   .org { font-weight: 600; font-size: 11pt; }
   .org small { display: block; font-weight: 400; font-size: 8.5pt; color: #444; }
   .doc { text-align: right; }
-  .doc h1 { margin: 0; font-size: 13pt; letter-spacing: .02em; }
-  .doc p { margin: 2pt 0 0; font-size: 8.5pt; color: #444; }
+  .doc h1 { margin: 0; font-size: 13pt; letter-spacing: .02em; text-transform: uppercase; }
+  .doc p { margin: 2pt 0 0; font-size: 9pt; color: #444; }
 
-  .facts { display: grid; grid-template-columns: repeat(4, 1fr);
-           gap: 5pt 14pt; margin-bottom: 11pt; }
-  .facts div { border-bottom: .5pt solid #ccc; padding-bottom: 3pt; }
-  .facts .k { font-size: 7.5pt; text-transform: uppercase;
-              letter-spacing: .05em; color: #666; }
-  .facts .v { font-size: 10pt; }
+  .facts { margin: 0 0 12pt; }
+  .facts div { display: flex; gap: 8pt; padding: 2pt 0; border-bottom: .5pt solid #ddd; }
+  .facts .k { width: 82pt; font-size: 8pt; text-transform: uppercase;
+              letter-spacing: .05em; color: #666; padding-top: 1pt; }
+  .facts .v { font-size: 10.5pt; }
 
-  h2 { margin: 12pt 0 5pt; font-size: 9.5pt; text-transform: uppercase;
-       letter-spacing: .06em; border-bottom: .5pt solid #111; padding-bottom: 3pt; }
+  .block { margin: 0 0 4pt; padding: 4pt 0; text-align: center; font-weight: 700;
+           font-size: 10pt; letter-spacing: .08em; border-top: 1pt solid #111; border-bottom: 1pt solid #111; }
 
   table { width: 100%; border-collapse: collapse; }
   th { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .04em;
-       text-align: left; color: #555; padding: 4pt 5pt; border-bottom: .5pt solid #999; }
-  td { padding: 4pt 5pt; border-bottom: .5pt solid #e0e0e0; vertical-align: top; }
-  td.n, th.n { text-align: center; }
+       text-align: left; color: #333; padding: 4pt 5pt; border-bottom: 1pt solid #111; }
+  td { padding: 5pt; border-bottom: .5pt solid #ccc; vertical-align: top; }
+  td.n, th.n { text-align: center; width: 28pt; }
+  th.grade, td.grade { width: 54pt; }
+  td.grade { font-weight: 700; font-size: 8.5pt; letter-spacing: .03em; }
   .mono { font-family: "Courier New", monospace; font-size: 9pt; white-space: nowrap; }
-  .why { font-size: 8.5pt; color: #444; }
-  .none { text-align: center; color: #666; padding: 9pt; font-style: italic; }
-  tfoot td { border-top: .5pt solid #111; border-bottom: none;
-             font-weight: 600; padding-top: 5pt; }
-
-  /* Grades run long; let the table break but keep the header on each page. */
+  .req { font-size: 8.5pt; color: #333; width: 120pt; }
+  .none { text-align: center; color: #666; padding: 12pt; font-style: italic; }
+  tfoot td { border-top: 1pt solid #111; border-bottom: none; font-weight: 700; padding-top: 5pt; }
   thead { display: table-header-group; }
   tr { page-break-inside: avoid; }
 
   .sign { display: grid; grid-template-columns: repeat(2, 1fr);
-          gap: 22pt; margin-top: 26pt; page-break-inside: avoid; }
+          gap: 28pt; margin-top: 34pt; page-break-inside: avoid; }
   .sign div { border-top: .5pt solid #111; padding-top: 4pt;
-              font-size: 8pt; color: #444; }
-
-  .foot { margin-top: 14pt; padding-top: 6pt; border-top: .5pt solid #ccc;
-          font-size: 7.5pt; color: #666; }
+              font-size: 8.5pt; color: #444; }
 </style></head>
 <body>
 
 <div class="head">
   <div class="org">University of Cebu
     <small>${esc(program?.college ?? '')}</small>
+    <small>${esc(progLine)}</small>
   </div>
   <div class="doc">
     <h1>Enrolment Advising Slip</h1>
-    <p>${esc(term?.label ?? '')}</p>
+    <p>${esc(termLabel)}</p>
   </div>
 </div>
 
 <div class="facts">
-  <div><p class="k">Student</p><p class="v">${esc(name)}</p></div>
-  <div><p class="k">Student ID</p><p class="v mono">${esc(student.student_id ?? '\u2014')}</p></div>
-  <div><p class="k">Year level</p><p class="v">${esc(student.year_level ?? '\u2014')}</p></div>
-  <div><p class="k">Programme</p><p class="v">${esc(program?.name ?? '—')}</p></div>
-  <div><p class="k">Units earned</p><p class="v">${earned}</p></div>
-  <div><p class="k">Subjects passed</p><p class="v">${passed.length}</p></div>
-  <div><p class="k">Recommended load</p><p class="v">${recUnits} units</p></div>
-  <div><p class="k">Issued</p><p class="v">${today()}</p></div>
+  <div><span class="k">Student ID</span><span class="v mono">${esc(student.student_id ?? '—')}</span></div>
+  <div><span class="k">Full name</span><span class="v">${esc(name)}</span></div>
+  <div><span class="k">Year level</span><span class="v">${esc(year ? `${ORD[year] || year} Year` : '—')}</span></div>
+  <div><span class="k">Issued</span><span class="v">${esc(today())}</span></div>
 </div>
 
-<h2>Recommended subjects for enrolment</h2>
+${year ? `<p class="block">${esc(`${ROMAN[year] || year} – ${YEAR[year] || ''} YEAR · ${TERM[term?.number] ?? ''}`)}</p>` : ''}
 <table>
   <thead><tr>
-    <th>Code</th><th>Descriptive title</th><th class="n">Units</th><th>Basis</th>
+    <th class="grade">Grade</th><th>Course Code</th><th>Descriptive Title</th>
+    <th class="n">Lec</th><th class="n">Lab</th><th class="n">Total</th>
+    <th>Pre-requisite / Remarks</th>
   </tr></thead>
-  <tbody>${recRows}</tbody>
-  ${recommended.length ? `<tfoot><tr>
-    <td colspan="2">Total</td><td class="n">${recUnits}</td><td></td>
+  <tbody>${body}</tbody>
+  ${rows.length ? `<tfoot><tr>
+    <td colspan="5">Total units</td><td class="n">${esc(total)}</td><td></td>
   </tr></tfoot>` : ''}
-</table>
-
-<h2>Academic record</h2>
-<table>
-  <thead><tr>
-    <th>Code</th><th>Descriptive title</th><th class="n">Units</th>
-    <th class="n">Grade</th><th class="n">Status</th><th class="n">Term</th>
-  </tr></thead>
-  <tbody>${gradeRows}</tbody>
 </table>
 
 <div class="sign">
   <div>Student signature</div>
   <div>${esc(adviser ?? 'Faculty adviser')}<br>Faculty adviser</div>
 </div>
-
-<p class="foot">
-  Generated by CurricuLogic from the student's verified academic record and
-  the curriculum in effect for their enrolment year. Subject
-  eligibility is advisory. Enrolment is subject to subject availability
-  and the approval of the faculty adviser.
-</p>
 
 </body></html>`;
 }
@@ -198,11 +250,10 @@ function print(data) {
 /* Prints the enrollment form of an APPROVED plan. Used by the faculty adviser
    (who approves and prints it) and by the Registrar (who can reprint it).
 
-   It prints a SNAPSHOT of the request_item rows the adviser approved, not a
-   fresh assess(): an approved plan is a decision already made, and eligibility
-   can change the next day (a new failing grade, say). The printed form must not
-   drift from what was approved. Only the approved items are printed; a rejected
-   item of a partly approved plan is not brought back.
+   The semester printed is the one the plan was made for, at the student's year
+   level. The subjects the adviser approved are marked "Approved" in Remarks; a
+   rejected item of a partly approved plan is not marked. The Grade column comes
+   from the student's academic record as it is now.
 
    Returns { ok: true } or { ok: false, error } in words fit for the page. */
 async function printApprovedRequest(supabase, requestId, helpers = {}) {
@@ -212,8 +263,8 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
         .from('request')
         .select(`
             id, status, registrar_status, requested_term, requested_year,
-            student:student_id (id, first_name, last_name, student_id, year_level, program_id),
-            request_item (status, subject:subject_id (code, title, units))
+            student:student_id (id, first_name, last_name, student_id, year_level, program_id, prospectus_id),
+            request_item (status, subject_id)
         `)
         .eq('id', requestId)
         .maybeSingle();
@@ -226,52 +277,63 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
         : (req.status === 'approved' || req.status === 'partially_approved') && req.registrar_status !== 'rejected';
     if (!approved) return { ok: false, error: 'This plan is not approved yet.' };
 
-    const items = (req.request_item ?? []).filter(i => i.status === 'approved');
-    if (!items.length) return { ok: false, error: 'No approved subjects on this plan to print.' };
+    const approvedIds = (req.request_item ?? []).filter(i => i.status === 'approved').map(i => i.subject_id);
+    if (!approvedIds.length) return { ok: false, error: 'No approved subjects on this plan to print.' };
+
+    // The student's own curriculum, else their programme's active one.
+    let prospectusId = req.student.prospectus_id ?? null;
+    if (prospectusId === null) {
+        const { data: actives } = await supabase.from('prospectus')
+            .select('id, program_id').eq('is_active', true);
+        const P = window.CurriculogicPrograms;
+        prospectusId = (P?.fallbackProspectus
+            ? P.fallbackProspectus(req.student.program_id, actives ?? [])
+            : (actives ?? []).find(a => a.program_id === req.student.program_id))?.id ?? null;
+    }
+    if (prospectusId === null) return { ok: false, error: 'This student has no curriculum assigned yet.' };
 
     // The adviser's name on the signature line is whoever actually reviewed
     // this request, not whoever is clicking print.
-    const [{ data: review }, { data: records }] = await Promise.all([
+    const [{ data: review }, { data: records }, { data: subjects }] = await Promise.all([
         supabase.from('request_review')
             .select('faculty:faculty_id (first_name, last_name)')
             .eq('request_id', requestId)
             .limit(1)
             .maybeSingle(),
         supabase.from('academic_record')
-            .select('id, grade, grade_points, status, taken_term, taken_year, subject:subject_id (code, title, units)')
-            .eq('student_id', req.student.id)
-            .order('taken_year', { ascending: true })
-            .order('taken_term', { ascending: true }),
+            .select('subject_id, status, taken_term, taken_year')
+            .eq('student_id', req.student.id),
+        supabase.from('subject')
+            .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, is_active')
+            .eq('prospectus_id', prospectusId),
     ]);
+
+    const ids = (subjects ?? []).map(s => s.id);
+    const { data: rules } = ids.length
+        ? await supabase.from('prerequisite')
+            .select('subject_id, prerequisite_subject_id, requirement_type, rule_group, threshold_value')
+            .in('subject_id', ids)
+        : { data: [] };
 
     const name = (p) => [p?.first_name, p?.last_name].filter(Boolean).join(' ').trim();
     const programs = window.CurriculogicPrograms;
 
     print({
         student: req.student,
-        result: {
-            recommended: items.map(i => ({
-                subject: i.subject,
-                reason: 'Approved by your adviser for enrollment.',
-                retake: false,
-            })),
-        },
-        records: (records ?? []).map(r => ({
-            ...r,
-            subject_code:  r.subject?.code  ?? '\u2014',
-            subject_title: r.subject?.title ?? '\u2014',
-            units:         r.subject?.units ?? 0,
-        })),
-        term: { label: `${TERM[req.requested_term] ?? ''} ${req.requested_year || ''}`.trim() },
+        subjects: subjects ?? [],
+        rules: rules ?? [],
+        records: records ?? [],
+        approvedIds,
+        term: { number: req.requested_term, year: req.requested_year },
         adviser: review?.faculty ? name(review.faculty) : 'Faculty adviser',
         program: {
             name: helpers.programName ? helpers.programName(req.student) : (programs?.nameOf(req.student.program_id, '') ?? ''),
+            code: programs?.codeOf(req.student.program_id, '') ?? '',
             college: programs?.collegeOf(req.student.program_id, '') ?? '',
         },
     });
     return { ok: true };
 }
 
-window.AdvisingSlip = { print, html: slipHtml, printApprovedRequest };
-
-})();
+return { print, html: slipHtml, printApprovedRequest, semesterRows, gradeFor, requirementText };
+}));
