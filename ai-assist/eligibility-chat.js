@@ -62,7 +62,7 @@ async function sendChatMessage(supabaseClient, message) {
     if (!trimmed) return null;
 
     const { data, error } = await supabaseClient.functions.invoke('eligibility-chat', {
-        body: { summary: SUMMARY, history: HISTORY, message: trimmed },
+        body: { summary: SUMMARY, history: HISTORY, message: trimmed, client: 'web' },
     });
 
     if (error) {
@@ -94,6 +94,7 @@ async function sendChatMessage(supabaseClient, message) {
         text: data.reply,
         table: data.showRecommendedTable ? tableFor(SUMMARY) : null,
         schedule: data.showScheduleTable ? scheduleFor(SUMMARY, data.scheduleOption ?? null) : null,
+        scheduleLayout: data.scheduleLayout === 'byDay' ? 'byDay' : 'bySubject',
     };
 }
 

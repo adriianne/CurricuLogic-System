@@ -304,3 +304,128 @@
 .chat-schedule .sched-line { display: block; white-space: nowrap; }
 .chat-schedule .sched-line.is-lab { color: #64748b; }
 .chat-notinplan { font-size: 0.82rem; color: #64748b; margin: 0.5rem 0 0; }
+
+/* By subject / By day: both layouts are in the page, the data-layout attribute picks one */
+.chat-sched[data-layout="bySubject"] .chat-sched-day,
+.chat-sched[data-layout="byDay"] .chat-sched-subject { display: none; }
+.chat-sched-day .sched-day { text-align: left; font-weight: 600; white-space: nowrap; vertical-align: top; }
+.chat-sched-toggle { display: inline-flex; gap: 2px; margin: 0.5rem 0 0.4rem; padding: 2px; border-radius: 999px; background: rgba(100, 116, 139, 0.14); }
+.chat-sched-toggle button { border: 0; background: transparent; color: #64748b; font: inherit; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: 999px; cursor: pointer; }
+.chat-sched-toggle button[aria-pressed="true"] { background: #fff; color: #1e293b; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+
+
+/* ── Layout polish: header, reading column, logo avatar ───────────────── */
+
+.ai-chat-card { overflow: hidden; }
+
+/* A header that says who this is and what it can and cannot do. */
+.chat-head {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.85rem var(--s3, 1.25rem);
+    border-bottom: 1px solid var(--line, #e8ecf3);
+}
+.chat-head-logo {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 2.6rem;
+    height: 2.6rem;
+    border: 1px solid var(--line, #e8ecf3);
+    border-radius: 12px;
+    background: var(--surface, #fff);
+}
+.chat-head-logo img { width: 1.9rem; height: 1.9rem; object-fit: contain; }
+.chat-head-text { min-width: 0; }
+.chat-head-text strong { display: block; font-size: 1rem; color: var(--ink, #0f172a); }
+.chat-head-text span { display: block; margin-top: 0.1rem; font-size: 0.8rem; line-height: 1.5; color: var(--slate, #64748b); max-width: 90ch; }
+
+/* On a desk-sized screen the chat fills the height that is left. */
+@media (min-width: 901px) {
+    .ai-chat-card .card-body {
+        height: clamp(420px, calc(100dvh - 21rem), 780px);
+        max-height: none;
+    }
+}
+
+/* The conversation stays in a reading column: long lines across a wide
+   screen are hard to follow. The edges grow as the screen does. */
+.chat-log,
+.chat-suggestions,
+.chat-form {
+    padding-left: max(var(--s3, 1.25rem), calc((100% - 52rem) / 2));
+    padding-right: max(var(--s3, 1.25rem), calc((100% - 52rem) / 2));
+}
+.chat-context { padding-left: max(var(--s3, 1.25rem), calc((100% - 52rem) / 2)); }
+
+/* Cura's face sits at the top of a long answer, not at its foot. */
+.chat-row { align-items: flex-start; }
+
+.chat-avatar {
+    width: 34px;
+    height: 34px;
+    overflow: hidden;
+    background: var(--surface, #fff);
+    border: 1px solid var(--line, #e8ecf3);
+}
+.chat-avatar img { width: 100%; height: 100%; object-fit: contain; padding: 5px; }
+
+.chat-msg-model { background: var(--surface, #fff); }
+.chat-msg { font-size: 0.93rem; line-height: 1.6; }
+
+/* The input: a roomier, rounder bar. */
+.chat-form { padding-top: var(--s2, 0.85rem); padding-bottom: var(--s2, 0.85rem); }
+.chat-form input { padding: 0.75rem 1rem; border-radius: 12px; }
+.chat-form button { width: 46px; height: 46px; border-radius: 12px; }
+
+.chat-suggestions { padding-top: 0.4rem; }
+
+/* ── On a phone the conversation gets the screen ──────────────────────── */
+@media (max-width: 640px) {
+    /* the top bar already says "Ask AI" */
+    #view-ask-ai .page-head { display: none; }
+
+    .chat-head { padding: 0.6rem var(--s2, 0.85rem); }
+    .chat-head-logo { width: 2.2rem; height: 2.2rem; }
+    .chat-head-logo img { width: 1.6rem; height: 1.6rem; }
+    /* one line of the note, not four */
+    .chat-head-text span {
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .chat-context { display: none; }
+
+    /* the starter questions slide sideways instead of stacking */
+    .chat-suggestions {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+        scrollbar-width: none;
+    }
+    .chat-suggestions::-webkit-scrollbar { display: none; }
+    .chat-chip { flex: 0 0 auto; white-space: nowrap; }
+
+    .ai-chat-card .card-body { height: calc(100dvh - var(--topbar) - 6.5rem); min-height: 320px; }
+}
+
+/* In the answer table each meeting (lecture, lab) is its own line. It used to
+   run together: "9:30 AMLAB F 1:00 PM". */
+.chat-table .sched-line { display: block; }
+.chat-table .sched-line.is-lab { color: var(--slate, #64748b); }
+
+/* A phone: the table slides sideways inside the message rather than wrapping
+   every word of a time onto its own line. */
+@media (max-width: 640px) {
+    .chat-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .chat-table .sched-line { white-space: nowrap; }
+    .chat-table td, .chat-table th { vertical-align: top; }
+}
+
+/* A wide table inside a message must scroll inside the message, never widen the
+   whole conversation. */
+.chat-log { overflow-x: hidden; }
+.chat-row, .chat-row .chat-msg { min-width: 0; }
+.chat-msg-model .chat-table { max-width: 100%; }

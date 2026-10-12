@@ -82,7 +82,17 @@ const MAX_SUMMARY_CHARS = 100_000;
 const MAX_HISTORY_TURNS = 20;
 const MAX_TURN_CHARS = 4_000;
 
-function buildSystemInstruction(summary: unknown): string {
+// How a student sends a plan depends on where they are chatting. A client that
+// does not say (an older build) gets both routes.
+function sendPlanHelp(client: unknown): string {
+  const app = `press the "Send this plan to my adviser" button that appears under a plan or schedule table in this chat (they confirm before anything is sent), or open Plan, then Enroll, tick the subjects and press "Send to adviser"`;
+  const web = `open "Build your plan", tick the subjects and press "Submit for review"`;
+  if (client === "app") return `The student is using the mobile app, so tell them to ${app}. Do not mention the website.`;
+  if (client === "web") return `The student is using the website, so tell them to ${web}. Do not mention the mobile app or a button in this chat.`;
+  return `In the mobile app they ${app}. On the website they ${web}.`;
+}
+
+function buildSystemInstruction(summary: unknown, client: unknown): string {
   return `Your name is Cura, the CurricuLogic assistant. You are a helpful assistant for a university student, answering questions about their academic standing. If asked your name or what you are, answer briefly as Cura -- do not over-explain or break into a long introduction unless specifically asked to.
 
 STRICT RULES -- these override anything the student asks for:
@@ -101,14 +111,16 @@ STRICT RULES -- these override anything the student asks for:
 - Never present an opinion on section or instructor quality, difficulty, or "which is better" beyond what the given facts (time, day, conflicts) support -- you have no data on that and must not invent it.
 - If a question is unrelated to the student's academic standing entirely, redirect politely to what you can actually help with.
 - Keep answers conversational and brief -- a few sentences, not an essay. Plain language, no academic jargon.
-- You are for discussing and exploring options only -- you do not submit anything on the student's behalf. When a student seems ready to act on a recommendation (e.g. they say something like "okay let's do that" or ask how to actually enroll in what you suggested), tell them briefly to go to the Advising Requests tab to select those subjects and submit them for their adviser's review.
+- The student has already been greeted before their first question. Do not greet them again, do not say "Hi <name>", and do not introduce yourself unless they ask who you are. Start with the answer.
+- You are for discussing and exploring options only -- you do not submit anything on the student's behalf. When a student seems ready to act on a recommendation (e.g. they say something like "okay let's do that" or ask how to actually enroll in what you suggested), tell them briefly how to send it for their adviser's review. ${sendPlanHelp(client)} Never say you have sent it yourself.
 
 Respond with ONLY valid JSON in exactly this shape, no other text:
 {
   "reply": "your conversational answer, written as plain text",
   "showRecommendedTable": true or false,
   "showScheduleTable": true or false,
-  "scheduleOption": null or the exact "label" of one of the alternatives
+  "scheduleOption": null or the exact "label" of one of the alternatives,
+  "scheduleLayout": "byDay" or "bySubject"
 }
 
 Set "showRecommendedTable" to true ONLY when the student is specifically
@@ -133,6 +145,13 @@ list inside "reply" in that case: say something like "Here's your schedule:"
 and, if useful, one sentence about anything that stands out. Both flags can be
 false; set at most one of them to true.
 
+Set "scheduleLayout" to "byDay" ONLY when the student asks for the schedule
+organized by day: "from Monday to Friday/Saturday", "per day", "day by day",
+"weekly schedule", "my week". Then also set "showScheduleTable" to true and say
+something like "Here's your schedule by day:". The application lists the days
+itself, Monday first, from the real plan, so never write the days, times or
+sections in "reply". For every other answer, "scheduleLayout" is "bySubject".
+
 "alternatives" lists other clash-free plans the student can ask to see. Each has a "label" (for example "Afternoon classes" or "Include CC-ACCTG21"), "changes" saying how it differs from the current plan, its "units", the subjects "notIncluded", and sometimes a "note" about how many classes fall in the preferred part of the day. When the student asks for another suggestion, a different schedule, another option, or a plan with a different time of day, offer them by label in plain words, one short sentence each using "changes" and "note" (never invent a difference). If "alternatives" is empty, say honestly that the sections offered leave no other way to arrange these subjects without a clash. When the student picks one or asks to see it, set "showScheduleTable" to true AND set "scheduleOption" to that alternative's exact "label", and say something like "Here's the afternoon version:". For the current plan, or any other answer, "scheduleOption" is null. Never write the times, days or sections of an alternative in "reply": the application draws them from the label.
 
 The student's current data, as already computed by the rule engine:
@@ -152,7 +171,7 @@ serve(async (req) => {
       return reply(413, { error: "That request is too large." });
     }
 
-    const { summary, history, message } = await req.json();
+    const { summary, history, message, client } = await req.json();
 
     if (!summary || typeof summary !== "object") {
       return new Response(
@@ -220,12 +239,12 @@ serve(async (req) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             systemInstruction: {
-              parts: [{ text: buildSystemInstruction(summary) }],
+              parts: [{ text: buildSystemInstruction(summary, client) }],
             },
             contents,
             generationConfig: {
               temperature: 0.4,
-              maxOutputTokens: 512,
+              maxOutputTokens: 1024,
               responseMimeType: "application/json",
             },
           }),
@@ -275,13 +294,24 @@ serve(async (req) => {
       // instruction -- the chat still works, it just never shows a table
       // for that one reply.
       console.warn("Gemini reply was not valid JSON, using as plain text:", rawText);
-      parsed = { reply: rawText.trim(), showRecommendedTable: false, showScheduleTable: false, scheduleOption: null };
+      // A reply cut off mid-JSON still has its text in the "reply" field; show
+      // that rather than the raw braces and keys.
+      const cut = rawText.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)/);
+      let text = rawText.trim();
+      if (cut) {
+        try { text = JSON.parse(`"${cut[1].replace(/\\$/, "")}"`); } catch { text = cut[1]; }
+      }
+      parsed = { reply: text.trim(), showRecommendedTable: false, showScheduleTable: false, scheduleOption: null, scheduleLayout: "bySubject" };
     }
+
+    const showSchedule = parsed.showScheduleTable === true && parsed.showRecommendedTable !== true;
 
     return new Response(JSON.stringify({
       reply: String(parsed.reply ?? "").trim(),
       showRecommendedTable: parsed.showRecommendedTable === true,
-      showScheduleTable: parsed.showScheduleTable === true && parsed.showRecommendedTable !== true,
+      showScheduleTable: showSchedule,
+      // How the schedule table is laid out; only meaningful with the table.
+      scheduleLayout: showSchedule && parsed.scheduleLayout === "byDay" ? "byDay" : "bySubject",
       // Only meaningful with the schedule table, and only a short label (the page matches it
       // against the real alternatives, so anything unknown simply shows no table).
       scheduleOption: parsed.showScheduleTable === true && typeof parsed.scheduleOption === "string"
