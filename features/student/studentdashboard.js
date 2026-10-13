@@ -24,6 +24,9 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     })
     : null;
 
+/* The term helper reads system_config with this signed-in client (db/052). */
+window.CurriculogicTerm?.setClient(supabase);
+
 const $ = (id) => document.getElementById(id);
 
 const LOGIN_PAGE = '../auth/html/loginpage.html';
