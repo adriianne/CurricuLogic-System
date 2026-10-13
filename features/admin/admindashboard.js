@@ -20,6 +20,9 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     })
     : null;
 
+/* The term helper reads system_config with this signed-in client (db/052). */
+window.CurriculogicTerm?.setClient(supabase);
+
 const $ = (id) => document.getElementById(id);
 
 const LOGIN_PAGE = '../auth/html/adminloginpage.html';
@@ -55,7 +58,7 @@ const PREVIEW_STAFF = [
 ];
 
 const PREVIEW_STUDENTS = [
-    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', email: 'althea1@gmail.com',   is_approved: true,  approval_status: 'approved' },
+    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', program_id: 1, email: 'althea1@gmail.com',   is_approved: true,  approval_status: 'approved' },
     { id: 's2', first_name: 'Marco',  last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph', is_approved: false, approval_status: 'pending' },
     { id: 's3', first_name: 'Janine', last_name: 'Abella',     student_id: null,       email: 'janine.abella@uc.edu.ph', is_approved: false, approval_status: 'pending' },
 ];
@@ -200,7 +203,8 @@ function renderProfile(admin, authEmail) {
     const full  = fullName(admin);
     const email = admin?.email || authEmail || '—';
 
-    $('avatar').textContent    = initials(admin?.first_name, admin?.last_name, email);
+    PHOTO_INITIALS = initials(admin?.first_name, admin?.last_name, email);
+    window.CurriculogicPhoto.paint($('avatar'), PHOTO_URL, PHOTO_INITIALS);
     $('user-name').textContent = full || admin?.username || 'Admin';
     $('user-sub').textContent  = admin?.employee_id || 'System Administrator';
 
@@ -208,7 +212,7 @@ function renderProfile(admin, authEmail) {
         ? `Welcome back, ${admin.first_name}`
         : 'Welcome back';
 
-    setText('prof-avatar', initials(admin?.first_name, admin?.last_name, email));
+    window.CurriculogicPhoto.paint($('prof-avatar'), PHOTO_URL, PHOTO_INITIALS);
     setText('prof-name',   full || admin?.username || email);
     setText('prof-sub',    [admin?.employee_id, 'System Administrator'].filter(Boolean).join(' \u00b7 '));
 
@@ -216,7 +220,191 @@ function renderProfile(admin, authEmail) {
     setText('d-eid',   admin?.employee_id || '—', 'mono');
     setText('d-username', admin?.username || '—', 'mono');
     setText('d-email', email, 'mono');
+
+    const f = $('edit-first'), l = $('edit-last'), e = $('edit-email');
+    if (f && document.activeElement !== f) f.value = admin?.first_name || '';
+    if (l && document.activeElement !== l) l.value = admin?.last_name || '';
+    if (e && document.activeElement !== e) e.value = email === '—' ? '' : email;
 }
+
+/* Profile photo: stored privately per account (db/064), helpers in
+   shared/js/profilephoto.js. Preview has no storage, so a picture chosen there
+   only lives until the page is closed. */
+let PHOTO_URL = null;
+let PHOTO_INITIALS = '';
+
+function showPhoto(url) {
+    PHOTO_URL = url || null;
+    window.CurriculogicPhoto.paint($('avatar'), PHOTO_URL, PHOTO_INITIALS);
+    window.CurriculogicPhoto.paint($('prof-avatar'), PHOTO_URL, PHOTO_INITIALS);
+    const rm = $('photo-remove');
+    if (rm) rm.hidden = !PHOTO_URL;
+}
+
+async function loadPhoto() {
+    if (PREVIEW || !supabase || !AUTH_UID) return;
+    showPhoto(await window.CurriculogicPhoto.signedUrl(supabase, AUTH_UID));
+}
+
+function photoMessage(text, isError) {
+    const box = $('photo-msg');
+    if (!box) return;
+    box.textContent = text || '';
+    box.classList.toggle('is-error', !!isError);
+}
+
+$('photo-change')?.addEventListener('click', () => $('photo-file')?.click());
+
+$('photo-file')?.addEventListener('change', async (ev) => {
+    const input = ev.target;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    const Photo = window.CurriculogicPhoto;
+    const bad = Photo.problem(file);
+    if (bad) return photoMessage(bad, true);
+
+    photoMessage('Saving…');
+    $('photo-change').disabled = true;
+    try {
+        const blob = await Photo.prepare(file);
+        if (PREVIEW || !supabase || !AUTH_UID) {
+            showPhoto(URL.createObjectURL(blob));
+            photoMessage('Photo updated (preview only, not saved).');
+        } else {
+            await Photo.upload(supabase, AUTH_UID, blob);
+            showPhoto(await Photo.signedUrl(supabase, AUTH_UID));
+            photoMessage('Photo updated.');
+        }
+    } catch (err) {
+        photoMessage(err.message || 'The photo could not be saved.', true);
+    } finally {
+        $('photo-change').disabled = false;
+    }
+});
+
+$('photo-remove')?.addEventListener('click', async () => {
+    photoMessage('Removing…');
+    try {
+        if (!PREVIEW && supabase && AUTH_UID) await window.CurriculogicPhoto.remove(supabase, AUTH_UID);
+        showPhoto(null);
+        photoMessage('Photo removed.');
+    } catch (err) {
+        photoMessage(err.message || 'The photo could not be removed.', true);
+    }
+});
+
+/* Edit name and email. A new email goes through Supabase Auth, which sends a
+   confirmation link; the table's email follows once the sign-in email changes
+   (synced at the next load, see syncEmailFromAuth). */
+$('prof-edit-form')?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+
+    const first = CurriculogicNameRules.clean($('edit-first').value);
+    const last  = CurriculogicNameRules.clean($('edit-last').value);
+    const email = CurriculogicEmailRules.clean($('edit-email').value);
+    const pw    = $('edit-pw').value;
+
+    const firstProblem = CurriculogicNameRules.problem(first, 'first name');
+    if (firstProblem) return showMsg('edit-msg', firstProblem);
+    const lastProblem = CurriculogicNameRules.problem(last, 'last name');
+    if (lastProblem) return showMsg('edit-msg', lastProblem);
+    const emailProblem = CurriculogicEmailRules.problem(email);
+    if (emailProblem) return showMsg('edit-msg', emailProblem);
+
+    const emailChanged = email.toLowerCase() !== String(ADMIN?.email || '').toLowerCase();
+    const nameChanged  = first !== (ADMIN?.first_name || '') || last !== (ADMIN?.last_name || '');
+    if (!emailChanged && !nameChanged) return showMsg('edit-msg', 'Nothing to save: no details were changed.');
+    if (emailChanged && !PREVIEW && !pw) return showMsg('edit-msg', 'Enter your current password to change your email.');
+
+    const btn = $('edit-submit');
+    const finish = (msg, type) => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
+        showMsg('edit-msg', msg, type);
+    };
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    if (PREVIEW) {
+        ADMIN = { ...ADMIN, first_name: first, last_name: last };
+        renderProfile(ADMIN, ADMIN?.email);
+        return finish('Saved (preview only).', 'success');
+    }
+    if (!supabase || !ADMIN?.id) return finish('Your admin record could not be found.');
+
+    if (emailChanged) {
+        const { error: authErr } = await supabase.auth.signInWithPassword({ email: ADMIN.email, password: pw });
+        if (authErr) return finish('Current password is incorrect.');
+    }
+
+    if (nameChanged) {
+        const { error } = await supabase.from('system_administrator')
+            .update({ first_name: first, last_name: last }).eq('id', ADMIN.id);
+        if (error) return finish(error.message || 'Could not save your name.');
+        ADMIN = { ...ADMIN, first_name: first, last_name: last };
+        renderProfile(ADMIN, ADMIN.email);
+    }
+
+    if (emailChanged) {
+        const { error } = await supabase.auth.updateUser({ email });
+        if (error) return finish(error.message || 'Could not change your email.');
+        $('edit-pw').value = '';
+        return finish(`Saved. We sent a confirmation link to ${email}. Your email changes once you open it.`, 'success');
+    }
+
+    $('edit-pw').value = '';
+    finish('Saved.', 'success');
+});
+
+/* If the email was confirmed since last time, bring the admin record in line. */
+async function syncEmailFromAuth(authEmail) {
+    if (!authEmail || !ADMIN?.id) return;
+    if (authEmail.toLowerCase() === String(ADMIN.email || '').toLowerCase()) return;
+    const { error } = await supabase.from('system_administrator')
+        .update({ email: authEmail }).eq('id', ADMIN.id);
+    if (error) return console.warn('email sync failed:', error.message);
+    ADMIN = { ...ADMIN, email: authEmail };
+    renderProfile(ADMIN, authEmail);
+}
+
+/* Change password */
+$('prof-pw-form')?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+
+    const current = $('pw-current')?.value ?? '';
+    const next    = $('pw-new')?.value ?? '';
+    const confirm = $('pw-confirm')?.value ?? '';
+
+    if (!current) return showMsg('pw-msg', 'Enter your current password.');
+    const pwProblem = CurriculogicPasswordRules.problem(next);
+    if (pwProblem) return showMsg('pw-msg', pwProblem);
+    if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
+    if (next === current) return showMsg('pw-msg', 'Choose a password different from your current one.');
+
+    const btn = $('pw-submit');
+    const finish = (msg, type) => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Change password'; }
+        showMsg('pw-msg', msg, type);
+    };
+    if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+
+    if (PREVIEW) return finish('Password updated (preview only).', 'success');
+
+    const email = ADMIN?.email;
+    if (!supabase || !email) return finish('No email on record for this account.');
+
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password: current });
+    if (authErr) return finish('Current password is incorrect.');
+
+    const { error: upErr } = await supabase.auth.updateUser({ password: next });
+    if (upErr) return finish(upErr.message || 'Could not change password.');
+
+    // A new password replaces any temporary one (db/057).
+    await supabase.rpc('clear_must_change_password');
+
+    ['pw-current', 'pw-new', 'pw-confirm'].forEach(id => { const el = $(id); if (el) el.value = ''; });
+    finish('Password updated.', 'success');
+});
 
 function renderNotice(admin) {
     const box = $('status-notice');
@@ -293,9 +481,15 @@ async function loadStudents(force = false) {
 
     if (!supabase) return;
 
+    // The Programme column needs the programme list even if Staff was never opened.
+    if (!PROGRAMS_READY) {
+        const prog = await supabase.from('program').select('id, code, name');
+        if (!prog.error) { PROGRAMS = prog.data ?? []; PROGRAMS_READY = true; }
+    }
+
     const { data, error } = await supabase
         .from('university_student')
-        .select('id, first_name, last_name, student_id, email, is_approved, approval_status, created_at')
+        .select('id, first_name, last_name, student_id, email, program_id, is_approved, approval_status, created_at')
         .order('created_at', { ascending: false });
 
     if (error) {
@@ -695,6 +889,7 @@ function renderStudents() {
                     <tr>
                         <th>Student ID</th>
                         <th>Name</th>
+                        <th>Programme</th>
                         <th>Email</th>
                         <th>Status</th>
                         <th>Requested</th>
@@ -712,6 +907,7 @@ function renderStudents() {
                         <tr>
                             <td class="mono">${escapeHtml(s.student_id || '—')}</td>
                             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
+                            <td>${escapeHtml(PROGRAMS.find(p => p.id === s.program_id)?.code || '—')}</td>
                             <td class="dim">${escapeHtml(s.email || '—')}</td>
                             <td>${pill}</td>
                             <td class="dim">${daysAgo(s.created_at)}</td>
@@ -2121,6 +2317,8 @@ $('term-confirm-no')?.addEventListener('click', hideTermConfirm);
 
     ADMIN = admin;
     renderProfile(admin, session.user.email);
+    loadPhoto();
+    syncEmailFromAuth(session.user.email);
     renderNotice(admin);
     window.CurriculogicForcePassword?.run(supabase, 'admin');
 

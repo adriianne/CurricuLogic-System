@@ -34,7 +34,7 @@
     <aside class="sidebar">
 
         <div class="side-brand">
-            <img src="../../../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
+            <img src="../../assets/CurriculogicLogo.png" alt="" width="1024" height="576">
             <span class="brand-text"><span class="brand-c">C</span>urricu<span class="brand-logic">Logic</span></span>
         </div>
 
@@ -630,7 +630,13 @@
                 </div>
 
                 <section class="card prof-hero">
-                    <div class="prof-avatar" id="prof-avatar" aria-hidden="true"></div>
+                    <div class="photo-pick">
+                        <div class="prof-avatar" id="prof-avatar" aria-hidden="true"></div>
+                        <button type="button" class="photo-btn" id="photo-change" aria-label="Change profile photo" title="Change photo">
+                            <i class="fa-solid fa-camera" aria-hidden="true"></i>
+                        </button>
+                        <input type="file" id="photo-file" accept="image/jpeg,image/png,image/webp" hidden>
+                    </div>
                     <div class="prof-id">
                         <h2 class="prof-name" id="prof-name"><span class="skeleton"></span></h2>
                         <p class="prof-sub" id="prof-sub"></p>
@@ -638,6 +644,10 @@
                             <span class="pill info"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> System administrator</span>
                             <span class="pill ok"><i class="fa-solid fa-check" aria-hidden="true"></i> Active</span>
                         </div>
+                        <p class="photo-actions">
+                            <button type="button" class="btn-link" id="photo-remove" hidden>Remove photo</button>
+                            <span class="photo-msg" id="photo-msg" role="status" aria-live="polite"></span>
+                        </p>
                     </div>
                 </section>
 
@@ -688,9 +698,58 @@
                                 </div>
                             </dl>
                             <p class="prof-note">
-                                Your name, employee ID and role are set by the university and cannot be
-                                edited here.
+                                Your employee ID, username and role are set by the university and cannot be
+                                edited here. You can change your name and email in the next card.
                             </p>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Edit your details</span>
+                        </div>
+                        <div class="card-body">
+                            <form id="prof-edit-form" class="prof-form" autocomplete="off" novalidate>
+                                <div id="edit-msg" class="msg" role="status"></div>
+
+                                <label for="edit-first">First name</label>
+                                <input type="text" id="edit-first" autocomplete="given-name" maxlength="100">
+
+                                <label for="edit-last">Last name</label>
+                                <input type="text" id="edit-last" autocomplete="family-name" maxlength="100">
+
+                                <label for="edit-email">Email</label>
+                                <input type="email" id="edit-email" autocomplete="email" maxlength="255">
+                                <p class="prof-hint">Changing your email sends a confirmation link to the new address. Until you confirm it, you keep signing in with the old one.</p>
+
+                                <label for="edit-pw">Current password <span class="prof-hint">(only needed when changing email)</span></label>
+                                <input type="password" id="edit-pw" autocomplete="current-password" maxlength="72">
+
+                                <button type="submit" class="btn-primary" id="edit-submit">Save changes</button>
+                            </form>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Change your password</span>
+                        </div>
+                        <div class="card-body">
+                            <form id="prof-pw-form" class="prof-form" autocomplete="off" novalidate>
+                                <div id="pw-msg" class="msg" role="status"></div>
+
+                                <label for="pw-current">Current password</label>
+                                <input type="password" id="pw-current" autocomplete="current-password" maxlength="72">
+
+                                <label for="pw-new">New password</label>
+                                <input type="password" id="pw-new" autocomplete="new-password" maxlength="72">
+                                <p class="prof-hint">At least 8 characters, including a special character (! @ # $ %).</p>
+
+                                <label for="pw-confirm">Confirm new password</label>
+                                <input type="password" id="pw-confirm" autocomplete="new-password" maxlength="72">
+
+                                <button type="submit" class="btn-primary" id="pw-submit">Change password</button>
+                            </form>
                         </div>
                     </section>
 
@@ -701,8 +760,7 @@
                         <div class="card-body">
                             <p class="prose">
                                 Admin accounts are provisioned by the university and cannot be
-                                self-registered. Contact IT support if you need to change your
-                                credentials.
+                                self-registered. If you forget your password, contact IT support.
                             </p>
                             <p class="prof-note">
                                 Accounts you create are recorded in the audit log, and your session ends
@@ -730,6 +788,7 @@
 <script src="../../shared/js/uploadlimits.js"></script>
 <script src="../../shared/js/uploadprogress.js"></script>
 <script src="../../shared/js/motion.js"></script>
+<script src="../../shared/js/profilephoto.js"></script>
 <script src="../../shared/js/theme.js"></script>
 <script src="admindashboard.js"></script>
 </body>
