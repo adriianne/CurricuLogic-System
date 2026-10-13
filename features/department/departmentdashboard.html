@@ -8,15 +8,27 @@
     <title>Department dashboard — CurricuLogic</title>
 
     <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
+    <script>
+        /* Apply the saved (or system) theme before anything is drawn: no white flash. See shared/js/theme.js. */
+        try {
+            var t = localStorage.getItem('curriculogic-theme');
+            if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.dataset.theme = t;
+        } catch (e) { /* storage blocked: the page opens light */ }
+    </script>
     <link rel="stylesheet" href="../../shared/css/dashboard.css">
     <link rel="stylesheet" href="grade_upload.css">
     <link rel="stylesheet" href="../prospectus/prospectus.css">
     <link rel="stylesheet" href="../curriculum/curriculum_builder.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&display=swap">
+    <link rel="stylesheet" href="../../shared/css/dashboard-paper.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha384-PPIZEGYM1v8zp5Py7UjFb79S58UeqCL9pYVnVPURKEqvioPROaVAJKKLzvH2rDnI" crossorigin="anonymous">
     <script src="../../shared/js/vendor/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" integrity="sha384-Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz" crossorigin="anonymous"></script>
 </head>
-<body data-idle-role="department_staff">
+<body class="theme-paper" data-idle-role="department_staff">
 
 <div class="shell" id="shell">
 
@@ -46,6 +58,9 @@
             </a>
             <a href="#schedule" data-view="schedule">
                 <i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Schedule
+            </a>
+            <a href="#students" data-view="students">
+                <i class="fa-solid fa-users" aria-hidden="true"></i> Students
             </a>
             <a href="#grades" data-view="grades">
                 <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i> Grade upload
@@ -77,7 +92,7 @@
             <label class="topbar-program" id="dept-program-wrap">
                 <span class="topbar-program-label">Programme</span>
                 <input type="text" id="dept-program" class="topbar-program-field" value="—"
-                    eadonly tabindex="-1" aria-label="Programme this account belongs to">
+                    readonly tabindex="-1" aria-label="Programme this account belongs to">
             </label>
 
             <div class="topbar-user">
@@ -86,6 +101,9 @@
                     <span class="user-name" id="user-name"><span class="skeleton"></span></span>
                     <span class="user-sub" id="user-sub"></span>
                 </span>
+                <button type="button" class="btn-theme" id="theme-toggle" aria-label="Switch to dark mode" title="Dark mode" aria-pressed="false">
+                    <i class="fa-solid fa-moon" aria-hidden="true"></i>
+                </button>
                 <button class="btn-logout" id="logout">
                     <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
                     <span>Log out</span>
@@ -293,13 +311,6 @@
                                        placeholder="Search code or title"
                                        autocomplete="off" aria-label="Search subjects" maxlength="100">
                             </div>
-                            <select id="year-filter" aria-label="Filter by year">
-                                <option value="all">All years</option>
-                                <option value="1">1st Year</option>
-                                <option value="2">2nd Year</option>
-                                <option value="3">3rd Year</option>
-                                <option value="4">4th Year</option>
-                            </select>
                         </div>
 
                         <div id="subjects-body">
@@ -748,6 +759,110 @@
 </section>
 
             <!-- Profile -->
+<!-- ============ STUDENTS (read-only) ============ -->
+            <section class="view view-wide" id="view-students" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Students</h1>
+                    <p class="page-sub">
+                        The students of your programme. Open one to see their grades, how far
+                        they are through the degree, and their approved plan for this term.
+                        Read-only: grades are added through Grade upload.
+                    </p>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Student list</span>
+                        <span class="card-note" id="students-count"></span>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="stu-chips" id="student-chips" role="group" aria-label="Filter students"></div>
+
+                        <div class="toolbar">
+                            <div class="search-wrap">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input type="search" id="student-search"
+                                       placeholder="Search name or student ID"
+                                       autocomplete="off" aria-label="Search students" maxlength="100">
+                            </div>
+                            <select id="student-year" aria-label="Filter by year level">
+                                <option value="all">All years</option>
+                                <option value="1">1st Year</option>
+                                <option value="2">2nd Year</option>
+                                <option value="3">3rd Year</option>
+                                <option value="4">4th Year</option>
+                            </select>
+                        </div>
+
+                        <div id="students-body">
+                            <div class="empty">
+                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                <h3>Loading</h3>
+                                <p>Fetching students.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+            </section>
+
+            <section class="view view-wide" id="view-student" hidden>
+
+                <div class="page-head">
+                    <a href="#students" class="back-link">
+                        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                        <span>Back to students</span>
+                    </a>
+                </div>
+
+                <section class="card prof-hero stu-hero">
+                    <div class="prof-avatar" id="detail-avatar" aria-hidden="true"></div>
+                    <div class="prof-id">
+                        <h1 class="prof-name" id="detail-name">Student</h1>
+                        <p class="prof-sub" id="detail-sub"></p>
+                        <div class="prof-pills" id="detail-pills"></div>
+                    </div>
+                </section>
+
+                <div class="stu-grid">
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">This term</span>
+                            <span class="card-note" id="detail-term-label"></span>
+                        </div>
+                        <div class="card-body" id="detail-term-body"></div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Progress</span>
+                        </div>
+                        <div class="card-body" id="detail-progress-body"></div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Details</span>
+                        </div>
+                        <div class="card-body">
+                            <dl id="detail-status"></dl>
+                        </div>
+                    </section>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Grades</span>
+                        <span class="card-note" id="detail-record-count"></span>
+                    </div>
+                    <div class="card-body" id="detail-record-body"></div>
+                </section>
+
+            </section>
+
 <section class="view view-wide" id="view-profile" hidden>
 
     <div class="page-head">
@@ -959,12 +1074,16 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
 <script src="../../shared/js/config.js"></script>
 <script src="../../shared/js/idlesignout.js"></script>
+<script src="../../shared/js/subjectgroups.js"></script>
 <script src="../../shared/js/systemconfig.js"></script>
 <script src="../../shared/js/programs.js"></script>
 <script src="../../shared/js/requeststatus.js"></script>
 <script src="../../shared/js/gradefile.js"></script>
 <script src="../../shared/js/uploadprogress.js"></script>
 <script src="../../shared/engine/engine.js"></script>
+<script src="../../shared/js/recordgrades.js"></script>
+<script src="../../shared/js/studentlist.js"></script>
+<script src="../../shared/js/profilephoto.js"></script>
 <script src="../../shared/js/prospectusgrid.js"></script>
 <script src="../../shared/js/electives.js"></script>
 <script src="../../shared/js/footnotes.js"></script>
@@ -973,6 +1092,8 @@
 <script src="../curriculum/curriculum_builder.js"></script>
 <script src="../../shared/js/passwordrules.js"></script>
 <script src="../../shared/js/forcepasswordchange.js"></script>
+<script src="../../shared/js/motion.js"></script>
+<script src="../../shared/js/theme.js"></script>
 <script src="departmentdashboard.js"></script>
 </body>
 </html>

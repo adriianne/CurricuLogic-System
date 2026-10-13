@@ -24,6 +24,9 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     })
     : null;
 
+/* The term helper reads system_config with this signed-in client (db/052). */
+window.CurriculogicTerm?.setClient(supabase);
+
 const $ = (id) => document.getElementById(id);
 
 const LOGIN_PAGE = '../auth/html/staffloginpage.html';
@@ -172,6 +175,32 @@ const PREVIEW_STAFF = {
     department: 'College of Computer Studies', is_approved: true,
 };
 
+const PREVIEW_STUDENTS = [
+    { id: 's1', user_id: 'u1', first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', email: 'althea1@gmail.com', year_level: 2, record_verified: true,  prospectus_id: 1, program_id: 1, created_at: '2026-09-23T02:00:00Z', verified_at: '2026-09-29T02:00:00Z' },
+    { id: 's2', user_id: 'u2', first_name: 'Marco',  last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph', year_level: 2, record_verified: true,  prospectus_id: 1, program_id: 1, created_at: '2026-09-24T02:00:00Z', verified_at: '2026-09-29T02:00:00Z' },
+    { id: 's3', user_id: 'u3', first_name: 'Janine', last_name: 'Abella',     student_id: '2300845', email: 'janine.abella@uc.edu.ph', year_level: 3, record_verified: false, prospectus_id: null, program_id: 1, created_at: '2026-09-25T02:00:00Z', verified_at: null },
+    { id: 's4', user_id: 'u4', first_name: 'Paulo',  last_name: 'Cabahug',    student_id: '2501562', email: 'paulo.cabahug@uc.edu.ph', year_level: null, record_verified: false, prospectus_id: null, program_id: 1, created_at: '2026-09-26T02:00:00Z', verified_at: null },
+];
+
+const PREVIEW_RECORDS = {
+    s1: [
+        { id: 'r1', subject_id: 1, grade: '1.75', grade_points: 1.75, status: 'PASSED',   taken_term: 1, taken_year: 2024, subject: { code: 'CC-INTCOM11',  title: 'Introduction to Computing', units: 3 } },
+        { id: 'r2', subject_id: 2, grade: '2.00', grade_points: 2.00, status: 'PASSED',   taken_term: 1, taken_year: 2024, subject: { code: 'CC-COMPROG11', title: 'Computer Programming 1',    units: 3 } },
+        { id: 'r3', subject_id: 3, grade: '5.00', grade_points: 5.00, status: 'FAILED',   taken_term: 2, taken_year: 2024, subject: { code: 'CC-COMPROG12', title: 'Computer Programming 2',    units: 3 } },
+        { id: 'r4', subject_id: 3, grade: null,   grade_points: null, status: 'ENROLLED', taken_term: 1, taken_year: 2026, subject: { code: 'CC-COMPROG12', title: 'Computer Programming 2',    units: 3 } },
+    ],
+};
+
+const PREVIEW_PLANS = {
+    s1: [{
+        id: 'p1', status: 'approved', registrar_status: null, requested_term: 1, requested_year: 2023, created_at: '2026-10-01T03:00:00Z',
+        request_item: [
+            { id: 'i1', status: 'approved', subject: { code: 'CC-COMPROG12', title: 'Computer Programming 2', units: 3 }, offering: { section: 'BSIT-2A', schedule_days: 'MW', start_time: '10:00:00', end_time: '11:30:00' } },
+            { id: 'i2', status: 'approved', subject: { code: 'IT-OOPROG21', title: 'Object Oriented Programming', units: 3 }, offering: { section: 'BSIT-2A', schedule_days: 'TTH', start_time: '13:00:00', end_time: '14:30:00' } },
+        ],
+    }],
+};
+
 const PREVIEW_SUBJECTS = [
     { id: 1, code: 'CC-INTCOM11',  title: 'Introduction to Computing', units: 3, year_level: 1, term: 1, is_elective: false },
     { id: 2, code: 'CC-COMPROG11', title: 'Computer Programming 1',    units: 3, year_level: 1, term: 1, is_elective: false },
@@ -198,6 +227,8 @@ const VIEWS = {
     curriculum: 'Curriculum',
     subject:    'Subject',
     schedule:   'Schedule',
+    students:   'Students',
+    student:    'Student detail',
     grades:     'Grade upload',
     profile:    'Profile',
 };
@@ -216,7 +247,7 @@ function showView(name, param) {
     });
 
     document.querySelectorAll('.side-nav a').forEach((link) => {
-        const target = name === 'subject' ? 'curriculum' : name;
+        const target = name === 'subject' ? 'curriculum' : name === 'student' ? 'students' : name;
         link.classList.toggle('active', link.dataset.view === target);
     });
 
@@ -229,6 +260,8 @@ function showView(name, param) {
     if (name === 'curriculum') renderSubjects();
     if (name === 'subject' && param) openSubject(Number(param));
     if (name === 'schedule') initSchedule();
+    if (name === 'students') openStudentList();
+    if (name === 'student' && param) openStudent(param);
     if (name === 'grades') initGrades();
 }
 
@@ -265,6 +298,17 @@ function setText(id, value, className) {
     if (!el) return;
     el.textContent = value;
     if (className) el.className = className;
+}
+
+/* One number on the dashboard: set as usual, then counted up from what is
+   shown (or from 0 the first time). See shared/js/motion.js. */
+function setStat(id, n) {
+    const el = $(id);
+    if (!el) return;
+    const before = el.textContent.trim();
+    setText(id, String(n));
+    el.textContent = /^\d+$/.test(before) ? before : '0';
+    window.CurriculogicMotion?.countUp(el, n);
 }
 
 const ordinal = (n) =>
@@ -745,7 +789,7 @@ function renderTiles() {
         .filter(s => s.year_level >= 2 && !RULES.some(r => r.subject_id === s.id))
         .length;
 
-    setText('tile-curriculum-number', String(SUBJECTS.length));
+    setStat('tile-curriculum-number', SUBJECTS.length);
     setText('tile-curriculum-status',
         `${rulesCount} rule${rulesCount === 1 ? '' : 's'} · ` +
         `${unitsTotal} units` +
@@ -753,7 +797,7 @@ function renderTiles() {
 
     // ── Schedule ──────────────────────────────────────────────────
     const offeringsCount = READY.offerings;
-    setText('tile-schedule-number', String(offeringsCount));
+    setStat('tile-schedule-number', offeringsCount);
     setText('tile-schedule-status',
         offeringsCount > 0
             ? `offering${offeringsCount === 1 ? '' : 's'} published`
@@ -761,7 +805,7 @@ function renderTiles() {
 
     // ── Grade uploads ─────────────────────────────────────────────
     const gradeFiles = READY.gradeFiles;
-    setText('tile-grades-number', String(gradeFiles));
+    setStat('tile-grades-number', gradeFiles);
     setText('tile-grades-status',
         gradeFiles > 0
             ? `upload${gradeFiles === 1 ? '' : 's'} recorded`
@@ -865,7 +909,8 @@ function renderIntegrity() {
     // Tile — reflects count, tinted amber when issues exist.
     const tile = document.querySelector('[data-tile="integrity"]');
     if (tile) tile.classList.toggle('is-clean', count === 0);
-    setText('tile-integrity-number', count === 0 ? '✓' : String(count));
+    if (count === 0) setText('tile-integrity-number', '✓');
+    else setStat('tile-integrity-number', count);
     setText('tile-integrity-status',
         count === 0
             ? 'no cycles, self-refs, or ordering issues'
@@ -978,13 +1023,52 @@ function renderIntegrity() {
 
 function filteredSubjects() {
     const term = ($('subject-search')?.value || '').trim().toLowerCase();
-    const year = $('year-filter')?.value || 'all';
+    if (!term) return SUBJECTS;
+    return SUBJECTS.filter((s) => `${s.code} ${s.title}`.toLowerCase().includes(term));
+}
 
-    return SUBJECTS.filter((s) => {
-        if (year !== 'all' && String(s.year_level) !== year) return false;
-        if (!term) return true;
-        return `${s.code} ${s.title}`.toLowerCase().includes(term);
-    });
+/* Which tab of the Subjects list is open: a year number, or 'electives'. */
+let SUBJECT_TAB = null;
+
+/* One subject as a table row. `showTerm` adds the year and semester column, used
+   when search results from every year are listed together. */
+function subjectRowHtml(s, showTerm) {
+    const n = rulesFor(s.id).length;
+    const retired = s.is_active === false;
+    return `<tr class="row-link${retired ? ' is-retired' : ''}" data-open="${s.id}" tabindex="0" role="button">
+        <td class="mono">${escapeHtml(s.code)}</td>
+        <td>
+            ${escapeHtml(s.title)}
+            ${s.is_elective ? '<span class="pill info">Elective</span>' : ''}
+            ${retired ? '<span class="pill waiting">Retired</span>' : ''}
+        </td>
+        <td class="num">${escapeHtml(s.units)}</td>
+        ${showTerm ? `<td class="dim">${s.year_level == null ? 'Elective' : `${ordinal(s.year_level)} \u00b7 ${termLabel(s.term)}`}</td>` : ''}
+        <td class="num">${n === 0
+            ? '<span class="dim">none</span>'
+            : n}</td>
+        <td class="num"><i class="fa-solid fa-chevron-right dim" aria-hidden="true"></i></td>
+    </tr>`;
+}
+
+/* One semester (or elective list) as a panel with its own totals. */
+function subjectPanelHtml(p) {
+    const body = p.rows.length
+        ? p.rows.map(r => subjectRowHtml(r, false)).join('')
+        : '<tr><td colspan="5" class="dim">No subjects.</td></tr>';
+    return `<section class="sub-panel">
+        <div class="sub-panel-head">
+            <h3>${escapeHtml(p.label)}</h3>
+            <span>${p.subjects} subject${p.subjects === 1 ? '' : 's'} \u00b7 ${p.units} units</span>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th>Code</th><th>Descriptive title</th><th class="num">Units</th>
+                    <th class="num">Rules</th><th></th></tr></thead>
+                <tbody>${body}</tbody>
+            </table>
+        </div>
+    </section>`;
 }
 
 function renderSubjects() {
@@ -992,8 +1076,13 @@ function renderSubjects() {
     const count = $('subjects-count');
     if (!body) return;
 
+    const searching = ($('subject-search')?.value || '').trim() !== '';
     const list = filteredSubjects();
-    if (count) count.textContent = SUBJECTS.length ? `${list.length} of ${SUBJECTS.length}` : '';
+    if (count) {
+        count.textContent = SUBJECTS.length
+            ? (searching ? `${list.length} of ${SUBJECTS.length}` : `${SUBJECTS.length} subjects`)
+            : '';
+    }
 
     if (list.length === 0) {
         body.innerHTML = `
@@ -1002,36 +1091,52 @@ function renderSubjects() {
                 <h3>${SUBJECTS.length === 0 ? 'No subjects yet' : 'No matches'}</h3>
                 <p>${SUBJECTS.length === 0
                     ? 'Add the first subject using the form above.'
-                    : 'No subject matches that search or filter.'}</p>
+                    : 'No subject matches that search.'}</p>
             </div>`;
         return;
     }
 
-    body.innerHTML = `
-        <div class="table-wrap">
-            <table class="data-table">
-                <thead>
-                    <tr><th>Code</th><th>Descriptive title</th><th class="num">Units</th>
-                        <th>Term</th><th class="num">Rules</th><th></th></tr>
-                </thead>
-                <tbody>${list.map(s => {
-                    const n = rulesFor(s.id).length;
-                    return `<tr class="row-link" data-open="${s.id}" tabindex="0" role="button">
-                        <td class="mono">${escapeHtml(s.code)}</td>
-                        <td>
-                            ${escapeHtml(s.title)}
-                            ${s.is_elective ? '<span class="pill info">Elective</span>' : ''}
-                        </td>
-                        <td class="num">${escapeHtml(s.units)}</td>
-                        <td class="dim">${ordinal(s.year_level)} · ${termLabel(s.term)}</td>
-                        <td class="num">${n === 0
-                            ? '<span class="dim">none</span>'
-                            : n}</td>
-                        <td class="num"><i class="fa-solid fa-chevron-right dim" aria-hidden="true"></i></td>
-                    </tr>`;
-                }).join('')}</tbody>
-            </table>
-        </div>`;
+    if (searching) {
+        // Search looks across the whole curriculum, so the matches are one list
+        // that says which year and semester each one is in.
+        body.innerHTML = `
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Code</th><th>Descriptive title</th><th class="num">Units</th>
+                            <th>Term</th><th class="num">Rules</th><th></th></tr>
+                    </thead>
+                    <tbody>${list.map(s => subjectRowHtml(s, true)).join('')}</tbody>
+                </table>
+            </div>`;
+    } else {
+        // Browsing: a tab per year, with that year's semesters side by side.
+        const g = window.CurriculogicSubjectGroups.group(SUBJECTS);
+        const tabs = g.years.map(y => ({ key: String(y.year), label: y.label, n: y.subjects }));
+        if (g.electives.groups.length) tabs.push({ key: 'electives', label: 'Electives', n: g.electives.subjects });
+
+        if (!tabs.some(t => t.key === String(SUBJECT_TAB))) SUBJECT_TAB = tabs[0]?.key ?? null;
+
+        const year = g.years.find(y => String(y.year) === String(SUBJECT_TAB));
+        const content = year
+            ? `<div class="sub-sems">${year.semesters.filter(p => p.key === '1' || p.key === '2').map(subjectPanelHtml).join('')}</div>${
+                year.semesters.filter(p => p.key !== '1' && p.key !== '2')
+                    .map(p => `<div class="sub-extra">${subjectPanelHtml(p)}</div>`).join('')}`
+            : `<div class="sub-sems">${g.electives.groups.map(subjectPanelHtml).join('')}</div>`;
+
+        body.innerHTML = `
+            <div class="sub-tabs" role="tablist" aria-label="Year level">
+                ${tabs.map(t => `<button type="button" class="sub-tab${String(SUBJECT_TAB) === t.key ? ' on' : ''}"
+                        role="tab" aria-selected="${String(SUBJECT_TAB) === t.key}" data-sub-tab="${escapeHtml(t.key)}">
+                    ${escapeHtml(t.label)} <span class="sub-tab-n">${t.n}</span>
+                </button>`).join('')}
+            </div>
+            ${content}`;
+
+        body.querySelectorAll('[data-sub-tab]').forEach(btn => {
+            btn.addEventListener('click', () => { SUBJECT_TAB = btn.dataset.subTab; renderSubjects(); });
+        });
+    }
 
     body.querySelectorAll('[data-open]').forEach((row) => {
         const go = () => { window.location.hash = `#subject/${row.dataset.open}`; };
@@ -1043,7 +1148,6 @@ function renderSubjects() {
 }
 
 $('subject-search')?.addEventListener('input', renderSubjects);
-$('year-filter')?.addEventListener('change', renderSubjects);
 
 $('toggle-add')?.addEventListener('click', () => {
     const pane = $('add-subject-pane');
@@ -5198,6 +5302,616 @@ $('grade-template')?.addEventListener('click', () => {
     XLSX.utils.book_append_sheet(wb, ws, 'Grades');
     XLSX.writeFile(wb, 'grade-template.xlsx');
 });
+
+/* students (read-only)
+
+   Department staff look students up to see their record, how far through the
+   degree they are, and the approved plan for this term: for example to confirm a
+   grade upload landed. They can read the students of their own programme, and
+   only plans the adviser has fully approved. Nothing here writes.
+
+   An adviser or Registrar can have a whole programme of students, so nothing is
+   loaded all at once: counts come from the database as counts and the list
+   fetches one page at a time. STUDENTS is a cache of every student shown. */
+
+const STUDENT_COLS =
+    'id, user_id, first_name, last_name, student_id, email, year_level, record_verified, ' +
+    'prospectus_id, program_id, created_at, verified_at';
+const STUDENT_PAGE_SIZE = 20;
+
+let STUDENTS = [];
+let COUNTS = { total: 0, verified: 0 };
+
+const yearText = (n) => (n ? ordinal(n) : 'Year not set');
+
+const SL = () => window.CurriculogicStudentList;
+
+/* The list's state: which page, which filters, what came back. `seq` makes sure a
+   slow answer to an old search never overwrites a newer one. */
+const LIST = { page: 1, filter: 'all', year: 'all', search: '', rows: [], total: 0, loaded: false, seq: 0 };
+
+const programName = (row) =>
+    window.CurriculogicPrograms?.nameOf(row?.program_id, PREVIEW ? 'BS Information Technology' : '—') ?? '—';
+
+const recordPill = (s) => s.record_verified
+    ? '<span class="pill ok">Verified</span>'
+    : '<span class="pill waiting">Pending</span>';
+
+const longDate = (iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—'
+        : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+function cacheStudents(rows) {
+    for (const row of rows ?? []) {
+        const i = STUDENTS.findIndex(s => s.id === row.id);
+        if (i >= 0) Object.assign(STUDENTS[i], row);
+        else STUDENTS.push(row);
+    }
+}
+
+async function loadCounts() {
+    if (PREVIEW || !supabase) {
+        return { total: PREVIEW_STUDENTS.length, verified: PREVIEW_STUDENTS.filter(s => s.record_verified).length };
+    }
+    const head = () => supabase.from('university_student').select('id', { count: 'exact', head: true });
+    const [total, ver] = await Promise.all([head(), head().eq('record_verified', true)]);
+    return { total: total.count ?? 0, verified: ver.count ?? 0 };
+}
+
+function previewMatches(s) {
+    if (LIST.filter === 'verified' && !s.record_verified) return false;
+    if (LIST.filter === 'pending'  &&  s.record_verified) return false;
+    if (LIST.year !== 'all' && String(s.year_level) !== LIST.year) return false;
+    const hay = [s.first_name, s.last_name, s.student_id, s.email].filter(Boolean).join(' ').toLowerCase();
+    return SL().searchTokens(LIST.search).every(t => hay.includes(t.toLowerCase()));
+}
+
+/* One page of students from the database (or from the sample set in preview). */
+async function fetchStudentPage() {
+    const { from, to } = SL().rangeFor(LIST.page, STUDENT_PAGE_SIZE);
+
+    if (PREVIEW) {
+        const all = PREVIEW_STUDENTS.filter(previewMatches)
+            .sort((a, b) => fullName(a).localeCompare(fullName(b)));
+        return { rows: all.slice(from, to + 1), total: all.length };
+    }
+
+    let q = supabase.from('university_student').select(STUDENT_COLS, { count: 'exact' });
+    if (LIST.filter === 'verified') q = q.eq('record_verified', true);
+    if (LIST.filter === 'pending')  q = q.eq('record_verified', false);
+    if (LIST.year !== 'all')        q = q.eq('year_level', Number(LIST.year));
+    // Every word of the search must match the name, the ID or the e-mail.
+    for (const token of SL().searchTokens(LIST.search)) q = q.or(SL().searchClause(token));
+
+    const { data, error, count } = await q
+        .order('last_name', { ascending: true })
+        .order('first_name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to);
+    if (error) throw error;
+    return { rows: data ?? [], total: count ?? 0 };
+}
+
+async function loadStudentList() {
+    const body = $('students-body');
+    if (!body) return;
+    const seq = ++LIST.seq;
+    body.classList.add('is-loading');
+
+    let result;
+    try {
+        result = await fetchStudentPage();
+        const pages = SL().pageCount(result.total, STUDENT_PAGE_SIZE);
+        if (LIST.page > pages) { LIST.page = pages; result = await fetchStudentPage(); }
+    } catch (err) {
+        if (seq !== LIST.seq) return;
+        console.warn('student list failed:', err.message);
+        body.classList.remove('is-loading');
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load students</h3>
+                <p>${escapeHtml(err.message)}</p>
+            </div>`;
+        return;
+    }
+    if (seq !== LIST.seq) return;
+
+    LIST.rows = result.rows;
+    LIST.total = result.total;
+    LIST.loaded = true;
+    cacheStudents(result.rows);
+    body.classList.remove('is-loading');
+    renderStudentList();
+    enrichStudentRows(result.rows, seq);
+}
+
+async function openStudentList() {
+    renderStudentChips();
+    loadStudentList();   // always fresh: a grade file may have landed since
+    COUNTS = await loadCounts();
+    renderStudentChips();
+}
+
+/* Filter buttons with their live counts. */
+function renderStudentChips() {
+    const box = $('student-chips');
+    if (!box) return;
+    const defs = [
+        ['all',      'All',                   COUNTS.total],
+        ['verified', 'Verified records',      COUNTS.verified],
+        ['pending',  'Awaiting verification', Math.max(0, COUNTS.total - COUNTS.verified)],
+    ];
+    box.innerHTML = defs.map(([key, label, n]) => `
+        <button type="button" class="stu-chip${LIST.filter === key ? ' on' : ''}" data-student-filter="${key}"
+                aria-pressed="${LIST.filter === key}">${escapeHtml(label)}<b>${n}</b></button>`).join('');
+}
+
+function studentRowHtml(s) {
+    const initials = SL().initialsOf(s.first_name, s.last_name, s.email);
+    return `
+    <div class="stu-row" data-open="${escapeHtml(s.id)}" tabindex="0" role="link"
+         aria-label="Open ${escapeHtml(fullName(s) || 'student')}">
+        <span class="stu-avatar" data-avatar="${escapeHtml(s.id)}">${escapeHtml(initials)}</span>
+        <span class="stu-who">
+            <strong>${escapeHtml(fullName(s) || '—')}</strong>
+            <span class="stu-meta"><span class="mono">${escapeHtml(s.student_id || 'No ID yet')}</span>
+                · ${escapeHtml(yearText(s.year_level))} · ${escapeHtml(programName(s))}</span>
+        </span>
+        <span class="stu-prog" data-prog="${escapeHtml(s.id)}">
+            ${s.record_verified
+                ? '<span class="stu-bar"><i style="width:0"></i></span><span class="stu-bar-text">&nbsp;</span>'
+                : `<span class="stu-bar-text dim">${escapeHtml(s.email || '')}</span>`}
+        </span>
+        <span class="stu-pills">${recordPill(s)}</span>
+        <i class="fa-solid fa-chevron-right dim" aria-hidden="true"></i>
+    </div>`;
+}
+
+function renderStudentList() {
+    const body  = $('students-body');
+    const count = $('students-count');
+    if (!body) return;
+
+    const pages = SL().pageCount(LIST.total, STUDENT_PAGE_SIZE);
+    const { from } = SL().rangeFor(LIST.page, STUDENT_PAGE_SIZE);
+    const searching = LIST.search.trim() !== '' || LIST.filter !== 'all' || LIST.year !== 'all';
+    if (count) count.textContent = LIST.total
+        ? (searching ? `${LIST.total} match${LIST.total === 1 ? '' : 'es'}` : `${LIST.total} students`)
+        : '';
+
+    if (LIST.rows.length === 0) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid ${searching ? 'fa-magnifying-glass' : 'fa-users-slash'}" aria-hidden="true"></i>
+                <h3>${searching ? 'No matches' : 'No students yet'}</h3>
+                <p>${searching
+                    ? 'No student matches that search or filter.'
+                    : 'Students of your programme will appear here once they have registered.'}</p>
+            </div>`;
+        return;
+    }
+
+    body.innerHTML = `
+        <div class="stu-list">${LIST.rows.map(studentRowHtml).join('')}</div>
+        ${pages > 1 ? `
+        <div class="pager">
+            <span class="dim">${from + 1}–${from + LIST.rows.length} of ${LIST.total}</span>
+            <span class="pager-btns">
+                <button type="button" class="btn-small" data-student-page="prev" ${LIST.page === 1 ? 'disabled' : ''}>Previous</button>
+                <span class="pager-now">Page ${LIST.page} of ${pages}</span>
+                <button type="button" class="btn-small" data-student-page="next" ${LIST.page === pages ? 'disabled' : ''}>Next</button>
+            </span>
+        </div>` : ''}`;
+}
+
+/* Prospectus facts: how many units the whole curriculum has, and which year it
+   is. Cached; a couple of queries however many students are on screen. */
+const PROSPECTUS_FACTS = new Map();
+
+async function prospectusFacts(ids) {
+    const want = [...new Set(ids.filter(x => x != null))].filter(id => !PROSPECTUS_FACTS.has(id));
+    if (want.length && supabase && !PREVIEW) {
+        const [subs, pros] = await Promise.all([
+            supabase.from('subject').select('prospectus_id, units')
+                .in('prospectus_id', want).not('year_level', 'is', null).eq('is_active', true),
+            supabase.from('prospectus').select('id, academic_year, is_active').in('id', want),
+        ]);
+        const units = new Map();
+        for (const r of subs.data ?? []) units.set(r.prospectus_id, (units.get(r.prospectus_id) || 0) + Number(r.units || 0));
+        for (const p of pros.data ?? []) {
+            PROSPECTUS_FACTS.set(p.id, {
+                units: units.get(p.id) || 0,
+                label: p.academic_year ? `${p.academic_year}–${Number(p.academic_year) + 1}` : '',
+                active: !!p.is_active,
+            });
+        }
+    }
+    return PROSPECTUS_FACTS;
+}
+
+function setBar(id, percent, text) {
+    const cell = document.querySelector(`[data-prog="${CSS.escape(id)}"]`);
+    if (!cell) return;
+    const bar = cell.querySelector('.stu-bar i');
+    const label = cell.querySelector('.stu-bar-text');
+    if (label) label.textContent = text;
+    if (bar) requestAnimationFrame(() => { bar.style.width = `${percent}%`; });
+}
+
+/* The photos and the progress bars arrive after the rows, so the page is never
+   waiting on them. */
+async function enrichStudentRows(rows, seq) {
+    const Photo = window.CurriculogicPhoto;
+
+    if (PREVIEW) {
+        for (const s of rows) {
+            const recs = PREVIEW_RECORDS[s.id];
+            if (!recs || !s.record_verified) continue;
+            const p = SL().progress(recs.map(r => ({ subject_id: r.subject.code, status: r.status, units: r.subject.units })), 161);
+            setBar(s.id, p.percent, `${p.units} of ${p.total} units`);
+        }
+        return;
+    }
+
+    // photos: one request for the whole page
+    Photo.signedUrls(supabase, rows.map(s => s.user_id)).then((urls) => {
+        if (seq !== LIST.seq) return;
+        for (const s of rows) {
+            const url = urls.get(s.user_id);
+            if (!url) continue;
+            const el = document.querySelector(`[data-avatar="${CSS.escape(s.id)}"]`);
+            if (el) Photo.paint(el, url, SL().initialsOf(s.first_name, s.last_name, s.email));
+        }
+    }).catch(() => {});
+
+    // progress: passed units of the students with a verified record
+    const shown = rows.filter(s => s.record_verified);
+    if (!shown.length) return;
+    try {
+        // Ten students per request keeps every answer well under the row limit.
+        const answers = await Promise.all(chunksOf(shown.map(s => s.id), 10).map(ids =>
+            supabase.from('academic_record')
+                .select('student_id, subject_id, status, subject:subject_id (units)')
+                .in('student_id', ids).eq('status', 'PASSED')));
+        const byStudent = new Map();
+        for (const a of answers) for (const r of a.data ?? []) {
+            if (!byStudent.has(r.student_id)) byStudent.set(r.student_id, []);
+            byStudent.get(r.student_id).push(r);
+        }
+        const facts = await prospectusFacts(shown.map(s => s.prospectus_id));
+        if (seq !== LIST.seq) return;
+        for (const s of shown) {
+            const total = facts.get(s.prospectus_id)?.units ?? 0;
+            const p = SL().progress(byStudent.get(s.id) ?? [], total);
+            setBar(s.id, p.percent, total ? `${p.units} of ${total} units` : `${p.units} units`);
+        }
+    } catch (err) {
+        console.warn('progress bars failed:', err.message);
+    }
+}
+
+let studentSearchTimer = null;
+$('student-search')?.addEventListener('input', (e) => {
+    clearTimeout(studentSearchTimer);
+    studentSearchTimer = setTimeout(() => {
+        LIST.search = e.target.value;
+        LIST.page = 1;
+        loadStudentList();
+    }, 250);
+});
+$('student-year')?.addEventListener('change', (e) => {
+    LIST.year = e.target.value;
+    LIST.page = 1;
+    loadStudentList();
+});
+$('student-chips')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-student-filter]');
+    if (!b) return;
+    LIST.filter = b.dataset.studentFilter;
+    LIST.page = 1;
+    renderStudentChips();
+    loadStudentList();
+});
+$('students-body')?.addEventListener('click', (e) => {
+    const pager = e.target.closest('[data-student-page]');
+    if (pager) {
+        if (pager.disabled) return;
+        LIST.page += pager.dataset.studentPage === 'next' ? 1 : -1;
+        loadStudentList();
+        return;
+    }
+    const row = e.target.closest('[data-open]');
+    if (row) window.location.hash = `#student/${row.dataset.open}`;
+});
+$('students-body')?.addEventListener('keydown', (e) => {
+    const row = e.target.closest?.('[data-open]');
+    if (row && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        window.location.hash = `#student/${row.dataset.open}`;
+    }
+});
+
+
+/* student page */
+
+let DETAIL_SEQ = 0;
+
+async function fetchStudentById(id) {
+    if (!supabase || PREVIEW) return PREVIEW_STUDENTS.find(s => s.id === id) ?? null;
+    const { data, error } = await supabase.from('university_student').select(STUDENT_COLS).eq('id', id).maybeSingle();
+    if (error) { console.warn('student lookup failed:', error.message); return null; }
+    if (data) cacheStudents([data]);
+    return data ?? null;
+}
+
+async function openStudent(studentRowId) {
+    const seq = ++DETAIL_SEQ;
+    const s = STUDENTS.find(x => x.id === studentRowId) ?? await fetchStudentById(studentRowId);
+    if (seq !== DETAIL_SEQ) return;
+
+    if (!s) {
+        setText('detail-name', 'Student not found');
+        setText('detail-sub', '');
+        $('detail-pills').innerHTML = '';
+        $('detail-term-body').innerHTML = '';
+        $('detail-progress-body').innerHTML = '';
+        $('detail-status').innerHTML = '';
+        $('detail-record-body').innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>No such student</h3>
+                <p>That student could not be found in your programme.</p>
+            </div>`;
+        return;
+    }
+
+    renderStudentHero(s);
+    paintDetailPhoto(s, seq);
+    loadStudentPlan(s, seq);
+    loadStudentRecord(s, seq).then(list => renderStudentProgress(s, list, seq));
+}
+
+function renderStudentHero(s) {
+    window.CurriculogicPhoto.paint($('detail-avatar'), null, SL().initialsOf(s.first_name, s.last_name, s.email));
+    setText('detail-name', fullName(s) || '—');
+    setText('detail-sub', `${s.student_id || 'No ID yet'} · ${yearText(s.year_level)} · ${programName(s)}`);
+    $('detail-pills').innerHTML = recordPill(s);
+    renderStudentDetails(s, '');
+}
+
+function renderStudentDetails(s, curriculum) {
+    const record = s.record_verified
+        ? `<span class="pill ok">Verified</span>${s.verified_at ? ` <span class="dim">${escapeHtml(longDate(s.verified_at))}</span>` : ''}`
+        : '<span class="pill waiting">Awaiting the Registrar</span>';
+    $('detail-status').innerHTML = `
+        <div class="detail"><dt>University email</dt><dd class="mono">${escapeHtml(s.email || '—')}</dd></div>
+        <div class="detail"><dt>Registered</dt><dd>${escapeHtml(longDate(s.created_at))}</dd></div>
+        <div class="detail"><dt>Curriculum</dt><dd>${curriculum || '<span class="dim">Not assigned yet</span>'}</dd></div>
+        <div class="detail"><dt>Record</dt><dd>${record}</dd></div>`;
+}
+
+async function paintDetailPhoto(s, seq) {
+    if (PREVIEW || !supabase || !s.user_id) return;
+    const url = await window.CurriculogicPhoto.signedUrl(supabase, s.user_id);
+    if (seq !== DETAIL_SEQ || !url) return;
+    window.CurriculogicPhoto.paint($('detail-avatar'), url, SL().initialsOf(s.first_name, s.last_name, s.email));
+}
+
+/* This term's approved plan. The Department can only read plans the adviser has
+   fully approved, so a plan still waiting for the adviser is simply not seen. */
+async function loadStudentPlan(s, seq) {
+    const body = $('detail-term-body');
+    const label = $('detail-term-label');
+    if (!body) return;
+    body.innerHTML = '<div class="empty"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><h3>Loading</h3></div>';
+
+    const RS = window.CurriculogicRequestStatus;
+    let requests;
+    if (PREVIEW) {
+        requests = PREVIEW_PLANS[s.id] ?? [];
+    } else {
+        const { data, error } = await supabase
+            .from('request')
+            .select(`
+                id, status, registrar_status, requested_term, requested_year, created_at,
+                request_item (
+                    id, status,
+                    subject:subject_id (code, title, units),
+                    offering:offering_id (section, schedule_days, start_time, end_time, room)
+                )`)
+            .eq('student_id', s.id)
+            .order('created_at', { ascending: false })
+            .limit(20);
+        if (seq !== DETAIL_SEQ) return;
+        if (error) {
+            console.warn('plan load failed:', error.message);
+            body.innerHTML = `<div class="empty"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load the plan</h3><p>${escapeHtml(error.message)}</p></div>`;
+            return;
+        }
+        requests = data ?? [];
+    }
+
+    const cfg = await window.CurriculogicTerm?.load();
+    if (seq !== DETAIL_SEQ) return;
+    const termText = cfg ? window.CurriculogicTerm.formatLabel(cfg.term, cfg.year) : '';
+    if (label) label.textContent = termText;
+
+    const plan = SL().pickPlan(requests, cfg, RS.finalApproved);
+    if (!plan) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-calendar-xmark" aria-hidden="true"></i>
+                <h3>No approved plan for this term</h3>
+                <p>The student has no adviser-approved plan${termText ? ` for ${escapeHtml(termText)}` : ''} yet.</p>
+            </div>`;
+        return;
+    }
+
+    const items = (plan.request_item ?? []).filter(i => i.status === 'approved');
+    const units = items.reduce((t, i) => t + Number(i.subject?.units || 0), 0);
+    const sched = (o) => {
+        if (!o) return '—';
+        const time = (o.start_time && o.end_time) ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}` : '';
+        return [o.section, o.schedule_days, time].filter(Boolean).join(' · ') || '—';
+    };
+
+    body.innerHTML = `
+        <div class="stu-plan-head">
+            <span class="pill ok"><i class="fa-solid fa-check"></i> Approved for enrollment</span>
+            <span class="dim">${items.length} subject${items.length === 1 ? '' : 's'} · ${units} units · submitted ${escapeHtml(longDate(plan.created_at))}</span>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th>Code</th><th>Descriptive title</th><th class="num">Units</th></tr></thead>
+                <tbody>${items.map(i => `
+                    <tr>
+                        <td class="mono">${escapeHtml(i.subject?.code ?? '')}</td>
+                        <td>${escapeHtml(i.subject?.title ?? '')}
+                            <span class="row-sub">${escapeHtml(sched(i.offering))}</span></td>
+                        <td class="num">${escapeHtml(i.subject?.units ?? '—')}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+/* The grades, one table per term (newest first). Resolves to the flat records
+   for the progress card. */
+async function loadStudentRecord(s, seq) {
+    const body  = $('detail-record-body');
+    const count = $('detail-record-count');
+    if (!body) return [];
+
+    body.innerHTML = `
+        <div class="empty">
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <h3>Loading</h3>
+            <p>Fetching grades.</p>
+        </div>`;
+
+    let rows = [];
+    if (PREVIEW) {
+        rows = PREVIEW_RECORDS[s.id] ?? [];
+    } else {
+        const { data, error } = await supabase
+            .from('academic_record')
+            .select('id, subject_id, grade, grade_points, status, taken_term, taken_year, subject:subject_id (code, title, units)')
+            .eq('student_id', s.id)
+            .order('taken_year', { ascending: true })
+            .order('taken_term', { ascending: true });
+        if (seq !== DETAIL_SEQ) return [];
+
+        if (error) {
+            console.warn('record load failed:', error.message);
+            body.innerHTML = `
+                <div class="empty">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <h3>Could not load grades</h3>
+                    <p>${escapeHtml(error.message)}</p>
+                </div>`;
+            return [];
+        }
+        rows = data ?? [];
+    }
+
+    const records = rows.map(r => ({
+        ...r,
+        subject_code: r.subject?.code, subject_title: r.subject?.title, units: r.subject?.units,
+    }));
+
+    const earned = SL().passedUnits(records);
+    if (count) {
+        count.textContent = records.length
+            ? `${records.length} subject${records.length === 1 ? '' : 's'} · ${earned} units earned`
+            : '';
+    }
+
+    if (records.length === 0) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-file-circle-question" aria-hidden="true"></i>
+                <h3>No grades on file</h3>
+                <p>No academic record has been uploaded for this student yet. Use Grade upload to add it.</p>
+            </div>`;
+        return records;
+    }
+
+    const RG = window.CurriculogicRecordGrades;
+    body.innerHTML = RG.groupByTerm(records).map((g) => `
+        <section class="rec-group">
+            <h4 class="rec-term">${escapeHtml(g.label)}
+                <span>${g.subjects} subject${g.subjects === 1 ? '' : 's'} · ${g.passed} passed · ${g.unitsEarned} units earned</span>
+            </h4>
+            <div class="table-wrap">
+                <table class="data-table rec-table">
+                    <thead>
+                        <tr>
+                            <th>Code</th><th>Descriptive title</th>
+                            <th class="num">Units</th><th class="num">Grade</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>${g.rows.map((r) => {
+                        const [chipClass, chipText] = RG.chipFor(r.status);
+                        const shown = r.status === 'DROPPED' ? null : RG.pick([r]);
+                        return `
+                        <tr>
+                            <td class="mono">${escapeHtml(r.subject_code ?? '—')}</td>
+                            <td>${escapeHtml(r.subject_title || '—')}</td>
+                            <td class="num">${escapeHtml(r.units ?? '—')}</td>
+                            <td class="num rec-grade ${shown ? escapeHtml(shown.tone) : ''}">${shown ? escapeHtml(shown.grade) : '—'}</td>
+                            <td><span class="pg-chip ${escapeHtml(chipClass)}">${escapeHtml(chipText)}</span></td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>
+        </section>`).join('');
+    return records;
+}
+
+/* How far through the degree, and which curriculum they follow. */
+async function renderStudentProgress(s, records, seq) {
+    const body = $('detail-progress-body');
+    if (!body || seq !== DETAIL_SEQ) return;
+
+    let total = 0;
+    let curriculum = '';
+    if (PREVIEW) {
+        total = 161;
+        curriculum = '2024–2025 <span class="pill ok">Active</span>';
+    } else if (s.prospectus_id) {
+        const facts = await prospectusFacts([s.prospectus_id]);
+        if (seq !== DETAIL_SEQ) return;
+        const f = facts.get(s.prospectus_id);
+        total = f?.units ?? 0;
+        if (f?.label) curriculum = `${escapeHtml(f.label)} ${f.active ? '<span class="pill ok">Active</span>' : '<span class="pill waiting">Older version</span>'}`;
+    }
+    renderStudentDetails(s, curriculum);
+
+    const key = (r) => r.subject_id ?? r.subject_code;
+    const kinds = (status) => new Set(records.filter(r => r.status === status).map(key));
+    const passedSet = kinds('PASSED');
+    const failed = [...kinds('FAILED')].filter(id => !passedSet.has(id)).length;
+    const taking = kinds('ENROLLED').size;
+    const p = SL().progress(records, total);
+
+    body.innerHTML = `
+        <div class="stu-big"><strong>${p.units}</strong><span>${total ? `of ${total} units` : 'units earned'}</span></div>
+        <div class="stu-bar big"><i style="width:0"></i></div>
+        <p class="stu-bar-text">${total ? `${p.percent}% of the degree` : 'No curriculum assigned yet'}</p>
+        <div class="stu-mini">
+            <div><strong>${passedSet.size}</strong><span>Passed</span></div>
+            <div><strong>${failed}</strong><span>To retake</span></div>
+            <div><strong>${taking}</strong><span>Taking</span></div>
+        </div>`;
+    const bar = body.querySelector('.stu-bar i');
+    if (bar) requestAnimationFrame(() => { bar.style.width = `${p.percent}%`; });
+}
+
 
 /* boot */
 
