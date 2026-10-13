@@ -61,9 +61,10 @@ function gradeFor(subjectId, records, current) {
     return failedNow ? 'FAILED' : 'RETAKE';
 }
 
-/* "CC-COMPROG12, IT-SAD21" style text for a subject's requirements.
-   Groups are "and"; inside a group the choices are "or". */
-function requirementText(subjectId, rules, byId) {
+/* A subject's requirements as separate lines, one per group. Groups are "and",
+   so each line must be met; inside a group the choices are "or" and stay on
+   one line ("A21 or B21"). */
+function requirementLines(subjectId, rules, byId) {
     const mine = (rules ?? []).filter(r => r.subject_id === subjectId);
     const groups = new Map();
     for (const r of mine) {
@@ -85,7 +86,12 @@ function requirementText(subjectId, rules, byId) {
         }).filter(Boolean);
         if (bits.length) parts.push(bits.join(' or '));
     }
-    return parts.join(', ');
+    return parts;
+}
+
+/* "CC-COMPROG12, IT-SAD21" style text for a subject's requirements. */
+function requirementText(subjectId, rules, byId) {
+    return requirementLines(subjectId, rules, byId).join(', ');
 }
 
 /* The rows of the one semester block being printed, in curriculum order. */
@@ -108,6 +114,7 @@ function semesterRows({ subjects, rules, records, yearLevel, term, approvedIds }
             total: num(s.units),
             grade: gradeFor(s.id, records, current),
             requires: requirementText(s.id, rules, byId),
+            requiresLines: requirementLines(s.id, rules, byId),
             approved: approved.has(s.id),
         }));
 }
@@ -136,9 +143,12 @@ function slipHtml(data) {
             <td class="n">${esc(r.lec)}</td>
             <td class="n">${esc(r.lab)}</td>
             <td class="n">${esc(r.total)}</td>
-            <td class="req">${r.approved ? '<strong>Approved</strong>' : ''}${r.approved && r.requires ? '<br>' : ''}${esc(r.requires)}</td>
+            <td class="req">${r.requiresLines.length
+                ? r.requiresLines.map(l => `<span class="ln">${esc(l)}</span>`).join('')
+                : '<span class="ln none-dash">—</span>'}</td>
+            <td class="rem">${r.approved ? '<strong>Approved</strong>' : ''}</td>
           </tr>`).join('')
-        : `<tr><td colspan="7" class="none">${year
+        : `<tr><td colspan="8" class="none">${year
             ? 'No subjects in this student’s curriculum for this semester.'
             : 'This student’s year level is not set.'}</td></tr>`;
 
@@ -178,7 +188,13 @@ function slipHtml(data) {
   th.grade, td.grade { width: 54pt; }
   td.grade { font-weight: 700; font-size: 8.5pt; letter-spacing: .03em; }
   .mono { font-family: "Courier New", monospace; font-size: 9pt; white-space: nowrap; }
-  .req { font-size: 8.5pt; color: #333; width: 120pt; }
+  .req { font-size: 8.5pt; color: #333; width: 138pt; }
+  .req .ln { display: block; white-space: nowrap; }
+  .req .ln + .ln { margin-top: 1.5pt; }
+  .req .none-dash { color: #999; }
+  .rem { font-size: 8.5pt; color: #333; width: 58pt; white-space: nowrap; }
+  th.req, th.rem { padding-left: 8pt; }
+  td.req, td.rem { padding-left: 8pt; }
   .none { text-align: center; color: #666; padding: 12pt; font-style: italic; }
   tfoot td { border-top: 1pt solid #111; border-bottom: none; font-weight: 700; padding-top: 5pt; }
   thead { display: table-header-group; }
@@ -214,11 +230,11 @@ ${year ? `<p class="block">${esc(`${ROMAN[year] || year} – ${YEAR[year] || ''}
   <thead><tr>
     <th class="grade">Grade</th><th>Course Code</th><th>Descriptive Title</th>
     <th class="n">Lec</th><th class="n">Lab</th><th class="n">Total</th>
-    <th>Pre-requisite / Remarks</th>
+    <th class="req">Pre-requisite</th><th class="rem">Remarks</th>
   </tr></thead>
   <tbody>${body}</tbody>
   ${rows.length ? `<tfoot><tr>
-    <td colspan="5">Total units</td><td class="n">${esc(total)}</td><td></td>
+    <td colspan="5">Total units</td><td class="n">${esc(total)}</td><td colspan="2"></td>
   </tr></tfoot>` : ''}
 </table>
 
@@ -335,5 +351,5 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
     return { ok: true };
 }
 
-return { print, html: slipHtml, printApprovedRequest, semesterRows, gradeFor, requirementText };
+return { print, html: slipHtml, printApprovedRequest, semesterRows, gradeFor, requirementText, requirementLines };
 }));

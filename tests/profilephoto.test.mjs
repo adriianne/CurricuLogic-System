@@ -46,3 +46,30 @@ describe('pathFor', () => {
         assert.equal(P.pathFor('abc-123'), 'abc-123/avatar.jpg');
     });
 });
+
+describe('signedUrls', () => {
+    const storage = (rows, error = null) => ({
+        storage: { from: () => ({ createSignedUrls: async (paths) => ({ data: error ? null : rows(paths), error }) }) },
+    });
+
+    test('maps each person who has a photo to a link, in one request', async () => {
+        const db = storage((paths) => paths.map((p) => (p.startsWith('a/')
+            ? { path: p, signedUrl: 'https://x/a', error: null }
+            : { path: p, signedUrl: null, error: 'Object not found' })));
+        const urls = await P.signedUrls(db, ['a', 'b', 'a']);
+        assert.equal(urls.get('a'), 'https://x/a');
+        assert.equal(urls.has('b'), false);
+        assert.equal(urls.size, 1);
+    });
+
+    test('nothing to ask for gives an empty map without a request', async () => {
+        const db = { storage: { from: () => { throw new Error('should not be called'); } } };
+        assert.equal((await P.signedUrls(db, [])).size, 0);
+        assert.equal((await P.signedUrls(db, [null, undefined])).size, 0);
+    });
+
+    test('a failed request gives an empty map, not an error', async () => {
+        const urls = await P.signedUrls(storage(() => [], { message: 'denied' }), ['a']);
+        assert.equal(urls.size, 0);
+    });
+});

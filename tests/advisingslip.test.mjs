@@ -138,3 +138,70 @@ describe('the printed slip', () => {
         assert.match(h, /&lt;script&gt;/);
     });
 });
+
+describe('requirementLines', () => {
+    const byId = new Map(subjects.map(s => [s.id, s]));
+    const r = (sub, req, o = {}) => ({ subject_id: sub.id, prerequisite_subject_id: req?.id ?? null,
+        requirement_type: o.type ?? 'prerequisite', rule_group: o.group ?? 1, threshold_value: o.t ?? null });
+
+    test('each "and" group is its own line', () => {
+        assert.deepEqual(Slip.requirementLines(C.id, [r(C, A, { group: 1 }), r(C, B, { group: 2 })], byId), ['A21', 'B21']);
+    });
+
+    test('"or" choices stay together on one line', () => {
+        assert.deepEqual(Slip.requirementLines(C.id, [r(C, A, { group: 1 }), r(C, B, { group: 1 })], byId), ['A21 or B21']);
+    });
+
+    test('no rules gives no lines', () => {
+        assert.deepEqual(Slip.requirementLines(A.id, [], byId), []);
+    });
+
+    test('the text form is the lines joined, as before', () => {
+        const rules = [r(C, A, { group: 1 }), r(C, B, { group: 2 })];
+        assert.equal(Slip.requirementText(C.id, rules, byId), Slip.requirementLines(C.id, rules, byId).join(', '));
+    });
+
+    test('rows carry the lines', () => {
+        const rows = Slip.semesterRows({ subjects, rules: [r(C, A, { group: 1 }), r(C, B, { group: 2 })], records: [], yearLevel: 2, term: current });
+        assert.deepEqual(rows.find(x => x.code === 'C21').requiresLines, ['A21', 'B21']);
+        assert.deepEqual(rows.find(x => x.code === 'A21').requiresLines, []);
+    });
+});
+
+describe('the pre-requisite and remarks columns', () => {
+    const student = { first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', year_level: 2 };
+    const r = (sub, req, o = {}) => ({ subject_id: sub.id, prerequisite_subject_id: req.id,
+        requirement_type: 'prerequisite', rule_group: o.group ?? 1, threshold_value: null });
+    const html = (over = {}) => Slip.html({
+        student, subjects, rules: [], records: [], term: current, adviser: 'Rhea Lumactod',
+        program: { name: 'BS Information Technology', code: 'BSIT', college: 'College of Computer Studies' },
+        ...over,
+    });
+
+    test('they are two columns, with their own headings', () => {
+        const h = html();
+        assert.match(h, /<th class="req">Pre-requisite<\/th><th class="rem">Remarks<\/th>/);
+        assert.doesNotMatch(h, /Pre-requisite \/ Remarks/);
+    });
+
+    test('each prerequisite is on its own line, never split', () => {
+        const h = html({ rules: [r(C, A, { group: 1 }), r(C, B, { group: 2 })] });
+        assert.match(h, /<span class="ln">A21<\/span><span class="ln">B21<\/span>/);
+    });
+
+    test('a subject with no prerequisite shows a dash', () => {
+        assert.match(html(), /<span class="ln none-dash">—<\/span>/);
+    });
+
+    test('Approved sits in the remarks column, not with the prerequisites', () => {
+        const h = html({ approvedIds: [A.id], rules: [r(C, A)] });
+        assert.match(h, /<td class="rem"><strong>Approved<\/strong><\/td>/);
+        const reqCell = h.match(/<td class="req">[\s\S]*?<\/td>/g).join('');
+        assert.ok(!reqCell.includes('Approved'));
+    });
+
+    test('the totals row and the empty row span all eight columns', () => {
+        assert.match(html(), /<td class="n">9<\/td><td colspan="2"><\/td>/);
+        assert.match(html({ student: { ...student, year_level: 4 } }), /colspan="8" class="none"/);
+    });
+});

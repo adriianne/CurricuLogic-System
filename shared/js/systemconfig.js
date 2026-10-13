@@ -11,37 +11,23 @@
 // AY 2023. Now there is one row in `system_config` and everything reads
 // from it.
 //
-// Load this after config.js on every dashboard. It does two things:
-//   1. On its own, paints #topbar-term (if the page has one) as soon as
-//      the DOM is ready -- no other file needs to call anything for
-//      this to work.
-//   2. Exposes window.CurriculogicTerm.load() for any page that needs
-//      the actual term/year values, not just the display text
-//      (currently just studentdashboard.js, for the advising-request
-//      submission payload).
+// Load this on every dashboard. It does two things, once the dashboard has
+// handed over its client (see below):
+//   1. Paints #topbar-term (if the page has one) with the live term.
+//   2. Exposes window.CurriculogicTerm.load() for any page that needs the actual
+//      term/year values, not just the display text (the advising-request
+//      payload, the faculty advising slip, the schedule screens).
 //
-// This deliberately creates its own Supabase client rather than reusing
-// a dashboard's own `supabase` variable -- that variable lives inside
-// each dashboard's own IIFE and is not reachable from here. The anon
-// key is public by design (same one every dashboard already ships to
-// the browser), so a second client built from it has no security effect.
-//
-// This client never needs to be signed in -- it only ever reads the one
-// public system_config row -- so its session does not persist and does
-// not auto-refresh. Loaded on every dashboard regardless of role, it
-// would otherwise be a second, anonymous GoTrueClient writing to
-// whichever role's storage key happened to be active on that page.
+// It has no client of its own. system_config can only be read by a signed-in
+// user (db/052 closed it to signed-out visitors), so each dashboard hands over
+// the client it already signs in with: window.CurriculogicTerm.setClient(supabase),
+// right after creating it. Until then load() answers null and the pages keep
+// their fallbacks. Nothing here ever writes.
 
 (function () {
 'use strict';
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.CURRICULOGIC ?? {};
-
-const client = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    })
-    : null;
+let client = null;
 
 const TERM_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
 
@@ -55,7 +41,8 @@ let cached = null;
 
 /* Fetches {term, year} once per page load and caches it -- every
    dashboard calls this at most once (studentdashboard.js at boot,
-   paintTopbar() below on every page), so one query per page is enough. */
+   paintTopbar() below on every page), so one query per page is enough.
+   Before setClient() it answers null and caches nothing, so a later call works. */
 async function load() {
     if (cached) return cached;
     if (!client) return null;
@@ -88,14 +75,14 @@ async function paintTopbar() {
     el.textContent = formatLabel(cfg.term, cfg.year);
 }
 
-window.CurriculogicTerm = { load, formatLabel };
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', paintTopbar);
-} else {
-    // This script is loaded at the end of <body> on every dashboard, so
-    // DOMContentLoaded has usually already fired by the time it runs.
-    paintTopbar();
+/* The dashboard's own (signed-in) client. Paints the header term as soon as it
+   arrives. */
+function setClient(c) {
+    client = c || null;
+    cached = null;
+    if (client) paintTopbar();
 }
+
+window.CurriculogicTerm = { load, formatLabel, setClient };
 
 })();

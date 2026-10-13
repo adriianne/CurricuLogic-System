@@ -83,6 +83,19 @@ async function signedUrl(supabase, uid) {
     return error || !data?.signedUrl ? null : data.signedUrl;
 }
 
+/* Links for several people at once (one request): a Map of user id -> link, with
+   only the people who have a photo and whose photo this account may read. */
+async function signedUrls(supabase, uids) {
+    const ids = [...new Set((uids ?? []).filter(Boolean))];
+    const out = new Map();
+    if (!ids.length) return out;
+    const { data, error } = await supabase.storage.from(BUCKET)
+        .createSignedUrls(ids.map(pathFor), 3600);
+    if (error || !Array.isArray(data)) return out;
+    data.forEach((row, i) => { if (row?.signedUrl && !row.error) out.set(ids[i], row.signedUrl); });
+    return out;
+}
+
 /* Show the picture inside `el`, or `initials` when there is none (browser only). */
 function paint(el, url, initials) {
     if (!el) return;
@@ -96,5 +109,5 @@ function paint(el, url, initials) {
     el.classList.add('has-photo');
 }
 
-return { BUCKET, SIZE, MAX_PICKED, TYPES, pathFor, problem, squareCrop, prepare, upload, remove, signedUrl, paint };
+return { BUCKET, SIZE, MAX_PICKED, TYPES, pathFor, problem, squareCrop, prepare, upload, remove, signedUrl, signedUrls, paint };
 }));
