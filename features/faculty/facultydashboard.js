@@ -22,6 +22,9 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     })
     : null;
 
+/* The term helper reads system_config with this signed-in client (db/052). */
+window.CurriculogicTerm?.setClient(supabase);
+
 const $ = (id) => document.getElementById(id);
 
 const LOGIN_PAGE = '../auth/html/staffloginpage.html';
@@ -60,6 +63,16 @@ const PREVIEW_RECORDS = {
     s2: [
         { id: 'r5', subject: { code: 'IT 111', title: 'Introduction to Computing', units: 3 }, subject_code: 'IT 111', subject_title: 'Introduction to Computing', units: 3, grade: '2.00', grade_points: 2.00, status: 'PASSED', taken_term: 1, taken_year: 2024 },
     ],
+};
+
+const PREVIEW_PLANS = {
+    s1: [{
+        id: 'p1', status: 'approved', registrar_status: null, requested_term: 1, requested_year: 2023, created_at: '2026-10-01T03:00:00Z',
+        request_item: [
+            { id: 'i1', status: 'approved', subject: { code: 'CC-INTCOM11', title: 'Introduction to Computing', units: 3 }, offering: { section: 'BSIT-1A', schedule_days: 'MW', start_time: '10:00:00', end_time: '11:30:00' } },
+            { id: 'i2', status: 'approved', subject: { code: 'MATH 101', title: 'Mathematics in the Modern World', units: 3 }, offering: { section: 'BSIT-1A', schedule_days: 'MW', start_time: '13:00:00', end_time: '14:30:00' } },
+        ],
+    }],
 };
 
 function previewRequested() {
@@ -106,7 +119,7 @@ function showView(name, param) {
 
     shell?.classList.remove('nav-open');
 
-    if (name === 'students') loadStudents();
+    if (name === 'students') openStudentList();
     if (name === 'student' && param) openStudent(param);
     if (name === 'prospectus') loadProspectusPage();
 
@@ -197,18 +210,27 @@ function ordinal(n) {
     return map[n] || null;
 }
 
-/* The programme this account is assigned to, shown next to the term in the
-   header. Static: it only changes when an admin reassigns the account. */
-function paintProgramChip() {
-    const chip = document.getElementById('topbar-program');
-    if (!chip) return;
+/* The programme this account is assigned to, shown in the header next to the
+   term (same field as the Department header). Static: it only changes when an
+   admin reassigns the account. */
+function paintProgramField() {
+    const field = document.getElementById('topbar-program');
+    if (!field) return;
     const id = FACULTY?.program_id;
     const P = window.CurriculogicPrograms;
     const code = id == null ? '' : P?.codeOf(id, '');
-    if (!code) { chip.hidden = true; return; }
-    chip.textContent = code;
-    chip.title = P.nameOf(id, code);
-    chip.hidden = false;
+    field.value = code
+        ? `${code} — ${P.nameOf(id, '')}`
+        : (PREVIEW ? 'BSIT — BS Information Technology' : 'No programme assigned');
+    field.title = field.value;
+
+    // The same programme on the Profile page.
+    setText('d-program', field.value);
+    const pill = $('prof-program-pill');
+    if (pill) {
+        pill.textContent = code || (PREVIEW ? 'BSIT' : '');
+        pill.hidden = !pill.textContent;
+    }
 }
 
 function termLabel(t) {
@@ -247,17 +269,90 @@ function fullName(p) {
 
 /* profile */
 
+/* Profile photo: stored privately per account (db/064), helpers in
+   shared/js/profilephoto.js. Preview has no storage, so a picture chosen there
+   only lives until the page is closed. */
+let PHOTO_URL = null;
+let PHOTO_INITIALS = '';
+
+function showPhoto(url) {
+    PHOTO_URL = url || null;
+    window.CurriculogicPhoto.paint($('avatar'), PHOTO_URL, PHOTO_INITIALS);
+    window.CurriculogicPhoto.paint($('prof-avatar'), PHOTO_URL, PHOTO_INITIALS);
+    const rm = $('photo-remove');
+    if (rm) rm.hidden = !PHOTO_URL;
+}
+
+async function loadPhoto() {
+    if (PREVIEW || !supabase || !AUTH_UID) return;
+    showPhoto(await window.CurriculogicPhoto.signedUrl(supabase, AUTH_UID));
+}
+
+function photoMessage(text, isError) {
+    const box = $('photo-msg');
+    if (!box) return;
+    box.textContent = text || '';
+    box.classList.toggle('is-error', !!isError);
+}
+
+$('photo-change')?.addEventListener('click', () => $('photo-file')?.click());
+
+$('photo-file')?.addEventListener('change', async (ev) => {
+    const input = ev.target;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    const Photo = window.CurriculogicPhoto;
+    const bad = Photo.problem(file);
+    if (bad) return photoMessage(bad, true);
+
+    photoMessage('Saving…');
+    $('photo-change').disabled = true;
+    try {
+        const blob = await Photo.prepare(file);
+        if (PREVIEW || !supabase || !AUTH_UID) {
+            showPhoto(URL.createObjectURL(blob));
+            photoMessage('Photo updated (preview only, not saved).');
+        } else {
+            await Photo.upload(supabase, AUTH_UID, blob);
+            showPhoto(await Photo.signedUrl(supabase, AUTH_UID));
+            photoMessage('Photo updated.');
+        }
+    } catch (err) {
+        photoMessage(err.message || 'The photo could not be saved.', true);
+    } finally {
+        $('photo-change').disabled = false;
+    }
+});
+
+$('photo-remove')?.addEventListener('click', async () => {
+    photoMessage('Removing…');
+    try {
+        if (!PREVIEW && supabase && AUTH_UID) await window.CurriculogicPhoto.remove(supabase, AUTH_UID);
+        showPhoto(null);
+        photoMessage('Photo removed.');
+    } catch (err) {
+        photoMessage(err.message || 'The photo could not be removed.', true);
+    }
+});
+
 function renderProfile(staff, authEmail) {
     const full  = fullName(staff);
     const email = staff?.email || authEmail || '—';
 
-    $('avatar').textContent    = initials(staff?.first_name, staff?.last_name, email);
+    PHOTO_INITIALS = initials(staff?.first_name, staff?.last_name, email);
+    window.CurriculogicPhoto.paint($('avatar'), PHOTO_URL, PHOTO_INITIALS);
+    window.CurriculogicPhoto.paint($('prof-avatar'), PHOTO_URL, PHOTO_INITIALS);
     $('user-name').textContent = full || email;
     $('user-sub').textContent  = staff?.employee_id || '';
 
     $('greeting').textContent = staff?.first_name
         ? `Welcome back, ${staff.first_name}`
         : 'Welcome back';
+
+    setText('prof-name', full || email);
+    setText('prof-sub',  [staff?.employee_id, 'Faculty adviser'].filter(Boolean).join(' \u00b7 '));
 
     setText('d-name',  full || '—');
     setText('d-eid',   staff?.employee_id || '—', 'mono');
@@ -289,44 +384,12 @@ function renderNotice(staff) {
     box.innerHTML = '';
 }
 
-/* Password change. Same pattern as Department Staff's: re-authenticate
-   with the current password first (catches "left laptop open" and a
-   mistyped current password in one step; also refreshes the session
-   token as a harmless side effect), then call updateUser(). Faculty
-   had no self-service path for this at all before -- the only option
-   was asking the System Administrator to reset it by hand. */
-function openPasswordModal() {
-    const modal = $('password-modal');
-    if (!modal) return;
+/* Password change, on the Profile page. Re-authenticate with the current
+   password first (catches "left laptop open" and a mistyped current password in
+   one step), then call updateUser(). */
+$('prof-pw-form')?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
 
-    ['pw-current', 'pw-new', 'pw-confirm'].forEach(id => {
-        const el = $(id); if (el) el.value = '';
-    });
-    showMsg('pw-msg', '');
-
-    modal.hidden = false;
-    setTimeout(() => $('pw-current')?.focus(), 60);
-
-    const close = () => {
-        modal.hidden = true;
-        $('pw-cancel')?.removeEventListener('click', onCancel);
-        $('pw-submit')?.removeEventListener('click', onSubmit);
-        modal.removeEventListener('click', onBackdrop);
-        document.removeEventListener('keydown', onKey);
-    };
-
-    const onCancel   = () => close();
-    const onSubmit   = () => submitPasswordChange(close);
-    const onBackdrop = (e) => { if (e.target === modal) close(); };
-    const onKey      = (e) => { if (e.key === 'Escape') close(); };
-
-    $('pw-cancel')?.addEventListener('click', onCancel);
-    $('pw-submit')?.addEventListener('click', onSubmit);
-    modal.addEventListener('click', onBackdrop);
-    document.addEventListener('keydown', onKey);
-}
-
-async function submitPasswordChange(close) {
     const current = $('pw-current')?.value ?? '';
     const next    = $('pw-new')?.value ?? '';
     const confirm = $('pw-confirm')?.value ?? '';
@@ -335,28 +398,22 @@ async function submitPasswordChange(close) {
     const pwProblem = CurriculogicPasswordRules.problem(next);
     if (pwProblem) return showMsg('pw-msg', pwProblem);
     if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
+    if (next === current) return showMsg('pw-msg', 'Choose a password different from your current one.');
 
     const btn = $('pw-submit');
-    if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
-
     const finish = (msg, type) => {
         if (btn) { btn.disabled = false; btn.textContent = 'Change password'; }
         showMsg('pw-msg', msg, type);
     };
+    if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
 
-    if (PREVIEW) {
-        finish('Password updated (preview only).', 'success');
-        return setTimeout(close, 900);
-    }
+    if (PREVIEW) return finish('Password updated (preview only).', 'success');
 
     // 1. Verify current password by attempting a sign-in.
     const email = FACULTY?.email;
     if (!email) return finish('No email on record for this account.', 'error');
 
-    const { error: authErr } = await supabase.auth.signInWithPassword({
-        email,
-        password: current,
-    });
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password: current });
     if (authErr) return finish('Current password is incorrect.', 'error');
 
     // 2. Change it.
@@ -369,24 +426,57 @@ async function submitPasswordChange(close) {
         FACULTY = { ...FACULTY, must_change_password: false };
     }
 
+    ['pw-current', 'pw-new', 'pw-confirm'].forEach(id => { const el = $(id); if (el) el.value = ''; });
     finish('Password updated.', 'success');
-    setTimeout(close, 900);
-}
-
-$('p-change-password')?.addEventListener('click', openPasswordModal);
+});
 
 
 /* students */
 
-let studentsLoaded = false;
+/* An adviser can have a whole programme of students, so nothing here loads them
+   all: counts come from the database as counts, the dashboard shows only the five
+   newest, and the Students list fetches one page at a time. STUDENTS is a cache of
+   every student shown so far. */
 
-async function loadStudents(force = false) {
-    if (studentsLoaded && !force) return renderStudents();
+const STUDENT_COLS =
+    'id, user_id, first_name, last_name, student_id, email, year_level, is_approved, ' +
+    'record_verified, prospectus_id, program_id, created_at, verified_at';
+const STUDENT_PAGE_SIZE = 20;
 
+let COUNTS = { total: 0, verified: 0 };
+let RECENT = [];
+
+/* The Students list: which page, which filters, and what came back. `seq` makes
+   sure a slow answer to an old search never overwrites a newer one. */
+const LIST = { page: 1, filter: 'all', year: 'all', search: '', rows: [], total: 0, loaded: false, seq: 0 };
+
+const SL = () => window.CurriculogicStudentList;
+
+function cacheStudents(rows) {
+    for (const row of rows ?? []) {
+        const i = STUDENTS.findIndex(s => s.id === row.id);
+        if (i >= 0) Object.assign(STUDENTS[i], row);
+        else STUDENTS.push(row);
+    }
+}
+
+function localCounts() {
+    return { total: STUDENTS.length, verified: STUDENTS.filter(s => s.record_verified).length };
+}
+
+async function loadCounts() {
+    if (PREVIEW || !supabase) return localCounts();
+    const head = () => supabase.from('university_student').select('id', { count: 'exact', head: true });
+    const [total, ver] = await Promise.all([head(), head().eq('record_verified', true)]);
+    return { total: total.count ?? 0, verified: ver.count ?? 0 };
+}
+
+/* Boot: the numbers and the five newest students, for the dashboard and Profile. */
+async function loadStudents() {
     if (PREVIEW) {
         STUDENTS = [...PREVIEW_STUDENTS];
-        studentsLoaded = true;
-        renderStudents();
+        COUNTS = localCounts();
+        RECENT = STUDENTS.slice(0, 5);
         renderRecent();
         renderStats();
         return;
@@ -394,147 +484,315 @@ async function loadStudents(force = false) {
 
     if (!supabase) return;
 
-    const { data, error } = await supabase
-        .from('university_student')
-        .select('id, user_id, first_name, last_name, student_id, email, year_level, is_approved, record_verified, prospectus_id, program_id')
-        .order('last_name', { ascending: true });
+    const [counts, recent] = await Promise.all([
+        loadCounts(),
+        supabase.from('university_student').select(STUDENT_COLS)
+            .order('created_at', { ascending: false }).limit(5),
+    ]);
 
-    if (error) {
-        console.warn('student list failed:', error.message);
-        const body = $('students-body');
+    if (recent.error) {
+        console.warn('student list failed:', recent.error.message);
+        const body = $('recent-body');
         if (body) {
             body.innerHTML = `
                 <div class="empty">
                     <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                     <h3>Could not load students</h3>
-                    <p>${escapeHtml(error.message)}</p>
+                    <p>${escapeHtml(recent.error.message)}</p>
                     <p class="dim">If this says permission denied, run db/008_staff_read_access.sql.</p>
                 </div>`;
         }
         return;
     }
 
-    STUDENTS = data ?? [];
-    studentsLoaded = true;
-    renderStudents();
+    COUNTS = counts;
+    RECENT = recent.data ?? [];
+    cacheStudents(RECENT);
     renderRecent();
     renderStats();
 }
 
-function filteredStudents() {
-    const term   = ($('student-search')?.value || '').trim().toLowerCase();
-    const filter = $('student-filter')?.value || 'all';
-
-    return STUDENTS.filter((s) => {
-        if (filter === 'verified' && !s.record_verified) return false;
-        if (filter === 'pending'  &&  s.record_verified) return false;
-
-        if (!term) return true;
-
-        const haystack = [
-            s.first_name, s.last_name, s.student_id, s.email,
-        ].filter(Boolean).join(' ').toLowerCase();
-
-        return haystack.includes(term);
-    });
+function previewMatches(s) {
+    if (LIST.filter === 'verified' && !s.record_verified) return false;
+    if (LIST.filter === 'pending'  &&  s.record_verified) return false;
+    if (LIST.year !== 'all' && String(s.year_level) !== LIST.year) return false;
+    const hay = [s.first_name, s.last_name, s.student_id, s.email].filter(Boolean).join(' ').toLowerCase();
+    return SL().searchTokens(LIST.search).every(t => hay.includes(t.toLowerCase()));
 }
 
-const STUDENT_PAGE_SIZE = 20;
-let STUDENT_PAGE = 1;
+/* One page of students from the database (or from the sample set in preview). */
+async function fetchStudentPage() {
+    const { from, to } = SL().rangeFor(LIST.page, STUDENT_PAGE_SIZE);
 
-function renderStudents() {
+    if (PREVIEW) {
+        const all = STUDENTS.filter(previewMatches)
+            .sort((a, b) => fullName(a).localeCompare(fullName(b)));
+        return { rows: all.slice(from, to + 1), total: all.length };
+    }
+
+    let q = supabase.from('university_student').select(STUDENT_COLS, { count: 'exact' });
+    if (LIST.filter === 'verified') q = q.eq('record_verified', true);
+    if (LIST.filter === 'pending')  q = q.eq('record_verified', false);
+    if (LIST.year !== 'all')        q = q.eq('year_level', Number(LIST.year));
+    // Every word of the search must match the name, the ID or the e-mail.
+    for (const token of SL().searchTokens(LIST.search)) q = q.or(SL().searchClause(token));
+
+    const { data, error, count } = await q
+        .order('last_name', { ascending: true })
+        .order('first_name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to);
+    if (error) throw error;
+    return { rows: data ?? [], total: count ?? 0 };
+}
+
+async function loadStudentList() {
+    const body = $('students-body');
+    if (!body) return;
+    const seq = ++LIST.seq;
+    body.classList.add('is-loading');
+
+    let result;
+    try {
+        result = await fetchStudentPage();
+        const pages = SL().pageCount(result.total, STUDENT_PAGE_SIZE);
+        if (LIST.page > pages) { LIST.page = pages; result = await fetchStudentPage(); }
+    } catch (err) {
+        if (seq !== LIST.seq) return;
+        console.warn('student list failed:', err.message);
+        body.classList.remove('is-loading');
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load students</h3>
+                <p>${escapeHtml(err.message)}</p>
+                <p class="dim">If this says permission denied, run db/008_staff_read_access.sql.</p>
+            </div>`;
+        return;
+    }
+    if (seq !== LIST.seq) return;
+
+    LIST.rows = result.rows;
+    LIST.total = result.total;
+    LIST.loaded = true;
+    cacheStudents(result.rows);
+    body.classList.remove('is-loading');
+    renderStudentList();
+    enrichStudentRows(result.rows, seq);
+}
+
+function openStudentList() {
+    renderStudentChips();
+    loadStudentList();   // always fresh: a record may have been verified since
+}
+
+/* Filter buttons with their live counts. */
+function renderStudentChips() {
+    const box = $('student-chips');
+    if (!box) return;
+    const defs = [
+        ['all',      'All',                   COUNTS.total],
+        ['verified', 'Verified records',      COUNTS.verified],
+        ['pending',  'Awaiting verification', Math.max(0, COUNTS.total - COUNTS.verified)],
+    ];
+    box.innerHTML = defs.map(([key, label, n]) => `
+        <button type="button" class="stu-chip${LIST.filter === key ? ' on' : ''}" data-student-filter="${key}"
+                aria-pressed="${LIST.filter === key}">${escapeHtml(label)}<b>${n}</b></button>`).join('');
+}
+
+const recordPill = (s) => s.record_verified
+    ? '<span class="pill ok">Verified</span>'
+    : '<span class="pill waiting">Pending</span>';
+
+function studentRowHtml(s) {
+    const initials = SL().initialsOf(s.first_name, s.last_name, s.email);
+    return `
+    <div class="stu-row" data-open="${escapeHtml(s.id)}" tabindex="0" role="link"
+         aria-label="Open ${escapeHtml(fullName(s) || 'student')}">
+        <span class="stu-avatar" data-avatar="${escapeHtml(s.id)}">${escapeHtml(initials)}</span>
+        <span class="stu-who">
+            <strong>${escapeHtml(fullName(s) || '—')}</strong>
+            <span class="stu-meta"><span class="mono">${escapeHtml(s.student_id || 'No ID yet')}</span>
+                · ${escapeHtml(ordinal(s.year_level) || 'Year not set')} · ${escapeHtml(programName(s))}</span>
+        </span>
+        <span class="stu-prog" data-prog="${escapeHtml(s.id)}">
+            ${s.record_verified
+                ? '<span class="stu-bar"><i style="width:0"></i></span><span class="stu-bar-text">&nbsp;</span>'
+                : `<span class="stu-bar-text dim">${escapeHtml(s.email || '')}</span>`}
+        </span>
+        <span class="stu-pills">${recordPill(s)}</span>
+        <i class="fa-solid fa-chevron-right dim" aria-hidden="true"></i>
+    </div>`;
+}
+
+function renderStudentList() {
     const body  = $('students-body');
     const count = $('students-count');
     if (!body) return;
 
-    const list = filteredStudents();
+    const pages = SL().pageCount(LIST.total, STUDENT_PAGE_SIZE);
+    const { from } = SL().rangeFor(LIST.page, STUDENT_PAGE_SIZE);
+    const searching = LIST.search.trim() !== '' || LIST.filter !== 'all' || LIST.year !== 'all';
+    if (count) count.textContent = LIST.total
+        ? (searching ? `${LIST.total} match${LIST.total === 1 ? '' : 'es'}` : `${LIST.total} students`)
+        : '';
 
-    // 20 students a page; a search or filter change goes back to page 1.
-    const pages = Math.max(1, Math.ceil(list.length / STUDENT_PAGE_SIZE));
-    STUDENT_PAGE = Math.min(Math.max(1, STUDENT_PAGE), pages);
-    const from = (STUDENT_PAGE - 1) * STUDENT_PAGE_SIZE;
-    const shown = list.slice(from, from + STUDENT_PAGE_SIZE);
-
-    if (count) {
-        count.textContent = STUDENTS.length
-            ? `${list.length} of ${STUDENTS.length}`
-            : '';
-    }
-
-    if (STUDENTS.length === 0) {
+    if (LIST.rows.length === 0) {
         body.innerHTML = `
             <div class="empty">
-                <i class="fa-solid fa-users-slash" aria-hidden="true"></i>
-                <h3>No students yet</h3>
-                <p>Student accounts will appear here once they have registered.</p>
+                <i class="fa-solid ${searching ? 'fa-magnifying-glass' : 'fa-users-slash'}" aria-hidden="true"></i>
+                <h3>${searching ? 'No matches' : 'No students yet'}</h3>
+                <p>${searching
+                    ? 'No student matches that search or filter.'
+                    : 'Student accounts will appear here once they have registered.'}</p>
             </div>`;
         return;
     }
-
-    if (list.length === 0) {
-        body.innerHTML = `
-            <div class="empty">
-                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                <h3>No matches</h3>
-                <p>No student matches that search or filter.</p>
-            </div>`;
-        return;
-    }
-
-    const rows = shown.map((s) => `
-        <tr class="row-link" data-open="${escapeHtml(s.id)}" tabindex="0" role="button">
-            <td class="mono">${escapeHtml(s.student_id || '—')}</td>
-            <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
-            <td class="dim">${escapeHtml(s.email || '—')}</td>
-            <td>${escapeHtml(ordinal(s.year_level) || '—')}</td>
-            <td>${s.record_verified
-                ? '<span class="pill ok">Verified</span>'
-                : '<span class="pill waiting">Pending</span>'}</td>
-            <td class="num"><i class="fa-solid fa-chevron-right dim" aria-hidden="true"></i></td>
-        </tr>`).join('');
 
     body.innerHTML = `
-        <div class="table-wrap">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Student ID</th>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Year</th>
-                        <th>Record</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>
+        <div class="stu-list">${LIST.rows.map(studentRowHtml).join('')}</div>
         ${pages > 1 ? `
         <div class="pager">
-            <span class="dim">${from + 1}–${from + shown.length} of ${list.length}</span>
+            <span class="dim">${from + 1}–${from + LIST.rows.length} of ${LIST.total}</span>
             <span class="pager-btns">
-                <button type="button" class="btn-small" data-student-page="prev" ${STUDENT_PAGE === 1 ? 'disabled' : ''}>Previous</button>
-                <span class="pager-now">Page ${STUDENT_PAGE} of ${pages}</span>
-                <button type="button" class="btn-small" data-student-page="next" ${STUDENT_PAGE === pages ? 'disabled' : ''}>Next</button>
+                <button type="button" class="btn-small" data-student-page="prev" ${LIST.page === 1 ? 'disabled' : ''}>Previous</button>
+                <span class="pager-now">Page ${LIST.page} of ${pages}</span>
+                <button type="button" class="btn-small" data-student-page="next" ${LIST.page === pages ? 'disabled' : ''}>Next</button>
             </span>
         </div>` : ''}`;
-
-    body.querySelectorAll('[data-open]').forEach((row) => {
-        const go = () => { window.location.hash = `#student/${row.dataset.open}`; };
-        row.addEventListener('click', go);
-        row.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
-        });
-    });
 }
 
-$('student-search')?.addEventListener('input', () => { STUDENT_PAGE = 1; renderStudents(); });
-$('student-filter')?.addEventListener('change', () => { STUDENT_PAGE = 1; renderStudents(); });
+/* Prospectus facts: how many units the whole curriculum has, and which year it
+   is. Cached; a couple of queries however many students are on screen. */
+const PROSPECTUS_FACTS = new Map();
+
+async function prospectusFacts(ids) {
+    const want = [...new Set(ids.filter(x => x != null))].filter(id => !PROSPECTUS_FACTS.has(id));
+    if (want.length && supabase && !PREVIEW) {
+        const [subs, pros] = await Promise.all([
+            supabase.from('subject').select('prospectus_id, units')
+                .in('prospectus_id', want).not('year_level', 'is', null).eq('is_active', true),
+            supabase.from('prospectus').select('id, academic_year, is_active').in('id', want),
+        ]);
+        const units = new Map();
+        for (const r of subs.data ?? []) units.set(r.prospectus_id, (units.get(r.prospectus_id) || 0) + Number(r.units || 0));
+        for (const p of pros.data ?? []) {
+            PROSPECTUS_FACTS.set(p.id, {
+                units: units.get(p.id) || 0,
+                label: p.academic_year ? `${p.academic_year}–${Number(p.academic_year) + 1}` : '',
+                active: !!p.is_active,
+            });
+        }
+    }
+    return PROSPECTUS_FACTS;
+}
+
+const chunksOf = (list, n) => {
+    const out = [];
+    for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
+    return out;
+};
+
+function setBar(id, percent, text) {
+    const cell = document.querySelector(`[data-prog="${CSS.escape(id)}"]`);
+    if (!cell) return;
+    const bar = cell.querySelector('.stu-bar i');
+    const label = cell.querySelector('.stu-bar-text');
+    if (label) label.textContent = text;
+    if (bar) requestAnimationFrame(() => { bar.style.width = `${percent}%`; });
+}
+
+/* The photos and the progress bars arrive after the rows, so the page is never
+   waiting on them. */
+async function enrichStudentRows(rows, seq) {
+    const Photo = window.CurriculogicPhoto;
+
+    if (PREVIEW) {
+        for (const s of rows) {
+            const recs = PREVIEW_RECORDS[s.id];
+            if (!recs || !s.record_verified) continue;
+            const p = SL().progress(recs.map(r => ({ subject_id: r.subject_code, status: r.status, units: r.units })), 161);
+            setBar(s.id, p.percent, `${p.units} of ${p.total} units`);
+        }
+        return;
+    }
+
+    // photos: one request for the whole page
+    Photo.signedUrls(supabase, rows.map(s => s.user_id)).then((urls) => {
+        if (seq !== LIST.seq) return;
+        for (const s of rows) {
+            const url = urls.get(s.user_id);
+            if (!url) continue;
+            const el = document.querySelector(`[data-avatar="${CSS.escape(s.id)}"]`);
+            if (el) Photo.paint(el, url, SL().initialsOf(s.first_name, s.last_name, s.email));
+        }
+    }).catch(() => {});
+
+    // progress: passed units of the students with a verified record
+    const shown = rows.filter(s => s.record_verified);
+    if (!shown.length) return;
+    try {
+        // Ten students per request keeps every answer well under the row limit.
+        const answers = await Promise.all(chunksOf(shown.map(s => s.id), 10).map(ids =>
+            supabase.from('academic_record')
+                .select('student_id, subject_id, status, subject:subject_id (units)')
+                .in('student_id', ids).eq('status', 'PASSED')));
+        const byStudent = new Map();
+        for (const a of answers) for (const r of a.data ?? []) {
+            if (!byStudent.has(r.student_id)) byStudent.set(r.student_id, []);
+            byStudent.get(r.student_id).push(r);
+        }
+        const facts = await prospectusFacts(shown.map(s => s.prospectus_id));
+        if (seq !== LIST.seq) return;
+        for (const s of shown) {
+            const total = facts.get(s.prospectus_id)?.units ?? 0;
+            const p = SL().progress(byStudent.get(s.id) ?? [], total);
+            setBar(s.id, p.percent, total ? `${p.units} of ${total} units` : `${p.units} units`);
+        }
+    } catch (err) {
+        console.warn('progress bars failed:', err.message);
+    }
+}
+
+let searchTimer = null;
+$('student-search')?.addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        LIST.search = e.target.value;
+        LIST.page = 1;
+        loadStudentList();
+    }, 250);
+});
+$('student-year')?.addEventListener('change', (e) => {
+    LIST.year = e.target.value;
+    LIST.page = 1;
+    loadStudentList();
+});
+$('student-chips')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-student-filter]');
+    if (!b) return;
+    LIST.filter = b.dataset.studentFilter;
+    LIST.page = 1;
+    renderStudentChips();
+    loadStudentList();
+});
 $('students-body')?.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-student-page]');
-    if (!b || b.disabled) return;
-    STUDENT_PAGE += b.dataset.studentPage === 'next' ? 1 : -1;
-    renderStudents();
+    const pager = e.target.closest('[data-student-page]');
+    if (pager) {
+        if (pager.disabled) return;
+        LIST.page += pager.dataset.studentPage === 'next' ? 1 : -1;
+        loadStudentList();
+        return;
+    }
+    const row = e.target.closest('[data-open]');
+    if (row) window.location.hash = `#student/${row.dataset.open}`;
+});
+$('students-body')?.addEventListener('keydown', (e) => {
+    const row = e.target.closest?.('[data-open]');
+    if (row && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        window.location.hash = `#student/${row.dataset.open}`;
+    }
 });
 
 $('print-slip')?.addEventListener('click', () => {
@@ -548,20 +806,34 @@ $('print-slip')?.addEventListener('click', () => {
 
 /* dashboard tiles */
 
-function renderStats() {
-    const verified = STUDENTS.filter(s => s.record_verified).length;
+/* One number on the dashboard: set as usual, then counted up from what is
+   shown (or from 0 the first time). See shared/js/motion.js. */
+function setStat(id, n, className) {
+    const el = $(id);
+    if (!el) return;
+    const before = el.textContent.trim();
+    setText(id, String(n), className);
+    el.textContent = /^\d+$/.test(before) ? before : '0';
+    window.CurriculogicMotion?.countUp(el, n);
+}
 
-    setText('stat-students', String(STUDENTS.length), 'stat-value');
-    setText('stat-verified', String(verified), 'stat-value');
-    setText('stat-pending',  String(STUDENTS.length - verified), 'stat-value');
+function renderStats() {
+    setStat('stat-students', COUNTS.total, 'stat-value');
+    setStat('stat-verified', COUNTS.verified, 'stat-value');
+    setStat('stat-pending',  Math.max(0, COUNTS.total - COUNTS.verified), 'stat-value');
     setText('stat-requests', '—', 'stat-value muted');
+
+    // The same numbers on the Profile page.
+    setStat('prof-stat-students', COUNTS.total);
+    setStat('prof-stat-verified', COUNTS.verified);
+    setStat('prof-stat-pending',  Math.max(0, COUNTS.total - COUNTS.verified));
 }
 
 function renderRecent() {
     const body = $('recent-body');
     if (!body) return;
 
-    if (STUDENTS.length === 0) {
+    if (RECENT.length === 0) {
         body.innerHTML = `
             <div class="empty">
                 <i class="fa-solid fa-users-slash" aria-hidden="true"></i>
@@ -571,14 +843,12 @@ function renderRecent() {
         return;
     }
 
-    const rows = STUDENTS.slice(0, 5).map((s) => `
+    const rows = RECENT.map((s) => `
         <tr class="row-link" data-open="${escapeHtml(s.id)}" tabindex="0" role="button">
             <td class="mono">${escapeHtml(s.student_id || '—')}</td>
             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
             <td>${escapeHtml(ordinal(s.year_level) || '—')}</td>
-            <td>${s.record_verified
-                ? '<span class="pill ok">Verified</span>'
-                : '<span class="pill waiting">Pending</span>'}</td>
+            <td>${recordPill(s)}</td>
         </tr>`).join('');
 
     body.innerHTML = `
@@ -671,9 +941,174 @@ function statusMap(result) {
 
 /* student detail */
 
+let DETAIL_SEQ = 0;
+
+const longDate = (iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—'
+        : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+async function fetchStudentById(id) {
+    if (!supabase || PREVIEW) return null;
+    const { data, error } = await supabase.from('university_student').select(STUDENT_COLS).eq('id', id).maybeSingle();
+    if (error) { console.warn('student lookup failed:', error.message); return null; }
+    if (data) cacheStudents([data]);
+    return data ?? null;
+}
+
+function renderStudentHero(s) {
+    window.CurriculogicPhoto.paint($('detail-avatar'), null, SL().initialsOf(s.first_name, s.last_name, s.email));
+    setText('detail-name', fullName(s) || '—');
+    setText('detail-sub',
+        `${s.student_id || 'No ID'} · ${ordinal(s.year_level) || 'Year not set'} · ${programName(s)}`);
+    $('detail-pills').innerHTML = recordPill(s);
+    renderStudentDetails(s, '');
+}
+
+function renderStudentDetails(s, curriculum) {
+    const record = s.record_verified
+        ? `<span class="pill ok">Verified</span>${s.verified_at ? ` <span class="dim">${escapeHtml(longDate(s.verified_at))}</span>` : ''}`
+        : '<span class="pill waiting">Awaiting the Registrar</span>';
+    $('detail-status').innerHTML = `
+        <div class="detail"><dt>University email</dt><dd class="mono">${escapeHtml(s.email || '—')}</dd></div>
+        <div class="detail"><dt>Registered</dt><dd>${escapeHtml(longDate(s.created_at))}</dd></div>
+        <div class="detail"><dt>Curriculum</dt><dd>${curriculum || '<span class="dim">Not assigned yet</span>'}</dd></div>
+        <div class="detail"><dt>Record</dt><dd>${record}</dd></div>`;
+}
+
+async function paintDetailPhoto(s, seq) {
+    if (PREVIEW || !supabase || !s.user_id) return;
+    const url = await window.CurriculogicPhoto.signedUrl(supabase, s.user_id);
+    if (seq !== DETAIL_SEQ || !url) return;
+    window.CurriculogicPhoto.paint($('detail-avatar'), url, SL().initialsOf(s.first_name, s.last_name, s.email));
+}
+
+/* This term's plan. */
+async function loadStudentPlan(s, seq) {
+    const body = $('detail-term-body');
+    const label = $('detail-term-label');
+    if (!body) return;
+    body.innerHTML = '<div class="empty"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><h3>Loading</h3></div>';
+
+    const RS = window.CurriculogicRequestStatus;
+    let requests;
+    if (PREVIEW) {
+        requests = PREVIEW_PLANS[s.id] ?? [];
+    } else {
+        const { data, error } = await supabase
+            .from('request')
+            .select(`
+                id, status, registrar_status, requested_term, requested_year, created_at,
+                request_item (
+                    id, status, remarks,
+                    subject:subject_id (code, title, units),
+                    offering:offering_id (section, schedule_days, start_time, end_time, room)
+                )`)
+            .eq('student_id', s.id)
+            .order('created_at', { ascending: false })
+            .limit(20);
+        if (seq !== DETAIL_SEQ) return;
+        if (error) {
+            console.warn('plan load failed:', error.message);
+            body.innerHTML = `<div class="empty"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Could not load the plan</h3><p>${escapeHtml(error.message)}</p></div>`;
+            return;
+        }
+        requests = data ?? [];
+    }
+
+    const cfg = await window.CurriculogicTerm?.load();
+    if (seq !== DETAIL_SEQ) return;
+    const termText = cfg ? window.CurriculogicTerm.formatLabel(cfg.term, cfg.year) : '';
+    if (label) label.textContent = termText;
+
+    const plan = SL().pickPlan(requests, cfg, RS.finalApproved);
+    if (!plan) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-calendar-xmark" aria-hidden="true"></i>
+                <h3>No plan for this term</h3>
+                <p>The student has not submitted a subject plan${termText ? ` for ${escapeHtml(termText)}` : ''} yet.</p>
+            </div>`;
+        return;
+    }
+
+    const final = RS.finalApproved(plan);
+    const items = (plan.request_item ?? []).filter(i => !final || i.status === 'approved');
+    const units = items.reduce((t, i) => t + Number(i.subject?.units || 0), 0);
+    const stage = final ? '<span class="pill ok"><i class="fa-solid fa-check"></i> Approved for enrollment</span>'
+        : RS.sentBack(plan) ? '<span class="pill bad">Closed</span>'
+        : plan.status === 'rejected' ? '<span class="pill bad">Not approved</span>'
+        : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Waiting for your review</span>';
+
+    const sched = (o) => {
+        if (!o) return '—';
+        const time = (o.start_time && o.end_time) ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}` : '';
+        return [o.section, o.schedule_days, time].filter(Boolean).join(' · ') || '—';
+    };
+
+    body.innerHTML = `
+        <div class="stu-plan-head">${stage}
+            <span class="dim">${items.length} subject${items.length === 1 ? '' : 's'} · ${units} units · submitted ${escapeHtml(longDate(plan.created_at))}</span>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th>Code</th><th>Descriptive title</th><th class="num">Units</th></tr></thead>
+                <tbody>${items.map(i => `
+                    <tr>
+                        <td class="mono">${escapeHtml(i.subject?.code ?? '')}</td>
+                        <td>${escapeHtml(i.subject?.title ?? '')}
+                            <span class="row-sub">${escapeHtml(sched(i.offering))}</span></td>
+                        <td class="num">${escapeHtml(i.subject?.units ?? '—')}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+/* How far through the degree, and which curriculum they follow. */
+async function renderStudentProgress(s, records, seq) {
+    const body = $('detail-progress-body');
+    if (!body || seq !== DETAIL_SEQ) return;
+
+    let total = 0;
+    let curriculum = '';
+    if (PREVIEW) {
+        total = 161;
+        curriculum = '2024–2025 <span class="pill ok">Active</span>';
+    } else if (s.prospectus_id) {
+        const facts = await prospectusFacts([s.prospectus_id]);
+        if (seq !== DETAIL_SEQ) return;
+        const f = facts.get(s.prospectus_id);
+        total = f?.units ?? 0;
+        if (f?.label) curriculum = `${escapeHtml(f.label)} ${f.active ? '<span class="pill ok">Active</span>' : '<span class="pill waiting">Older version</span>'}`;
+    }
+    renderStudentDetails(s, curriculum);
+
+    const key = (r) => r.subject_id ?? r.subject_code;
+    const kinds = (status) => new Set(records.filter(r => r.status === status).map(key));
+    const passedSet = kinds('PASSED');
+    const failed = [...kinds('FAILED')].filter(id => !passedSet.has(id)).length;
+    const taking = kinds('ENROLLED').size;
+    const p = SL().progress(records, total);
+
+    body.innerHTML = `
+        <div class="stu-big"><strong>${p.units}</strong><span>${total ? `of ${total} units` : 'units earned'}</span></div>
+        <div class="stu-bar big"><i style="width:0"></i></div>
+        <p class="stu-bar-text">${total ? `${p.percent}% of the degree` : 'No curriculum assigned yet'}</p>
+        <div class="stu-mini">
+            <div><strong>${passedSet.size}</strong><span>Passed</span></div>
+            <div><strong>${failed}</strong><span>To retake</span></div>
+            <div><strong>${taking}</strong><span>Taking</span></div>
+        </div>`;
+    const bar = body.querySelector('.stu-bar i');
+    if (bar) requestAnimationFrame(() => { bar.style.width = `${p.percent}%`; });
+}
+
 async function openStudent(studentRowId) {
     const userId = studentRowId;   // university_student.id, not user_id
-    const student = STUDENTS.find(s => s.id === userId);
+    const seq = ++DETAIL_SEQ;
 
     // Clear the slip action from any previous student before the
     // new one is evaluated. Any branch that actually computes a
@@ -682,15 +1117,17 @@ async function openStudent(studentRowId) {
     const slipBtnReset = $('print-slip');
     if (slipBtnReset) slipBtnReset.hidden = true;
 
-    // Deep link straight to a student, before the list has loaded.
-    if (!student && !studentsLoaded) {
-        await loadStudents();
-        return openStudent(userId);
-    }
+    const student = STUDENTS.find(s => s.id === userId) ?? await fetchStudentById(userId);
+    if (seq !== DETAIL_SEQ) return;
 
     if (!student) {
         setText('detail-name', 'Student not found');
         setText('detail-sub', '');
+        $('detail-pills').innerHTML = '';
+        $('detail-term-body').innerHTML = '';
+        $('detail-progress-body').innerHTML = '';
+        $('detail-status').innerHTML = '';
+        $('detail-elig-body').innerHTML = '';
         $('detail-record-body').innerHTML = `
             <div class="empty">
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
@@ -700,16 +1137,18 @@ async function openStudent(studentRowId) {
         return;
     }
 
-    setText('detail-name', fullName(student) || '—');
-    setText('detail-sub',
-        `${student.student_id || 'No ID'} · ${ordinal(student.year_level) || 'Year not set'} · ${programName(student)}`);
+    renderStudentHero(student);
+    paintDetailPhoto(student, seq);
+    loadStudentPlan(student, seq);
 
     const eligNote = $('detail-elig-note');
     const eligBody = $('detail-elig-body');
 
     // Load once. The table below and the engine above read the same rows.
     const records = await fetchRecords(userId);
+    if (seq !== DETAIL_SEQ) return;
     renderStudentRecord(records);
+    renderStudentProgress(student, records ?? [], seq);
 
     if (!student.record_verified) {
         if (eligNote) eligNote.textContent = '';
@@ -789,22 +1228,29 @@ async function openStudent(studentRowId) {
             `${result.locked.length} locked`;
     }
 
-    await window.ProspectusGrid.render(
-        supabase, student.prospectus_id, eligBody, statusMap(result));
+    // The Grade column comes from the same record rows the full table below uses.
+    const statuses = window.CurriculogicRecordGrades
+        ? window.CurriculogicRecordGrades.attach(statusMap(result), records ?? [])
+        : statusMap(result);
 
-    // The slip reads the same assess() output the grid above was just
-    // built from — a slip that disagreed with the screen would be worse
-    // than no slip at all.
+    await window.ProspectusGrid.render(
+        supabase, student.prospectus_id, eligBody, statuses);
+
+    // The slip prints one semester block of this student's curriculum: their
+    // year level, in the term being enrolled (the system's current term).
+    const cfg = await window.CurriculogicTerm?.load();
     CURRENT_SLIP = {
         student,
-        result,
+        subjects: kb.subjects,
+        rules: kb.rules,
         records,
-        term: {
-            label: document.querySelector('.topbar-term')?.textContent?.trim() ?? '',
-        },
+        term: cfg
+            ? { number: cfg.term, year: cfg.year }
+            : { label: document.querySelector('.topbar-term')?.textContent?.trim() ?? '' },
         adviser: fullName(FACULTY) || 'Faculty adviser',
         program: {
             name: programName(student),
+            code: window.CurriculogicPrograms?.codeOf(student.program_id, '') ?? '',
             college: window.CurriculogicPrograms?.collegeOf(student.program_id, '') ?? '',
         },
     };
@@ -879,29 +1325,44 @@ function renderStudentRecord(records) {
         return;
     }
 
-    const rows = records.map((r) => `
-        <tr>
-            <td class="mono">${escapeHtml(r.subject_code)}</td>
-            <td>${escapeHtml(r.subject_title || '—')}</td>
-            <td class="num">${escapeHtml(r.units)}</td>
-            <td class="num">${r.grade_points != null ? escapeHtml(Number(r.grade_points).toFixed(2)) : escapeHtml(r.grade || '—')}</td>
-            <td><span class="pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td>
-            <td class="dim">${termLabel(r.taken_term)} · ${escapeHtml(r.taken_year || '—')}</td>
-        </tr>`).join('');
+    // A transcript: one table per term, newest first. The term is in the heading,
+    // so the rows do not repeat it.
+    const RG = window.CurriculogicRecordGrades;
+    const groups = RG.groupByTerm(records);
 
-    body.innerHTML = `
-        <div class="table-wrap">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Code</th><th>Descriptive title</th>
-                        <th class="num">Units</th><th class="num">Grade</th>
-                        <th>Status</th><th>Term</th>
-                    </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>`;
+    body.innerHTML = groups.map((g) => {
+        const rows = g.rows.map((r) => {
+            const [chipClass, chipText] = RG.chipFor(r.status);
+            const shown = r.status === 'DROPPED' ? null : RG.pick([r]);
+            return `
+            <tr>
+                <td class="mono">${escapeHtml(r.subject_code)}</td>
+                <td>${escapeHtml(r.subject_title || '—')}</td>
+                <td class="num">${escapeHtml(r.units)}</td>
+                <td class="num rec-grade ${shown ? escapeHtml(shown.tone) : ''}">${shown ? escapeHtml(shown.grade) : '—'}</td>
+                <td><span class="pg-chip ${escapeHtml(chipClass)}">${escapeHtml(chipText)}</span></td>
+            </tr>`;
+        }).join('');
+
+        return `
+        <section class="rec-group">
+            <h4 class="rec-term">${escapeHtml(g.label)}
+                <span>${g.subjects} subject${g.subjects === 1 ? '' : 's'} · ${g.passed} passed · ${g.unitsEarned} units earned</span>
+            </h4>
+            <div class="table-wrap">
+                <table class="data-table rec-table">
+                    <thead>
+                        <tr>
+                            <th>Code</th><th>Descriptive title</th>
+                            <th class="num">Units</th><th class="num">Grade</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        </section>`;
+    }).join('');
 }
 
 
@@ -1453,7 +1914,8 @@ async function notifyStudentOfReview(requestId) {
 
 async function loadRequestCount() {
     if (PREVIEW) {
-        setText('stat-requests', '3', 'stat-value');
+        setStat('stat-requests', 3, 'stat-value');
+        setStat('prof-stat-requests', 3);
         return;
     }
     const { count, error } = await supabase
@@ -1466,7 +1928,8 @@ async function loadRequestCount() {
         setText('stat-requests', '—', 'stat-value muted');
         return;
     }
-    setText('stat-requests', String(count ?? 0), 'stat-value');
+    setStat('stat-requests', count ?? 0, 'stat-value');
+    setStat('prof-stat-requests', count ?? 0);
 }
 
 /* One delegated handler on the whole requests section. Covers the queue
@@ -1509,6 +1972,7 @@ $('view-requests')?.addEventListener('click', (e) => {
         FACULTY = PREVIEW_FACULTY;
         document.body.classList.add('is-preview');
         renderProfile(FACULTY, PREVIEW_FACULTY.email);
+        paintProgramField();
         renderNotice(FACULTY);
         await loadStudents();
         loadRequestCount();
@@ -1562,12 +2026,13 @@ $('view-requests')?.addEventListener('click', (e) => {
 
     FACULTY = staff;
     renderProfile(staff, session.user.email);
+    loadPhoto();
     renderNotice(staff);
     window.CurriculogicForcePassword?.run(supabase, 'faculty');
 
     // Looked up, not typed: each student's line names their own degree.
     await window.CurriculogicPrograms?.load(supabase);
-    paintProgramChip();
+    paintProgramField();
 
     await loadStudents();
     loadRequestCount();

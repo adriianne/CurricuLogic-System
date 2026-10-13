@@ -8,8 +8,20 @@
     <title>Faculty dashboard — CurricuLogic</title>
 
     <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
+    <script>
+        /* Apply the saved (or system) theme before anything is drawn: no white flash. See shared/js/theme.js. */
+        try {
+            var t = localStorage.getItem('curriculogic-theme');
+            if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.dataset.theme = t;
+        } catch (e) { /* storage blocked: the page opens light */ }
+    </script>
     <link rel="stylesheet" href="../../shared/css/dashboard.css">
     <link rel="stylesheet" href="../prospectus/prospectus.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&display=swap">
+    <link rel="stylesheet" href="../../shared/css/dashboard-paper.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha384-PPIZEGYM1v8zp5Py7UjFb79S58UeqCL9pYVnVPURKEqvioPROaVAJKKLzvH2rDnI" crossorigin="anonymous">
     <style>
         /* Change-password modal. Self-contained on purpose: this page
@@ -87,7 +99,7 @@
         .act-go:disabled { opacity: 0.6; cursor: not-allowed; }
     </style>
 </head>
-<body data-idle-role="faculty_staff">
+<body class="theme-paper" data-idle-role="faculty_staff">
 
 <div class="shell" id="shell">
 
@@ -137,7 +149,14 @@
 
             <span class="topbar-title" id="topbar-title">Dashboard</span>
             <span class="topbar-term" id="topbar-term">1st Sem · AY 2023–2024</span>
-            <span class="topbar-term topbar-program" id="topbar-program" hidden></span>
+            <!-- The programme this account is assigned to. Read-only: one account,
+                 one programme. Same field as the Department header; filled in
+                 by paintProgramField() in the dashboard script. -->
+            <label class="topbar-program" id="topbar-program-wrap">
+                <span class="topbar-program-label">Programme</span>
+                <input type="text" id="topbar-program" class="topbar-program-field" value="—"
+                    readonly tabindex="-1" aria-label="Programme this account belongs to">
+            </label>
 
             <div class="topbar-user">
                 <span class="avatar" id="avatar">–</span>
@@ -145,6 +164,9 @@
                     <span class="user-name" id="user-name"><span class="skeleton"></span></span>
                     <span class="user-sub" id="user-sub"></span>
                 </span>
+                <button type="button" class="btn-theme" id="theme-toggle" aria-label="Switch to dark mode" title="Dark mode" aria-pressed="false">
+                    <i class="fa-solid fa-moon" aria-hidden="true"></i>
+                </button>
                 <button class="btn-logout" id="logout">
                     <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
                     <span>Log out</span>
@@ -234,6 +256,8 @@
                     </div>
                     <div class="card-body">
 
+                        <div class="stu-chips" id="student-chips" role="group" aria-label="Filter students"></div>
+
                         <div class="toolbar">
                             <div class="search-wrap">
                                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
@@ -241,10 +265,12 @@
                                        placeholder="Search name or student ID"
                                        autocomplete="off" aria-label="Search students" maxlength="100">
                             </div>
-                            <select id="student-filter" aria-label="Filter by status">
-                                <option value="all">All students</option>
-                                <option value="verified">Verified records</option>
-                                <option value="pending">Awaiting verification</option>
+                            <select id="student-year" aria-label="Filter by year level">
+                                <option value="all">All years</option>
+                                <option value="1">1st Year</option>
+                                <option value="2">2nd Year</option>
+                                <option value="3">3rd Year</option>
+                                <option value="4">4th Year</option>
                             </select>
                         </div>
 
@@ -269,15 +295,48 @@
                         <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                         <span>Back to students</span>
                     </a>
-                    <h1 class="page-title" id="detail-name">Student</h1>
-                    <p class="page-sub" id="detail-sub"></p>
                 </div>
 
                 <div id="detail-notice"></div>
 
+                <section class="card prof-hero stu-hero">
+                    <div class="prof-avatar" id="detail-avatar" aria-hidden="true"></div>
+                    <div class="prof-id">
+                        <h1 class="prof-name" id="detail-name">Student</h1>
+                        <p class="prof-sub" id="detail-sub"></p>
+                        <div class="prof-pills" id="detail-pills"></div>
+                    </div>
+                </section>
+
+                <div class="stu-grid">
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">This term</span>
+                            <span class="card-note" id="detail-term-label"></span>
+                        </div>
+                        <div class="card-body" id="detail-term-body"></div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Progress</span>
+                        </div>
+                        <div class="card-body" id="detail-progress-body"></div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Details</span>
+                        </div>
+                        <div class="card-body">
+                            <dl id="detail-status"></dl>
+                        </div>
+                    </section>
+                </div>
+
                 <section class="card">
                     <div class="card-head">
-                        <span class="card-title">Subject eligibility</span>
+                        <span class="card-title">Curriculum and academic record</span>
                         <span class="card-note" id="detail-elig-note"></span>
                         <button class="btn-small" id="print-slip" hidden>
                             <i class="fa-solid fa-print" aria-hidden="true"></i>
@@ -285,14 +344,14 @@
                         </button>
                     </div>
                     <div class="card-body" id="detail-elig-body"></div>
-                </section>
 
-                <section class="card">
-                    <div class="card-head">
-                        <span class="card-title">Academic record</span>
-                        <span class="card-note" id="detail-record-count"></span>
+                    <div class="card-body">
+                        <details class="fold">
+                            <summary>Full record (all attempts) <span class="card-note" id="detail-record-count"></span></summary>
+                            <p class="prose">Every recorded attempt, including repeated and dropped subjects and any not in this curriculum.</p>
+                            <div id="detail-record-body"></div>
+                        </details>
                     </div>
-                    <div class="card-body" id="detail-record-body"></div>
                 </section>
 
             </section>
@@ -390,98 +449,113 @@
 
                 <div class="page-head">
                     <h1 class="page-title">Profile</h1>
-                    <p class="page-sub">Your account details as held by the system.</p>
+                    <p class="page-sub">Your account, your students at a glance, and your sign-in.</p>
                 </div>
 
-                <section class="card">
-                    <div class="card-head">
-                        <span class="card-title">Account details</span>
-                        <button class="btn-small" id="p-change-password">
-                            <i class="fa-solid fa-lock" aria-hidden="true"></i>
-                            <span>Change password</span>
+                <section class="card prof-hero">
+                    <div class="photo-pick">
+                        <div class="prof-avatar" id="prof-avatar" aria-hidden="true"></div>
+                        <button type="button" class="photo-btn" id="photo-change" aria-label="Change profile photo" title="Change photo">
+                            <i class="fa-solid fa-camera" aria-hidden="true"></i>
                         </button>
+                        <input type="file" id="photo-file" accept="image/jpeg,image/png,image/webp" hidden>
                     </div>
-                    <div class="card-body">
-                        <dl id="details">
-                            <div class="detail">
-                                <dt>Name</dt>
-                                <dd id="d-name"><span class="skeleton"></span></dd>
-                            </div>
-                            <div class="detail">
-                                <dt>Employee ID</dt>
-                                <dd class="mono" id="d-eid"><span class="skeleton"></span></dd>
-                            </div>
-                            <div class="detail">
-                                <dt>University email</dt>
-                                <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
-                            </div>
-                            <div class="detail">
-                                <dt>Department</dt>
-                                <dd id="d-dept"><span class="skeleton"></span></dd>
-                            </div>
-                            <div class="detail">
-                                <dt>Role</dt>
-                                <dd>Faculty Staff</dd>
-                            </div>
-                            <div class="detail">
-                                <dt>Account status</dt>
-                                <dd id="d-status"><span class="skeleton"></span></dd>
-                            </div>
-                        </dl>
-                    </div>
-                </section>
-
-                <section class="card">
-                    <div class="card-head">
-                        <span class="card-title">Changing your details</span>
-                    </div>
-                    <div class="card-body">
-                        <p class="prose">
-                            Name, employee ID, and department are held in college
-                            records and cannot be edited here. To correct any of them,
-                            contact the System Administrator.
+                    <div class="prof-id">
+                        <h2 class="prof-name" id="prof-name"><span class="skeleton"></span></h2>
+                        <p class="prof-sub" id="prof-sub"></p>
+                        <div class="prof-pills">
+                            <span class="pill info"><i class="fa-solid fa-user-graduate" aria-hidden="true"></i> Faculty adviser</span>
+                            <span id="d-status"><span class="skeleton"></span></span>
+                            <span class="pill info" id="prof-program-pill" hidden></span>
+                        </div>
+                        <p class="photo-actions">
+                            <button type="button" class="btn-link" id="photo-remove" hidden>Remove photo</button>
+                            <span class="photo-msg" id="photo-msg" role="status" aria-live="polite"></span>
                         </p>
                     </div>
                 </section>
 
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Your students at a glance</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="prof-stats">
+                            <div class="prof-stat"><strong id="prof-stat-students">&mdash;</strong><span>Students</span></div>
+                            <div class="prof-stat"><strong id="prof-stat-verified">&mdash;</strong><span>Verified records</span></div>
+                            <div class="prof-stat"><strong id="prof-stat-pending">&mdash;</strong><span>Records pending</span></div>
+                            <div class="prof-stat"><strong id="prof-stat-requests">&mdash;</strong><span>Requests waiting for you</span></div>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="prof-grid">
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Account details</span>
+                        </div>
+                        <div class="card-body">
+                            <dl id="details">
+                                <div class="detail">
+                                    <dt>Name</dt>
+                                    <dd id="d-name"><span class="skeleton"></span></dd>
+                                </div>
+                                <div class="detail">
+                                    <dt>Employee ID</dt>
+                                    <dd class="mono" id="d-eid"><span class="skeleton"></span></dd>
+                                </div>
+                                <div class="detail">
+                                    <dt>University email</dt>
+                                    <dd class="mono" id="d-email"><span class="skeleton"></span></dd>
+                                </div>
+                                <div class="detail">
+                                    <dt>Department</dt>
+                                    <dd id="d-dept"><span class="skeleton"></span></dd>
+                                </div>
+                                <div class="detail">
+                                    <dt>Programme</dt>
+                                    <dd id="d-program"><span class="skeleton"></span></dd>
+                                </div>
+                                <div class="detail">
+                                    <dt>Role</dt>
+                                    <dd>Faculty Staff</dd>
+                                </div>
+                            </dl>
+                            <p class="prof-note">
+                                Name, email, employee ID, department and programme are held in college
+                                records and cannot be edited here. To correct any of them,
+                                contact the System Administrator.
+                            </p>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Change your password</span>
+                        </div>
+                        <div class="card-body">
+                            <form id="prof-pw-form" class="prof-form" autocomplete="off" novalidate>
+                                <div id="pw-msg" class="msg" role="status"></div>
+
+                                <label for="pw-current">Current password</label>
+                                <input type="password" id="pw-current" autocomplete="current-password" maxlength="72">
+
+                                <label for="pw-new">New password</label>
+                                <input type="password" id="pw-new" autocomplete="new-password" maxlength="72">
+                                <p class="prof-hint">At least 8 characters, including a special character (! @ # $ %).</p>
+
+                                <label for="pw-confirm">Confirm new password</label>
+                                <input type="password" id="pw-confirm" autocomplete="new-password" maxlength="72">
+
+                                <button type="submit" class="btn-primary" id="pw-submit">Change password</button>
+                            </form>
+                        </div>
+                    </section>
+                </div>
+
             </section>
 
         </div>
-    </div>
-</div>
-
-<!-- Change password modal -->
-<div class="cbp-overlay" id="password-modal" hidden>
-    <div class="pw-modal" role="dialog" aria-labelledby="pw-title">
-
-        <div class="pw-panel-right">
-            <h2 class="pw-title" id="pw-title">Change your password</h2>
-            <p class="pw-desc">
-                Enter your current password, then choose a new one.
-            </p>
-
-            <div id="pw-msg" class="msg" role="status"></div>
-
-            <div class="field" style="margin-bottom: var(--s2);">
-                <label for="pw-current">Current password</label>
-                <input type="password" id="pw-current" autocomplete="current-password" maxlength="72">
-            </div>
-            <div class="field" style="margin-bottom: var(--s2);">
-                <label for="pw-new">New password</label>
-                <input type="password" id="pw-new" autocomplete="new-password" maxlength="72">
-                <p class="pw-hint">At least 8 characters, including a special character (! @ # $ %).</p>
-            </div>
-            <div class="field" style="margin-bottom: var(--s3);">
-                <label for="pw-confirm">Confirm new password</label>
-                <input type="password" id="pw-confirm" autocomplete="new-password" maxlength="72">
-            </div>
-
-            <div class="act-actions">
-                <button class="act-cancel" id="pw-cancel">Cancel</button>
-                <button class="act-go" id="pw-submit">Change password</button>
-            </div>
-        </div>
-
     </div>
 </div>
 
@@ -492,10 +566,15 @@
 <script src="../../shared/js/programs.js"></script>
 <script src="../../shared/js/requeststatus.js"></script>
 <script src="../../shared/engine/engine.js"></script>
+<script src="../../shared/js/recordgrades.js"></script>
+<script src="../../shared/js/studentlist.js"></script>
 <script src="../../shared/js/prospectusgrid.js"></script>
 <script src="../../shared/js/advisingslip.js"></script>
 <script src="../../shared/js/passwordrules.js"></script>
 <script src="../../shared/js/forcepasswordchange.js"></script>
+<script src="../../shared/js/profilephoto.js"></script>
+<script src="../../shared/js/motion.js"></script>
+<script src="../../shared/js/theme.js"></script>
 <script src="facultydashboard.js"></script>
 </body>
 </html>
