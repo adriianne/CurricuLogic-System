@@ -73,3 +73,18 @@ describe('signedUrls', () => {
         assert.equal(urls.size, 0);
     });
 });
+
+test('dataUrlToBlob turns a base64 data: address into a Blob without a network call', async () => {
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    const blob = P.dataUrlToBlob(png);
+    assert.ok(blob instanceof Blob);
+    assert.equal(blob.type, 'image/png');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    assert.deepEqual([...bytes.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47]);   // PNG signature
+});
+
+test('dataUrlToBlob refuses anything that is not a base64 data: address', () => {
+    for (const bad of ['', null, undefined, 'https://x/y.png', 'data:text/plain,hello', 'data:image/png;base64,@@@', 'blob:http://x/1']) {
+        assert.equal(P.dataUrlToBlob(bad), null, String(bad));
+    }
+});

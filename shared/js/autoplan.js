@@ -23,6 +23,8 @@
 //                         the engine's own section is kept.
 //   4. unit limit         a subject that would take the plan past the limit is
 //                         left out
+//   5. taken together     a subject that must be taken in the same term as another
+//                         (entry.alongside) goes in with it, or not at all
 //
 // Every subject that is left out is reported with a plain reason.
 // Subjects locked by a pending or approved request never arrive here: the page
@@ -31,7 +33,7 @@
 //   buildAutoPlan({ entries, suggestedIds, cap, conflicts })
 //     entries       the picker's candidates, best first:
 //                   { subject: {id, code, title, units}, sections: [flat meeting rows],
-//                     scheduleState, chosenSection?: {section} }
+//                     scheduleState, chosenSection?: {section}, alongside?: [{id, code}] }
 //     suggestedIds  Set of subject ids the engine suggests
 //     cap           the most units the student may take now
 //     conflicts     { groupSections, meetingsClash } (shared/js/scheduleconflicts.js)
@@ -103,13 +105,36 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts }) {
         subjectId: entry.subject.id, code: entry.subject.code, title: entry.subject.title, reason,
     });
 
+    const byId = new Map((entries ?? []).map(e => [e.subject.id, e]));
+    const bundled = new Set();      // taken into the plan as someone's partner
+
+    /* The entry and every subject it must be taken together with (and what those need
+       in turn), minus what is already in the plan. Null when a partner cannot be added. */
+    const bundleOf = (entry) => {
+        const group = new Map();
+        const stack = [entry];
+        while (stack.length) {
+            const cur = stack.pop();
+            if (group.has(cur.subject.id) || taken.has(cur.subject.id)) continue;
+            group.set(cur.subject.id, cur);
+            for (const p of cur.alongside ?? []) {
+                if (taken.has(p.id)) continue;
+                const partner = byId.get(p.id);
+                if (!partner) return { missing: p.code };
+                if (partner.scheduleState === 'not-run') return { missing: p.code };
+                stack.push(partner);
+            }
+        }
+        return { entries: [...group.values()] };
+    };
+
     for (const entry of entries ?? []) {
         if (!suggestedIds?.has(entry.subject.id)) continue;
 
         const id = entry.subject.id;
-        const u = Number(entry.subject.units) || 0;
 
-        // 1. subject conflicts
+        // 1. subject conflicts (a partner added with an earlier subject is not a conflict)
+        if (bundled.has(id)) continue;
         if (taken.has(id)) { leave(entry, 'Already in the plan.'); continue; }
 
         // 2. can it be taken this term?
@@ -118,15 +143,27 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts }) {
             continue;
         }
 
+        // 5. subjects it must be taken together with come in with it
+        const bundle = bundleOf(entry);
+        if (bundle.missing) {
+            leave(entry, `It must be taken together with ${bundle.missing}, which cannot be added this term.`);
+            continue;
+        }
+        const group = bundle.entries;
+        const u = group.reduce((t, e) => t + (Number(e.subject.units) || 0), 0);
+
         // 4. unit limit (checked first: no point searching if it cannot fit)
         if (units + u > limit) {
-            leave(entry, `It would take the plan past your ${limit}-unit limit.`);
+            leave(entry, group.length > 1
+                ? `It and ${group.filter(e => e !== entry).map(e => e.subject.code).join(', ')}, which go with it, would take the plan past your ${limit}-unit limit.`
+                : `It would take the plan past your ${limit}-unit limit.`);
             continue;
         }
 
         // 3. time conflicts: is there ANY arrangement that holds everyone?
-        const item = { entry, units: u, choices: choicesOf(entry, groupSections) };
-        const trial = assignSections([...items, item], meetingsClash);
+        const newItems = group.map(e => ({ entry: e, units: Number(e.subject.units) || 0, choices: choicesOf(e, groupSections) }));
+        const item = newItems[0];
+        const trial = assignSections([...items, ...newItems], meetingsClash);
 
         if (!trial) {
             // Say what is really in the way: any subject already in the plan
@@ -142,8 +179,11 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts }) {
             continue;
         }
 
-        taken.add(id);
-        items.push(item);
+        for (const it of newItems) {
+            taken.add(it.entry.subject.id);
+            if (it.entry !== entry) bundled.add(it.entry.subject.id);
+            items.push(it);
+        }
         assignment = trial;
         units += u;
     }

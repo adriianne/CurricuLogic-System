@@ -47,12 +47,16 @@ function rowsFor(entries, placed) {
             days: m.days ?? '',
             start: m.start ?? null,
             end: m.end ?? null,
+            edp: m.edp ?? null,
             text: meetingText(m),
         }));
+        // the school's EDP code(s) for this section: a lecture and a lab have one each
+        const edp = [...new Set(meetings.map(m => String(m.edp ?? '').trim()).filter(Boolean))];
         return {
             code: e.code,
             title: e.title,
             section: sec?.section ?? null,
+            edp,
             meetings,
             when: meetings.map(m => m.text).join(' + '),
         };

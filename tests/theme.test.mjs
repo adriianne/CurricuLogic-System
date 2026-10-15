@@ -41,15 +41,32 @@ describe('other', () => {
 });
 
 describe('the page', () => {
-    // The head snippet must use the same key and the same two values as theme.js.
+    // The head script (shared/js/themeinit.js, a file rather than an inline
+    // script so the Content-Security-Policy can forbid inline scripts) must use
+    // the same key and the same two values as theme.js, and run before the
+    // stylesheet loads.
     const html = readFileSync(resolvePath(ROOT, 'features/admin/admindashboard.html'), 'utf8');
+    const init = readFileSync(resolvePath(ROOT, 'shared/js/themeinit.js'), 'utf8');
 
     test('applies the theme before the page is drawn, with the same key', () => {
-        assert.ok(html.includes(`'${T.KEY}'`), 'the head snippet does not read the saved theme');
-        const snippet = html.indexOf(`'${T.KEY}'`);
+        assert.ok(init.includes(`'${T.KEY}'`), 'themeinit.js does not read the saved theme');
+        assert.ok(init.includes("'light'") && init.includes("'dark'"), 'themeinit.js lost one of the two values');
+
+        const script = html.indexOf('shared/js/themeinit.js');
         const stylesheet = html.indexOf('shared/css/dashboard.css');
-        assert.ok(snippet > 0 && snippet < html.indexOf('</head>'), 'the snippet is not in the head');
-        assert.ok(snippet < stylesheet, 'the snippet must run before the stylesheet loads');
+        assert.ok(script > 0 && script < html.indexOf('</head>'), 'themeinit.js is not in the head');
+        assert.ok(script < stylesheet, 'themeinit.js must run before the stylesheet loads');
+        assert.ok(!/<script\b[^>]*\bdefer\b|<script\b[^>]*\basync\b/.test(html.slice(script - 20, script + 80)),
+            'themeinit.js must be a plain blocking script, or the page flashes white');
+    });
+
+    test('every dashboard loads it in the head, not inline', () => {
+        for (const p of ['admin/admindashboard', 'department/departmentdashboard', 'faculty/facultydashboard',
+                         'registrar/registrardashboard', 'student/studentdashboard']) {
+            const page = readFileSync(resolvePath(ROOT, `features/${p}.html`), 'utf8');
+            assert.ok(page.includes('<script src="../../shared/js/themeinit.js"></script>'), `${p} does not load themeinit.js`);
+            assert.equal(page.includes(`'${T.KEY}'`), false, `${p} still has the theme code inline`);
+        }
     });
 
     test('has the toggle button and loads theme.js', () => {

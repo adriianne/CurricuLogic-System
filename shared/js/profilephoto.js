@@ -27,6 +27,21 @@ const TYPES      = ['image/jpeg', 'image/png', 'image/webp'];
 
 const pathFor = (uid) => `${uid}/avatar.jpg`;
 
+/* A picture held as a data: address, as a Blob, without a network call. The
+   Content-Security-Policy does not allow fetch() of a data: address, so
+   fetch(dataUrl).blob() is not an option. Returns null for anything that is not
+   a base64 data: address. */
+function dataUrlToBlob(dataUrl) {
+    const m = /^data:([^;,]+)?(;[^,]*)?,(.*)$/s.exec(String(dataUrl ?? ''));
+    if (!m || !/;base64/i.test(m[2] ?? '')) return null;
+    try {
+        const bin   = atob(m[3]);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return new Blob([bytes], { type: m[1] || 'application/octet-stream' });
+    } catch { return null; }
+}
+
 /* Why this file cannot be used, in a sentence for the person; '' when it is fine. */
 function problem(file) {
     if (!file) return 'Choose a picture first.';
@@ -109,5 +124,5 @@ function paint(el, url, initials) {
     el.classList.add('has-photo');
 }
 
-return { BUCKET, SIZE, MAX_PICKED, TYPES, pathFor, problem, squareCrop, prepare, upload, remove, signedUrl, signedUrls, paint };
+return { BUCKET, SIZE, MAX_PICKED, TYPES, pathFor, dataUrlToBlob, problem, squareCrop, prepare, upload, remove, signedUrl, signedUrls, paint };
 }));

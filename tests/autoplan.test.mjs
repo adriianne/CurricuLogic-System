@@ -313,3 +313,57 @@ describe('whatever it is given, a plan never has an overlap', () => {
         }
     });
 });
+
+describe('subjects taken together', () => {
+    const together = (entry, partner) => ({ ...entry, alongside: [{ id: partner.subject.id, code: partner.subject.code }] });
+
+    test('a lab brings its lecture into the plan, whichever comes first', () => {
+        const lec = subject('LEC 101', 3, [['L1', 'MW', '08:00', '09:30']]);
+        const lab = together(subject('LAB 101', 1, [['B1', 'TTH', '08:00', '09:30']]), lec);
+        for (const order of [[lab, lec], [lec, lab]]) {
+            const r = plan(order);
+            assert.deepEqual(r.picks.map(p => p.code).sort(), ['LAB 101', 'LEC 101']);
+            assert.deepEqual(r.skipped, []);
+        }
+    });
+
+    test('a lab whose lecture is not running is left out, with the reason', () => {
+        const lec = subject('LEC 101', 3, [['L1', 'MW', '08:00', '09:30']], { scheduleState: 'not-run' });
+        const lab = together(subject('LAB 101', 1, [['B1', 'TTH', '08:00', '09:30']]), lec);
+        const r = plan([lab, lec]);
+        assert.equal(r.picks.length, 0);
+        assert.match(r.skipped.find(s => s.code === 'LAB 101').reason, /together with LEC 101/);
+    });
+
+    test('a pair that does not fit the unit limit is left out as a pair', () => {
+        const lec = subject('LEC 101', 3, [['L1', 'MW', '08:00', '09:30']]);
+        const lab = together(subject('LAB 101', 1, [['B1', 'TTH', '08:00', '09:30']]), lec);
+        const r = plan([lab, lec], { cap: 3 });
+        assert.ok(!r.picks.some(p => p.code === 'LAB 101'));
+        assert.match(r.skipped.find(s => s.code === 'LAB 101').reason, /past your 3-unit limit/);
+    });
+
+    test('a pair that overlaps another subject everywhere is left out; the other subject stays', () => {
+        const other = subject('OTH 101', 3, [['O1', 'MW', '08:00', '09:30']]);
+        const lec = subject('LEC 101', 3, [['L1', 'MW', '08:30', '10:00']]);
+        const lab = together(subject('LAB 101', 1, [['B1', 'TTH', '08:00', '09:30']]), lec);
+        const r = plan([other, lab, lec]);
+        assert.deepEqual(r.picks.map(p => p.code), ['OTH 101']);
+        assert.ok(r.skipped.some(s => s.code === 'LAB 101'));
+    });
+
+    test('a partner is not reported as "already in the plan" when it comes up later', () => {
+        const lec = subject('LEC 101', 3, [['L1', 'MW', '08:00', '09:30']]);
+        const lab = together(subject('LAB 101', 1, [['B1', 'TTH', '08:00', '09:30']]), lec);
+        const r = plan([lab, lec]);
+        assert.deepEqual(r.skipped, []);
+        assert.equal(r.units, 4);
+    });
+
+    test('with the lecture already in the plan, the lab goes in alone', () => {
+        const lec = subject('LEC 101', 3, [['L1', 'MW', '08:00', '09:30']]);
+        const lab = together(subject('LAB 101', 1, [['B1', 'TTH', '08:00', '09:30']]), lec);
+        const r = plan([lec, lab]);
+        assert.deepEqual(r.picks.map(p => p.code), ['LEC 101', 'LAB 101']);
+    });
+});

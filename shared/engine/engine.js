@@ -260,13 +260,22 @@ function evaluateCondition(rule, facts, byId, subject) {
     }
 
     if (type === CO_REQUISITE) {
-        const met = facts.passed.has(required.id) || facts.enrolled.has(required.id);
+        const already = facts.passed.has(required.id) || facts.enrolled.has(required.id);
+        /* "Taken alongside" is also met by a subject the student could enrol in
+           this same term: see assess(), which settles which subjects can go
+           together. Without that, two subjects that must be taken together
+           would each wait for the other forever. */
+        const together = !already && !!facts.alongside && facts.alongside.has(required.id);
+        const met = already || together;
         return {
             type, met,
             subjectId: required.id, code: required.code, title: required.title,
-            detail: met
+            alongside: together,
+            detail: already
                 ? `${required.code} is passed or currently being taken.`
-                : `${required.code} must be passed or taken alongside this subject.`,
+                : together
+                    ? `${required.code} must be taken in the same term as this subject.`
+                    : `${required.code} must be passed or taken alongside this subject.`,
         };
     }
 
@@ -566,6 +575,31 @@ function assess(student, records, knowledgeBase, options = {}) {
     const completed = [];
     const inProgress = [];
 
+    /* ---- subjects that must be taken together ----
+       A co-requisite is met by a subject that is passed, being taken, or one the
+       student could enrol in this same term. Which subjects can go together
+       depends on each other, so it is settled by shrinking: start by assuming
+       every unfinished subject can, then keep only those whose conditions hold
+       under that assumption, and repeat until nothing changes. Two subjects
+       that need each other survive together; one whose partner can never be
+       taken falls out with it. */
+    const takeable = new Set(subjects
+        .filter(s => !facts.passed.has(s.id) && !facts.enrolled.has(s.id) && !slotFill.has(s.id))
+        .map(s => s.id));
+    for (let pass = 0; pass < DEFAULTS.maxIterations; pass++) {
+        const withTakeable = { ...facts, alongside: takeable };
+        let changed = false;
+        for (const id of [...takeable]) {
+            const s = byId.get(id);
+            if (!evaluateSubject(s, kb.rulesFor(id), withTakeable, byId).satisfied) {
+                takeable.delete(id);
+                changed = true;
+            }
+        }
+        if (!changed) break;
+    }
+    const factsTogether = { ...facts, alongside: takeable };
+
     for (const subject of subjects) {
         if (facts.passed.has(subject.id))   { completed.push(subject);  continue; }
         if (facts.enrolled.has(subject.id)) { inProgress.push(subject); continue; }
@@ -580,7 +614,7 @@ function assess(student, records, knowledgeBase, options = {}) {
         }
 
         const subjectRules = kb.rulesFor(subject.id);
-        const { satisfied, trace } = evaluateSubject(subject, subjectRules, facts, byId);
+        const { satisfied, trace } = evaluateSubject(subject, subjectRules, factsTogether, byId);
 
         const scheduleState = scheduleStateOf(subject);
 
@@ -593,6 +627,11 @@ function assess(student, records, knowledgeBase, options = {}) {
             scheduleState,
             sections: offerings.filter(o => o.subject_id === subject.id),
             retake: facts.failed.has(subject.id),
+            /* Subjects this one must be taken together with, when a co-requisite
+               is met only because the other is taken in the same term. */
+            alongside: trace.flatMap(g => g.conditions)
+                .filter(c => c.alongside)
+                .map(c => ({ id: c.subjectId, code: c.code, title: c.title })),
         };
 
         if (satisfied) {
@@ -678,7 +717,29 @@ function assess(student, records, knowledgeBase, options = {}) {
     const recommended = [];
     let units = 0;
 
+    const eligibleById = new Map(eligible.map(e => [e.subject.id, e]));
+    const picked = new Set();
+
+    /* The subject and everything it must be taken with (and what those need in turn). */
+    const bundleOf = (e) => {
+        const bundle = new Map();
+        const stack = [e];
+        while (stack.length) {
+            const cur = stack.pop();
+            if (bundle.has(cur.subject.id)) continue;
+            bundle.set(cur.subject.id, cur);
+            for (const p of cur.alongside) {
+                const partner = eligibleById.get(p.id);
+                if (!partner) return null;       // its partner cannot be enrolled in this term
+                stack.push(partner);
+            }
+        }
+        return [...bundle.values()];
+    };
+
     for (const e of eligible) {
+        if (picked.has(e.subject.id)) continue;
+
         /* A catalogue subject is a choice offered to fill a slot, not load
            in its own right: the slot it would fill is what carries the
            units, and it is what gets recommended. */
@@ -689,12 +750,24 @@ function assess(student, records, knowledgeBase, options = {}) {
            section is the failure this replaces. */
         if (!e.availableThisTerm) continue;
 
-        const u = Number(e.subject.units) || 0;
-        if (units + u > availableUnits) continue;
+        /* A subject that must be taken together with others goes in with all
+           of them, or not at all. */
+        const bundle = bundleOf(e);
+        if (!bundle) continue;
+        if (bundle.some(b => isCatalogue(b.subject) || !b.availableThisTerm)) continue;
+        const fresh = bundle.filter(b => !picked.has(b.subject.id));
+        const need = fresh.reduce((t, b) => t + (Number(b.subject.units) || 0), 0);
+        if (units + need > availableUnits) continue;
 
-        recommended.push({ ...e, reason: recommendationReason(e, facts) });
-        units += u;
+        for (const b of fresh) {
+            picked.add(b.subject.id);
+            recommended.push({ ...b, reason: recommendationReason(b, facts) });
+        }
+        units += need;
     }
+    // keep the engine's ranking order, whatever order the bundles were added in
+    const rank = new Map(eligible.map((e, i) => [e.subject.id, i]));
+    recommended.sort((a, b) => rank.get(a.subject.id) - rank.get(b.subject.id));
 
     /* Depth from the forward chain tells a locked subject how far off it
        is — one term, two, or unreachable within the horizon. */
@@ -756,6 +829,10 @@ function scoreSubject(entry, facts) {
 }
 
 function recommendationReason(entry, facts) {
+    if (entry.alongside && entry.alongside.length) {
+        return `Taken together with ${entry.alongside.map(a => a.code).join(' and ')}: both are enrolled in the same term.`;
+    }
+
     if (isElective(entry.subject) && entry.subject.year_level != null) {
         const n = entry.slotOptions?.length ?? 0;
         const kind = entry.subject.elective_type === 'FREE' ? 'free elective' : 'programme elective';

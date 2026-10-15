@@ -132,12 +132,26 @@ describe('preferences', () => {
         const b = out.recommended.find(r => r.code === 'B');
         assert.equal(b.section.section, '1-B');
         assert.equal(b.section.timeOfDay, 'morning');
-        assert.deepEqual(b.section.meetings[0], { type: 'LEC', days: 'MW', start: '08:00', end: '09:30', room: 'R1' });
+        assert.deepEqual(b.section.meetings[0], { type: 'LEC', days: 'MW', start: '08:00', end: '09:30', room: 'R1', edp: null });
+        assert.deepEqual(b.section.edp, []);
         assert.equal(b.sections.length, 2);
         assert.equal(b.section.offeringId, 72, 'the request names the section by this id');
         assert.deepEqual(b.sections.map(s => s.offeringId), [71, 72]);
         assert.equal(b.timeMatch, 'match');
         assert.match(b.sectionReason, /morning/);
+    });
+
+    test('each section carries the EDP code the school posted for it', () => {
+        const offerings = [
+            { ...meet(B, '1-A', '08:00', '09:30'), id: 81, edp_code: '4101' },
+            { ...meet(B, '1-A', '13:00', '16:00'), id: 82, meeting_type: 'LAB', edp_code: '4102' },
+            { ...meet(B, '1-B', '10:00', '11:30'), id: 83, edp_code: ' 4103 ' },
+        ];
+        const b = run({ offerings }).recommended.find(r => r.code === 'B');
+        const sections = Object.fromEntries(b.sections.map(x => [x.section, x]));
+        assert.deepEqual(sections['1-A'].edp, ['4101', '4102'], 'a lecture and a lab have one code each');
+        assert.deepEqual(sections['1-A'].meetings.map(m => m.edp), ['4101', '4102']);
+        assert.deepEqual(sections['1-B'].edp, ['4103']);
     });
 
     test('no preference gives no chosen section but still lists the sections', () => {
@@ -177,5 +191,50 @@ describe('subjects open but not suggested', () => {
             assert.equal(o.sections.length, 1);
             assert.equal(o.sections[0].offeringId, 800 + Number(o.code.slice(1)));
         }
+    });
+});
+
+describe("Cura's view of the approved plan", () => {
+    const edp = require('../shared/js/edpresult.js');
+    const withEdp = { ...deps, edp };
+    const row = (oid, s, section, days, start, end, code, open = true) =>
+        ({ id: oid, subject_id: s.id, section, meeting_type: 'LEC', schedule_days: days, start_time: start, end_time: end, room: 'R1', edp_code: code, is_open: open });
+    const offerings = [
+        row(1, A, 'X-1', 'MW', '08:00', '09:30', '4101'), row(2, A, 'X-2', 'MW', '10:00', '11:30', '4102'), row(3, A, 'X-3', 'TTH', '08:00', '09:30', '4103'),
+        row(4, B, 'X-1', 'TTH', '10:00', '11:30', '4201'),
+    ];
+    const approved = (over = {}) => [{
+        id: 7, status: 'approved', registrar_status: null, created_at: '2026-10-01T00:00:00Z',
+        request_item: [
+            { id: 11, subject_id: A.id, status: 'approved', offering_id: 1, edp_result: 'rejected', edp_reason: 'full', subject: { code: 'A', title: 'A title', units: 3 }, ...over },
+            { id: 12, subject_id: B.id, status: 'approved', offering_id: 4, edp_result: null, edp_reason: null, subject: { code: 'B', title: 'B title', units: 3 } },
+        ],
+    }];
+    const run2 = (extra) => assessStudent(withEdp, { ...base(), offerings, ...extra });
+
+    test('is null when the student has no approved plan, or the helper is not there', () => {
+        assert.equal(run2({}).summary.approvedPlan, null);
+        assert.equal(assessStudent(deps, { ...base(), offerings, approvedRequests: approved() }).summary.approvedPlan, null);
+    });
+
+    test('lists each approved subject with its section, EDP codes, what was reported, and other sections that fit', () => {
+        const plan = run2({ approvedRequests: approved(), reportedFullOfferingIds: [1] }).summary.approvedPlan;
+        const a = plan.subjects.find(s => s.code === 'A');
+        assert.equal(a.section, 'X-1');
+        assert.deepEqual(a.edp, ['4101']);
+        assert.equal(a.edpOffice, 'turned down');
+        assert.match(a.edpReason, /full/i);
+        // the section reported full is not offered again; X-2 and X-3 fit next to B (TTH 10:00)
+        assert.deepEqual(a.otherSections.map(o => o.section), ['X-2', 'X-3']);
+        assert.deepEqual(a.otherSections[0].edp, ['4102']);
+        assert.equal(plan.subjects.find(s => s.code === 'B').edpOffice, null);
+    });
+
+    test('a section the Department closed is not offered, and a plan sent back is ignored', () => {
+        const closed = offerings.map(o => o.id === 2 ? { ...o, is_open: false } : o);
+        const plan = assessStudent(withEdp, { ...base(), offerings: closed, approvedRequests: approved() }).summary.approvedPlan;
+        assert.deepEqual(plan.subjects.find(s => s.code === 'A').otherSections.map(o => o.section), ['X-3']);
+        const sentBack = approved(); sentBack[0].registrar_status = 'rejected';
+        assert.equal(run2({ approvedRequests: sentBack }).summary.approvedPlan, null);
     });
 });

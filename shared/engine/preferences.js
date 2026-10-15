@@ -44,13 +44,63 @@ const LOAD_UNITS = { light: 15, regular: 21 };
 
 const LABEL = { morning: 'morning', afternoon: 'afternoon', evening: 'evening' };
 
-/* Anything unrecognised is treated as "no preference" rather than guessed at. */
+/* Anything unrecognised is treated as "no preference" rather than guessed at.
+   "compact" (fewest gaps) is on only when it is exactly true. */
 function clean(prefs) {
     const p = prefs ?? {};
     return {
         timeOfDay: TIMES.includes(p.timeOfDay) ? p.timeOfDay : null,
         load: LOADS.includes(p.load) ? p.load : null,
+        compact: p.compact === true,
     };
+}
+
+/* ---- free time between classes ---- */
+
+/* A wait between two classes of the same day counts as free time only from this
+   long: shorter than that is just walking to the next room. */
+const GAP_MINUTES = 30;
+
+/* The total free time in a week, in minutes, for a set of sections. `lists` is one
+   array of meetings per section ({ schedule_days, start_time, end_time }). For each
+   day the classes are put in time order and the waits of GAP_MINUTES or more between
+   them are added up. A meeting with no day or time is ignored: nothing can be said
+   about it. */
+function gapMinutes(lists) {
+    const days = new Map();
+    for (const meetings of lists) {
+        for (const m of meetings ?? []) {
+            // minutesOf() reads an empty time as 0, so a missing time is checked here first.
+            if (!m || !m.start_time || !m.end_time) continue;
+            const start = SC.minutesOf(m.start_time);
+            const end = SC.minutesOf(m.end_time);
+            if (start === null || end === null || end <= start) continue;
+            for (const d of SC.parseDays(m.schedule_days)) {
+                if (!days.has(d)) days.set(d, []);
+                days.get(d).push([start, end]);
+            }
+        }
+    }
+    let total = 0;
+    for (const spans of days.values()) {
+        spans.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+        let reach = spans[0][1];
+        for (let i = 1; i < spans.length; i++) {
+            const wait = spans[i][0] - reach;
+            if (wait >= GAP_MINUTES) total += wait;
+            reach = Math.max(reach, spans[i][1]);
+        }
+    }
+    return total;
+}
+
+/* "3 h 30 min", "45 min", "none" */
+function gapWords(minutes) {
+    const m = Math.round(Number(minutes) || 0);
+    if (m <= 0) return 'none';
+    const h = Math.floor(m / 60);
+    const r = m % 60;
+    return h ? (r ? `${h} h ${r} min` : `${h} h`) : `${r} min`;
 }
 
 /* How well one section (a group from groupSections) suits a time of day.
@@ -129,7 +179,7 @@ function weightOf(e, i, n, force) {
 
    Exact search over a handful of subjects with a few sections each; nothing is
    guessed. */
-function planSections(kept, wanted, force = []) {
+function planSections(kept, wanted, force = [], compact = false) {
     const n = kept.length;
     const items = kept.map((e, i) => {
         const groups = SC.groupSections(e.sections);
@@ -184,6 +234,43 @@ function planSections(kept, wanted, force = []) {
     search(0, 0, 0);
 
     const chosenPicks = best ? best.picks : new Array(n).fill(null);
+
+    /* Fewest gaps, as a second pass over the plan just found. It never adds or drops a
+       subject, never creates a clash and never worsens how well a subject suits the
+       preferred time: it only swaps a subject into another of its own sections when that
+       leaves less free time in the week, and repeats until nothing improves. It is a
+       local improvement, not an exhaustive search, so it can miss the single best mix. */
+    const compacted = new Set();
+    let gaps = null;
+    if (compact) {
+        const total = (picks) => gapMinutes(picks.filter(p => p && !p.free).map(p => p.g.meetings));
+        const before = total(chosenPicks);
+        let now = before;
+        for (let pass = 0, changed = true; changed && pass < 20; pass++) {
+            changed = false;
+            for (let i = 0; i < n; i++) {
+                const cur = chosenPicks[i];
+                if (!cur || cur.free) continue;
+                for (const opt of items[i].options) {
+                    if (opt.g.section === cur.g.section) continue;
+                    if (MATCH_RANK[opt.match] > MATCH_RANK[cur.match]) continue;
+                    if (chosenPicks.some((p, j) => j !== i && p && !p.free && sectionsClash(p.g.meetings, opt.g.meetings))) continue;
+                    const trial = chosenPicks.slice();
+                    trial[i] = opt;
+                    const after = total(trial);
+                    if (after < now) {
+                        chosenPicks[i] = opt;
+                        compacted.add(i);
+                        now = after;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        gaps = { before, after: now };
+    }
+
     const out = [];
     const leftOut = [];
     const notes = [];
@@ -250,6 +337,7 @@ function planSections(kept, wanted, force = []) {
         } else {
             reason = `No ${timeWord(wanted)} section is free of clashes; section ${g.section}${tod ? ` is ${timeWord(tod)}` : ''}.`;
         }
+        if (compacted.has(i)) reason += ' It also keeps your classes closer together.';
 
         out.push({
             ...e,
@@ -264,7 +352,28 @@ function planSections(kept, wanted, force = []) {
         }
     });
 
-    return { out, leftOut, notes };
+    /* A subject that must be taken together with another stays only if that
+       other one stays. When a clash or the load removed one of a pair, the
+       other goes too, and says why. */
+    let moved = true;
+    while (moved) {
+        moved = false;
+        const inPlan = new Set(out.map(e => e.subject.id));
+        for (let i = out.length - 1; i >= 0; i--) {
+            const e = out[i];
+            const missing = (e.alongside ?? []).filter(a => !inPlan.has(a.id));
+            if (!missing.length) continue;
+            const { chosenSection, timeMatch, clashesWith, preferenceReason, ...bare } = e;
+            const names = missing.map(m => m.code);
+            out.splice(i, 1);
+            inPlan.delete(e.subject.id);
+            leftOut.push({ ...bare, blockedBy: names, swaps: [], together: [], mustBeWith: names });
+            notes.push(`${e.subject.code} is not in your suggested load: it must be taken together with ${names.join(' and ')}, which does not fit.`);
+            moved = true;
+        }
+    }
+
+    return { out, leftOut, notes, gaps };
 }
 
 /* ---- alternatives ---- */
@@ -278,7 +387,7 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
    the main one: the same subjects in morning / afternoon / evening sections where that
    changes anything, and, for the first subjects that did not fit, a plan that takes
    that subject instead of something else. Never more than four, never a repeat. */
-function alternativesFor(fits, primary, wanted) {
+function alternativesFor(fits, primary, wanted, compact = false) {
     const mainKey = planKey(primary.out);
     const mainSection = new Map(primary.out.map(e => [e.subject.code, e.chosenSection ? e.chosenSection.section : null]));
     const seen = new Set([mainKey]);
@@ -292,7 +401,7 @@ function alternativesFor(fits, primary, wanted) {
 
     for (const v of variants) {
         if (found.length >= 4) break;
-        const alt = planSections(fits, v.wanted, v.force);
+        const alt = planSections(fits, v.wanted, v.force, compact);
         const key = planKey(alt.out);
         if (seen.has(key)) continue;
         seen.add(key);
@@ -347,10 +456,15 @@ function apply(result, prefs) {
 
     const loadNotes = [...notes];
 
-    const planned = planSections(fits, p.timeOfDay);
-    const { out, leftOut, notes: sectionNotes } = planned;
+    const planned = planSections(fits, p.timeOfDay, [], p.compact);
+    const { out, leftOut, notes: sectionNotes, gaps } = planned;
     notes.push(...sectionNotes);
-    const alternatives = alternativesFor(fits, planned, p.timeOfDay);
+    const alternatives = alternativesFor(fits, planned, p.timeOfDay, p.compact);
+
+    if (p.compact && gaps) {
+        const week = `Free time between classes: ${gapWords(gaps.after)} a week`;
+        notes.unshift(gaps.after < gaps.before ? `${week} (it would be ${gapWords(gaps.before)} without this preference).` : `${week}.`);
+    }
 
     if (p.timeOfDay) {
         const withTimes = out.filter(e => e.chosenSection);
@@ -372,6 +486,11 @@ function apply(result, prefs) {
         preference: {
             timeOfDay: p.timeOfDay,
             load: p.load,
+            // Fewest gaps: on or off, and the free time in the plan (minutes a week) with and
+            // without it. Null when it is off.
+            compact: p.compact,
+            freeMinutes: gaps ? gaps.after : null,
+            freeMinutesBefore: gaps ? gaps.before : null,
             ceiling,
             deferred: deferred.map(d => d.subject.code),
             deferredForClash: leftOut.map(d => d.subject.code),
@@ -447,9 +566,18 @@ function summarize(plan) {
         details.push(`${e.subject.code} was left out because every section clashes with ${listOf([...new Set(by)])}.`);
     }
 
-    return { headline, body, leftOut, loadNotes: pref.loadNotes ?? [], details };
+    // Fewest gaps: the free time in the plan, said once in plain words.
+    let freeTime = '';
+    if (pref.compact === true && pref.freeMinutes !== null && pref.freeMinutes !== undefined) {
+        const week = `Free time between classes: ${gapWords(pref.freeMinutes)} a week`;
+        freeTime = pref.freeMinutesBefore > pref.freeMinutes
+            ? `${week} (it would be ${gapWords(pref.freeMinutesBefore)} without this preference).`
+            : `${week}.`;
+    }
+
+    return { headline, body, leftOut, freeTime, loadNotes: pref.loadNotes ?? [], details };
 }
 
-return { apply, summarize, clean, TIMES, LOADS, LOAD_UNITS };
+return { apply, summarize, clean, gapMinutes, gapWords, GAP_MINUTES, TIMES, LOADS, LOAD_UNITS };
 
 }));

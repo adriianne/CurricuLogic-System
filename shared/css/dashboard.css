@@ -524,7 +524,15 @@ ul { list-style: none; }
 .detail:last-child { border-bottom: none; }
 
 .detail dt { color: var(--slate); }
-.detail dd { font-weight: 600; }
+.detail dd { font-weight: 600; overflow-wrap: anywhere; }
+
+/* In a narrow card (for example the Details card beside two others at laptop
+   width) a 10rem label column leaves the value almost nothing, and a long
+   email then pushed the whole page wider. Stack label over value instead. */
+dl:has(> .detail) { container: detail-list / inline-size; }
+@container detail-list (max-width: 340px) {
+    .detail { grid-template-columns: minmax(0, 1fr); gap: 0.2rem; }
+}
 
 .detail dd.mono {
     font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
@@ -2303,7 +2311,10 @@ input[type="password"]::-ms-clear {
     gap: var(--s3);
     align-items: start;
 }
-.dash-main, .dash-aside { display: grid; gap: var(--s3); min-width: 0; }
+/* minmax(0, 1fr): without it the one column is as wide as its widest child, so
+   opening "Also open to you" (a four-column table) stretched every card on the
+   Dashboard past the edge of a phone. */
+.dash-main, .dash-aside { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); min-width: 0; }
 .dash-aside .card-body { padding: var(--s2) var(--s3); }
 
 .dash-cta {
@@ -2555,6 +2566,13 @@ input[type="password"]::-ms-clear {
     .topbar-program-label { display: none; }
     .topbar-program select { max-width: 9rem; }
     .topbar-program-field { width: 9rem; max-width: 9rem; }
+}
+/* On a phone the read-only programme field only pushes the theme and Log out
+   buttons off the screen. Staff accounts belong to one programme, which the
+   Profile page and the page titles already show. A programme dropdown (where
+   someone can switch) is a control, so it stays. */
+@media (max-width: 560px) {
+    .topbar-program-field { display: none; }
 }
 
 
@@ -3097,6 +3115,92 @@ input[type="password"]::-ms-clear {
 .rec-grade.pass { color: #047857; }
 .rec-grade.fail { color: #b91c1c; }
 
+/* Grades by term (Faculty, Registrar, Department student page). The fixed
+   column widths above leave no room for the title in a narrow panel, so the
+   text printed over its neighbours. Narrow panels get one small card per
+   subject instead:
+     CODE                      STATUS
+     Descriptive title
+     3 units                   Grade 1.75   */
+.rec-group { container: rec-group / inline-size; }
+@container rec-group (max-width: 560px) {
+    .rec-group .rec-table,
+    .rec-group .rec-table tbody { display: block; width: 100%; }
+    .rec-group .rec-table thead { display: none; }
+    .rec-group .rec-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 3px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line, #e2e8f0);
+    }
+    .rec-group .rec-table tbody tr:last-child { border-bottom: none; }
+    .rec-group .rec-table tbody td {
+        display: block;
+        width: auto;
+        min-width: 0;
+        padding: 0;
+        border: none;
+        text-align: left;
+    }
+    .rec-group .rec-table td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    .rec-group .rec-table td:nth-child(5) { grid-column: 2; grid-row: 1; justify-self: end; }
+    .rec-group .rec-table td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; overflow-wrap: anywhere; }
+    .rec-group .rec-table td:nth-child(3) { grid-column: 1; grid-row: 3; color: var(--slate); font-size: 0.82rem; }
+    .rec-group .rec-table td:nth-child(3)::after { content: ' units'; }
+    .rec-group .rec-table td:nth-child(4) { grid-column: 2; grid-row: 3; justify-self: end; font-size: 0.82rem; }
+    .rec-group .rec-table td:nth-child(4)::before {
+        content: 'Grade ';
+        font-weight: 400;
+        color: var(--slate);
+    }
+}
+
+/* Approved plans (Registrar). Eight columns need about 730px; in a narrower
+   panel the status, date and print button were off-screen with no hint that
+   the table scrolled. Each plan becomes a card:
+     Name                         STATUS
+     2401187                      Term
+     9 of 9 subjects              24 units
+     Submitted 10/1/2026          [print] >
+   The column sort buttons go with the header row; search and the filters
+   remain. */
+#adv-queue { container: adv-queue / inline-size; }
+@container adv-queue (max-width: 780px) {
+    #adv-queue .data-table,
+    #adv-queue .data-table tbody { display: block; width: 100%; }
+    #adv-queue .data-table thead { display: none; }
+    #adv-queue .data-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 4px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line, #e2e8f0);
+    }
+    #adv-queue .data-table tbody tr:last-child { border-bottom: none; }
+    #adv-queue .data-table tbody td {
+        display: block;
+        width: auto;
+        min-width: 0;
+        padding: 0;
+        border: none;
+        text-align: left;
+    }
+    #adv-queue .data-table td:nth-child(2) { grid-column: 1; grid-row: 1; font-size: 0.95rem; }
+    #adv-queue .data-table td:nth-child(6) { grid-column: 2; grid-row: 1; justify-self: end; }
+    #adv-queue .data-table td:nth-child(1) { grid-column: 1; grid-row: 2; }
+    #adv-queue .data-table td:nth-child(3) { grid-column: 2; grid-row: 2; justify-self: end; font-size: 0.82rem; color: var(--slate); }
+    #adv-queue .data-table td:nth-child(4) { grid-column: 1; grid-row: 3; font-size: 0.85rem; }
+    #adv-queue .data-table td:nth-child(4)::after { content: ' subjects'; }
+    #adv-queue .data-table td:nth-child(5) { grid-column: 2; grid-row: 3; justify-self: end; font-size: 0.85rem; }
+    #adv-queue .data-table td:nth-child(5)::after { content: ' units'; }
+    #adv-queue .data-table td:nth-child(7) { grid-column: 1; grid-row: 4; font-size: 0.8rem; align-self: center; }
+    #adv-queue .data-table td:nth-child(7)::before { content: 'Submitted '; }
+    #adv-queue .data-table td:nth-child(8) { grid-column: 2; grid-row: 4; justify-self: end; }
+}
+
 /* Prospectus: curriculum-year chips */
 .pv-chips { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; justify-content: flex-end; }
 .pv-chip {
@@ -3135,6 +3239,152 @@ input[type="password"]::-ms-clear {
 .sub-panel-head h3 { margin: 0; font-size: 0.92rem; }
 .sub-panel-head span { font-size: 0.78rem; color: var(--slate); }
 .sub-panel .table-wrap { margin: 0; }
+
+/* Department > Curriculum > Subjects. In a narrow panel (a phone, or two
+   semesters side by side on a laptop) the table cut the title off and pushed
+   units and rules out of view, so each subject becomes a card:
+     CODE                          >
+     Descriptive title  [pills]
+     3 units                  Rules 2
+   The panel is the container. */
+.sub-panel { container: sub-panel / inline-size; }
+@container sub-panel (max-width: 520px) {
+    .sub-panel .data-table,
+    .sub-panel .data-table tbody { display: block; width: 100%; }
+    .sub-panel .data-table thead { display: none; }
+    .sub-panel .data-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 3px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line, #e2e8f0);
+    }
+    .sub-panel .data-table tbody tr:last-child { border-bottom: none; }
+    .sub-panel .data-table tbody td {
+        display: block; width: auto; min-width: 0; padding: 0; border: none; text-align: left;
+    }
+    .sub-panel .data-table td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    .sub-panel .data-table td:nth-child(5) { grid-column: 2; grid-row: 1; justify-self: end; }
+    .sub-panel .data-table td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; overflow-wrap: anywhere; }
+    .sub-panel .data-table td:nth-child(3) { grid-column: 1; grid-row: 3; font-size: 0.82rem; color: var(--slate); }
+    .sub-panel .data-table td:nth-child(3)::after { content: ' units'; }
+    .sub-panel .data-table td:nth-child(4) { grid-column: 2; grid-row: 3; justify-self: end; font-size: 0.82rem; color: var(--slate); }
+    .sub-panel .data-table td:nth-child(4)::before { content: 'Rules '; }
+    .sub-panel .data-table tr:only-child td[colspan] { grid-column: 1 / -1; grid-row: auto; }
+}
+
+/* Admin tables: System status (3 columns), Staff (7), Students (6) and
+   Programmes (10). Each needs 450 to 1190px, so on a phone the useful columns
+   (email, role, status, the Edit button) were off-screen. In a narrow card each
+   row becomes a small card instead; the first line is who it is and its status.
+     Staff:      Name ........ Status     Students:  Name ........ Status
+                 Role ........ ID                    ID ......... Programme
+                 email                               email
+                 Programme / Added                   Requested
+   The card body is the container. */
+#system-body, #staff-body, #student-body, #programs-body { container: adm-table / inline-size; }
+@container adm-table (max-width: 700px) {
+    #system-body .data-table, #system-body .data-table tbody,
+    #staff-body .data-table, #staff-body .data-table tbody,
+    #student-body .data-table, #student-body .data-table tbody,
+    #programs-body .data-table, #programs-body .data-table tbody { display: block; width: 100%; }
+    #system-body .data-table thead, #staff-body .data-table thead,
+    #student-body .data-table thead, #programs-body .data-table thead { display: none; }
+
+    #system-body .data-table tbody tr, #staff-body .data-table tbody tr,
+    #student-body .data-table tbody tr, #programs-body .data-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 4px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line, #e2e8f0);
+    }
+    #system-body .data-table tbody tr:last-child, #staff-body .data-table tbody tr:last-child,
+    #student-body .data-table tbody tr:last-child, #programs-body .data-table tbody tr:last-child { border-bottom: none; }
+    #system-body .data-table tbody td, #staff-body .data-table tbody td,
+    #student-body .data-table tbody td, #programs-body .data-table tbody td {
+        display: block; width: auto; min-width: 0; padding: 0; border: none; text-align: left;
+        overflow-wrap: anywhere;
+    }
+
+    /* System status: component and status, then the details. */
+    #system-body td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    #system-body td:nth-child(2) { grid-column: 2; grid-row: 1; justify-self: end; }
+    #system-body td:nth-child(3) { grid-column: 1 / -1; grid-row: 2; font-size: 0.85rem; }
+
+    /* Staff: ID, Name, Email, Role, Programme, Status, Created. */
+    #staff-body td:nth-child(2) { grid-column: 1; grid-row: 1; font-size: 0.95rem; }
+    #staff-body td:nth-child(6) { grid-column: 2; grid-row: 1; justify-self: end; }
+    #staff-body td:nth-child(4) { grid-column: 1; grid-row: 2; }
+    #staff-body td:nth-child(1) { grid-column: 2; grid-row: 2; justify-self: end; font-size: 0.82rem; }
+    #staff-body td:nth-child(3) { grid-column: 1 / -1; grid-row: 3; font-size: 0.85rem; }
+    #staff-body td:nth-child(5) { grid-column: 1 / -1; grid-row: 4; font-size: 0.85rem; }
+    #staff-body td:nth-child(5) { display: flex; align-items: center; gap: 8px; }
+    #staff-body td:nth-child(5)::before { content: 'Programme'; color: var(--slate); }
+    #staff-body td:nth-child(7) { grid-column: 1 / -1; grid-row: 5; font-size: 0.8rem; }
+    #staff-body td:nth-child(7)::before { content: 'Added '; }
+
+    /* Students: ID, Name, Programme, Email, Status, Requested. */
+    #student-body td:nth-child(2) { grid-column: 1; grid-row: 1; font-size: 0.95rem; }
+    #student-body td:nth-child(5) { grid-column: 2; grid-row: 1; justify-self: end; }
+    #student-body td:nth-child(1) { grid-column: 1; grid-row: 2; font-size: 0.85rem; }
+    #student-body td:nth-child(3) { grid-column: 2; grid-row: 2; justify-self: end; font-size: 0.85rem; }
+    #student-body td:nth-child(4) { grid-column: 1 / -1; grid-row: 3; font-size: 0.85rem; }
+    #student-body td:nth-child(6) { grid-column: 1 / -1; grid-row: 4; font-size: 0.8rem; }
+    #student-body td:nth-child(6)::before { content: 'Requested '; }
+
+    /* Programmes: Code, Name, College, Unit limits, Faculty, Registrar,
+       Department, Students, Curriculum, Edit. */
+    #programs-body td:nth-child(1)  { grid-column: 1; grid-row: 1; }
+    #programs-body td:nth-child(10) { grid-column: 2; grid-row: 1; justify-self: end; }
+    #programs-body td:nth-child(2)  { grid-column: 1 / -1; grid-row: 2; }
+    #programs-body td:nth-child(3)  { grid-column: 1 / -1; grid-row: 3; font-size: 0.85rem; }
+    #programs-body td:nth-child(4)  { grid-column: 1 / -1; grid-row: 4; font-size: 0.85rem; }
+    #programs-body td:nth-child(4)::before { content: 'Unit limits '; color: var(--slate); }
+    #programs-body td:nth-child(5)  { grid-column: 1; grid-row: 5; font-size: 0.85rem; }
+    #programs-body td:nth-child(6)  { grid-column: 2; grid-row: 5; font-size: 0.85rem; }
+    #programs-body td:nth-child(7)  { grid-column: 1; grid-row: 6; font-size: 0.85rem; }
+    #programs-body td:nth-child(8)  { grid-column: 2; grid-row: 6; font-size: 0.85rem; }
+    #programs-body td:nth-child(5)::before { content: 'Faculty '; color: var(--slate); }
+    #programs-body td:nth-child(6)::before { content: 'Registrar '; color: var(--slate); }
+    #programs-body td:nth-child(7)::before { content: 'Department '; color: var(--slate); }
+    #programs-body td:nth-child(8)::before { content: 'Students '; color: var(--slate); }
+    #programs-body td:nth-child(9)  { grid-column: 1 / -1; grid-row: 7; font-size: 0.85rem; }
+    #programs-body td:nth-child(9)::before { content: 'Curriculum '; color: var(--slate); }
+    #programs-body td.prog-num { text-align: left; }
+    #programs-body td input:not([type="number"]) { width: 100%; }
+}
+
+/* The same list as search results: all years in one table, six columns
+   (code, title, units, term, rules, arrow). */
+#subjects-body { container: subjects-body / inline-size; }
+@container subjects-body (max-width: 560px) {
+    #subjects-body > .table-wrap .data-table,
+    #subjects-body > .table-wrap .data-table tbody { display: block; width: 100%; }
+    #subjects-body > .table-wrap .data-table thead { display: none; }
+    #subjects-body > .table-wrap .data-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 3px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line, #e2e8f0);
+    }
+    #subjects-body > .table-wrap .data-table tbody tr:last-child { border-bottom: none; }
+    #subjects-body > .table-wrap .data-table tbody td {
+        display: block; width: auto; min-width: 0; padding: 0; border: none; text-align: left;
+    }
+    #subjects-body > .table-wrap .data-table td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    #subjects-body > .table-wrap .data-table td:nth-child(6) { grid-column: 2; grid-row: 1; justify-self: end; }
+    #subjects-body > .table-wrap .data-table td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; overflow-wrap: anywhere; }
+    #subjects-body > .table-wrap .data-table td:nth-child(3) { grid-column: 1; grid-row: 3; font-size: 0.82rem; color: var(--slate); }
+    #subjects-body > .table-wrap .data-table td:nth-child(3)::after { content: ' units'; }
+    #subjects-body > .table-wrap .data-table td:nth-child(4) { grid-column: 2; grid-row: 3; justify-self: end; font-size: 0.82rem; color: var(--slate); }
+    #subjects-body > .table-wrap .data-table td:nth-child(5) { grid-column: 1 / -1; grid-row: 4; font-size: 0.82rem; color: var(--slate); }
+    #subjects-body > .table-wrap .data-table td:nth-child(5)::before { content: 'Rules '; }
+}
 .row-link.is-retired { opacity: 0.55; }
 @media (max-width: 1000px) { .sub-sems { grid-template-columns: 1fr; } }
 
@@ -3143,3 +3393,357 @@ input[type="password"]::-ms-clear {
 .sort-btn:hover { color: var(--ink); }
 .sort-btn:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; border-radius: 3px; }
 th.num .sort-btn { text-align: right; }
+
+/* Registrar: Students list and student page */
+.stu-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: var(--s3); }
+.stu-chip {
+    padding: 0.38rem 0.85rem; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface, #fff); color: var(--slate); font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+}
+.stu-chip b { margin-left: 0.45rem; padding: 0.05rem 0.45rem; border-radius: 999px; background: rgba(100,116,139,0.14); font-size: 0.72rem; font-weight: 600; }
+.stu-chip:hover { border-color: var(--indigo); color: var(--ink); }
+.stu-chip.on { border-color: var(--indigo); color: var(--indigo); background: rgba(79,70,229,0.08); }
+.stu-chip:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+
+#students-body { transition: opacity .15s; }
+#students-body.is-loading { opacity: 0.55; }
+.stu-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.stu-row {
+    display: grid; grid-template-columns: 2.7rem minmax(0, 1.5fr) minmax(8rem, 1fr) auto 1rem;
+    align-items: center; gap: 1rem; padding: 0.7rem 1rem;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #fff); cursor: pointer;
+    transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.stu-row:hover, .stu-row:focus-visible { border-color: var(--indigo); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07); transform: translateY(-1px); outline: none; }
+.stu-avatar {
+    width: 2.7rem; height: 2.7rem; border-radius: 50%; background: var(--indigo); color: #fff;
+    display: grid; place-items: center; font-size: 0.85rem; font-weight: 700; overflow: hidden;
+}
+.stu-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stu-avatar.has-photo { background: var(--line); }
+.stu-who { display: flex; flex-direction: column; min-width: 0; }
+.stu-who strong { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stu-meta { font-size: 0.8rem; color: var(--slate); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stu-bar { display: block; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.stu-bar i { display: block; height: 100%; width: 0; border-radius: 99px; background: var(--indigo); transition: width .7s cubic-bezier(.2,.8,.2,1); }
+.stu-bar.big { height: 10px; margin-top: 0.5rem; }
+.stu-bar-text { display: block; margin-top: 0.3rem; font-size: 0.75rem; color: var(--slate); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stu-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: flex-end; }
+@media (max-width: 820px) {
+    .stu-row { grid-template-columns: 2.7rem minmax(0, 1fr) auto; row-gap: 0.4rem; }
+    .stu-prog { grid-column: 2 / -1; grid-row: 2; }
+    .stu-pills { grid-column: 3; grid-row: 1; flex-direction: column; align-items: flex-end; }
+    .stu-row > .fa-chevron-right { display: none; }
+}
+
+.stu-hero { align-items: center; }
+.stu-hero .prof-avatar { width: 5rem; height: 5rem; font-size: 1.5rem; }
+.stu-hero-actions { margin-left: auto; align-self: center; }
+.stu-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: var(--s3); align-items: start; margin-bottom: var(--s3); }
+@media (max-width: 1150px) { .stu-grid { grid-template-columns: 1fr 1fr; } .stu-grid > :first-child { grid-column: 1 / -1; } }
+@media (max-width: 700px) { .stu-grid { grid-template-columns: 1fr; } .stu-hero-actions { margin-left: 0; } }
+.stu-plan-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; font-size: 0.82rem; }
+.stu-big { display: flex; align-items: baseline; gap: 0.5rem; }
+.stu-big strong { font-size: 2rem; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stu-big span { color: var(--slate); font-size: 0.85rem; }
+.stu-mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 1rem; }
+.stu-mini div { padding: 0.6rem 0.7rem; border: 1px solid var(--line); border-radius: 10px; background: var(--wash, rgba(0,0,0,0.03)); display: flex; flex-direction: column; }
+.stu-mini strong { font-size: 1.2rem; color: var(--ink); }
+.stu-mini span { font-size: 0.74rem; color: var(--slate); }
+@media (prefers-reduced-motion: reduce) { .stu-bar i, .stu-row { transition: none; } }
+
+/* Faculty student page: "Curriculum and academic record" holds a title, a
+   count line and a Print advising slip button. On a phone the title wrapped to
+   three words a line beside them. Let the head wrap, title on its own line. */
+.card-head:has(> #print-slip) { flex-wrap: wrap; row-gap: 0.5rem; }
+@media (max-width: 640px) {
+    .card-head:has(> #print-slip) .card-title { flex: 1 1 100%; }
+    .card-head:has(> #print-slip) .card-note { flex: 1 1 auto; min-width: 0; }
+}
+
+/* Faculty dashboard: "Recently added students" (ID, name, year, record). The
+   record column ran off the right edge of a phone; in a narrow box each
+   student is a card:
+     Name                      Record
+     2401304                   1st Year   */
+#recent-body { container: recent-body / inline-size; }
+@container recent-body (max-width: 480px) {
+    #recent-body .data-table, #recent-body .data-table tbody { display: block; width: 100%; }
+    #recent-body .data-table thead { display: none; }
+    #recent-body .data-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 3px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line, #e2e8f0);
+    }
+    #recent-body .data-table tbody tr:last-child { border-bottom: none; }
+    #recent-body .data-table tbody td {
+        display: block; width: auto; min-width: 0; padding: 0; border: none; text-align: left;
+    }
+    #recent-body .data-table td:nth-child(2) { grid-column: 1; grid-row: 1; font-size: 0.95rem; overflow-wrap: anywhere; }
+    #recent-body .data-table td:nth-child(4) { grid-column: 2; grid-row: 1; justify-self: end; }
+    #recent-body .data-table td:nth-child(1) { grid-column: 1; grid-row: 2; font-size: 0.85rem; }
+    #recent-body .data-table td:nth-child(3) { grid-column: 2; grid-row: 2; justify-self: end; font-size: 0.82rem; color: var(--slate); }
+}
+
+/* Student dashboard > Later in your degree > Also open to you (code, title,
+   units, scheduled). In a narrow box the title was clipped and the last two
+   columns sat off-screen, so each subject is a card:
+     CODE                     SCHEDULED
+     Descriptive title
+     3 units                                                               */
+.fold { container: fold / inline-size; }
+@container fold (max-width: 520px) {
+    .fold .data-table, .fold .data-table tbody { display: block; width: 100%; }
+    .fold .data-table thead { display: none; }
+    .fold .data-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 3px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line, #e2e8f0);
+    }
+    .fold .data-table tbody tr:last-child { border-bottom: none; }
+    .fold .data-table tbody td {
+        display: block; width: auto; min-width: 0; padding: 0; border: none; text-align: left;
+    }
+    .fold .data-table td:nth-child(1) { grid-column: 1; grid-row: 1; align-self: center; }
+    .fold .data-table td:nth-child(4) { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; }
+    .fold .data-table td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; overflow-wrap: anywhere; }
+    .fold .data-table td:nth-child(3) { grid-column: 1 / -1; grid-row: 3; font-size: 0.82rem; color: var(--slate); }
+    .fold .data-table td:nth-child(3)::after { content: ' units'; }
+}
+
+/* Admin > Create account > Sign-in: email a setup link, or type a temporary password. */
+.signin-choice { display: grid; gap: 0.5rem; margin: 0.25rem 0 var(--s2); }
+.signin-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface, #fff);
+    font-size: 0.9rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+.signin-option input { margin-top: 0.2rem; accent-color: var(--indigo, #4f46e5); }
+.signin-option:has(input:checked) { border-color: var(--indigo, #4f46e5); background: var(--wash, rgba(79, 70, 229, 0.05)); }
+.signin-option em { color: var(--slate); font-style: normal; font-size: 0.82rem; }
+#a-password-fields[hidden] { display: none; }
+
+/* A recommendation, not a reservation: the small note under a page's intro */
+.page-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0.6rem 0 0;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--canvas);
+    font-size: 0.82rem;
+    color: var(--slate);
+}
+.page-note i { margin-top: 0.15rem; color: var(--indigo); }
+
+/* The Enrolment sheet button on an approved request */
+.req-sheet {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.9rem 0 0.3rem;
+}
+.req-sheet .dim { font-size: 0.82rem; flex: 1 1 16rem; }
+
+/* Department: section demand (how many students chose each section) */
+.demand-headline { margin: 0 0 var(--s2); font-weight: 600; }
+.demand-headline.is-alert { color: #b91c1c; }
+.demand-hint { margin: 0 0 var(--s3); }
+.demand-table td { white-space: normal; }
+.demand-count { min-width: 14rem; }
+.demand-count .unit-meter { margin: 0.35rem 0 0.25rem; }
+.demand-toggle { margin: var(--s3) 0 0; }
+.demand-names-row td { background: var(--canvas); }
+.demand-names { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.demand-names li { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.unit-meter-fill.is-near { background: #f59e0b; }
+
+/* Student: what the EDP office said about each subject of an approved plan */
+.edp-panel { margin: var(--s3) 0; border: 1px solid var(--line); border-radius: var(--radius, 10px); padding: var(--s2) var(--s3); }
+.edp-panel > summary { cursor: pointer; display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: baseline; }
+.edp-table td { white-space: normal; }
+.edp-table select { max-width: 100%; }
+.edp-actions { display: flex; gap: var(--s2); align-items: center; margin-top: var(--s2); }
+.edp-next { margin-top: var(--s3); padding-top: var(--s2); border-top: 1px solid var(--line); }
+.edp-next-list { list-style: none; margin: var(--s2) 0 0; padding: 0; display: grid; gap: var(--s3); }
+.edp-reason { font-size: 0.82rem; font-weight: 600; color: #b91c1c; margin: 0.15rem 0; }
+.edp-alt-head { margin: 0.4rem 0 0.2rem; font-weight: 600; }
+.edp-next ul:not(.edp-next-list) { margin: 0 0 0.3rem 1.1rem; padding: 0; }
+.edp-table .req-code { margin-right: 0.5rem; }
+.demand-actions { white-space: normal; min-width: 8rem; }
+.demand-actions .btn-small { margin: 0 0.25rem 0.25rem 0; }
+.demand-confirm { display: inline-block; font-size: 0.82rem; }
+.demand-help { margin: 0 0 var(--s2); }
+.demand-help > summary { cursor: pointer; font-size: 0.82rem; color: var(--slate); width: fit-content; }
+.demand-help > p { margin: var(--s2) 0 0; }
+.demand-toolbar { display: flex; justify-content: flex-end; margin: 0 0 var(--s2); }
+.demand-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: var(--s2); }
+.demand-tile { display: grid; gap: 0.25rem; text-align: left; padding: 0.6rem 0.75rem; border: 1px solid var(--line);
+    border-left-width: 4px; border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.demand-tile:hover { background: var(--canvas); }
+.demand-tile.is-picked { border-color: var(--indigo); box-shadow: 0 0 0 1px var(--indigo) inset; }
+.demand-tile.level-full   { border-left-color: #ef4444; }
+.demand-tile.level-near   { border-left-color: #f59e0b; }
+.demand-tile.level-ok     { border-left-color: var(--green); }
+.demand-tile.level-closed { border-left-color: #94a3b8; }
+.demand-tile-top { display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; }
+.demand-tile .dim { font-size: 0.78rem; }
+.demand-detail { margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.demand-detail-head { display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap; margin-bottom: var(--s2); }
+.demand-detail-head h3 { margin: 0; font-size: 1.05rem; }
+.demand-tile strong, .demand-tile .pill { white-space: nowrap; }
+.demand-tile-top { flex-wrap: wrap; }
+@media (max-width: 640px) {
+    .demand-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .demand-tile { padding: 0.5rem 0.6rem; }
+    /* each subject becomes a small card instead of a wide row */
+    .demand-table thead { display: none; }
+    .demand-table, .demand-table tbody, .demand-table tr, .demand-table td { display: block; width: 100%; }
+    .demand-table tr { padding: 0.6rem 0; border-bottom: 1px solid var(--line); }
+    .demand-table td { border: 0; padding: 0.15rem 0; white-space: normal; min-width: 0; }
+    .demand-table td.mono::before { content: 'EDP '; color: var(--slate); font-family: inherit; }
+    .demand-table td:nth-child(4) { display: inline-block; width: auto; margin-right: 0.5rem; }
+    .demand-table td.demand-actions { display: inline-block; width: auto; min-width: 0; }
+    .demand-names-row td { display: table-cell; width: auto; }
+}
+.demand-year { margin-top: var(--s3); }
+.demand-year:first-of-type { margin-top: 0; }
+.demand-year-title { display: flex; gap: 0.6rem; align-items: baseline; margin: 0 0 var(--s2); font-size: 0.78rem;
+    font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); }
+.demand-year-title .dim { font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 0.78rem; }
+
+/* Department dashboard: a header with a status line, a slim row of numbers, a needs-attention list, and the
+   sections as one column per year. */
+.hero-eyebrow { margin: 0 0 0.25rem; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); }
+.hero-line { margin: 0.35rem 0 0; font-size: 0.98rem; max-width: 46rem; }
+.hero-line.is-alert { color: #b91c1c; }
+.dashboard-tiles.is-slim { grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); }
+.dashboard-tiles.is-slim .tile { padding: 0.7rem 0.9rem; }
+.dashboard-tiles.is-slim .tile-cta { display: none; }
+.dashboard-tiles.is-slim .tile-number { font-size: 1.5rem; }
+.dash-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--s3); margin-bottom: var(--s3); align-items: start; }
+.dash-grid > .card { margin: 0; }
+.attention-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.attention-item { display: flex; gap: 0.7rem; align-items: center; padding: 0.55rem 0.7rem; border: 1px solid var(--line);
+    border-left-width: 4px; border-radius: 10px; }
+.attention-item .grow { flex: 1; min-width: 0; }
+.attention-item i { flex: 0 0 auto; }
+.attention-item.level-full { border-left-color: #ef4444; }
+.attention-item.level-full i { color: #ef4444; }
+.attention-item.level-near { border-left-color: #f59e0b; }
+.attention-item.level-near i { color: #f59e0b; }
+.attention-item.level-info { border-left-color: var(--indigo); }
+.attention-item.level-info i { color: var(--indigo); }
+.attention-item.level-ok { border-left-color: var(--green); }
+.attention-item.level-ok i { color: var(--green); }
+.demand-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: var(--s3); }
+.demand-board .demand-year { margin-top: 0; }
+.demand-board .demand-tiles { grid-template-columns: 1fr; }
+.prospectus-line { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.prospectus-facts { margin: 0.25rem 0 var(--s2); }
+.prospectus-details > summary { cursor: pointer; font-size: 0.82rem; color: var(--slate); width: fit-content; }
+.prospectus-details .table-wrap { margin-top: var(--s2); }
+@media (max-width: 900px) { .dash-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .demand-board .demand-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---- Department dashboard: motion ----
+   The page arrives part by part (the rise-in above), and the new parts add their own small entrances. Nothing
+   loops, and nothing moves for a person who asked for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+
+    @keyframes pop-in {
+        from { opacity: 0; transform: translateY(8px) scale(0.96); }
+        to   { opacity: 1; transform: none; }
+    }
+    @keyframes slide-in-left {
+        from { opacity: 0; transform: translateX(-12px); }
+        to   { opacity: 1; transform: none; }
+    }
+    @keyframes meter-grow {
+        from { transform: scaleX(0); }
+        to   { transform: scaleX(1); }
+    }
+    @keyframes ping-soft {
+        0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+        70%  { box-shadow: 0 0 0 9px rgba(239, 68, 68, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    @keyframes dot-on {
+        from { transform: scale(0.3); opacity: 0.2; }
+        to   { transform: none; opacity: 1; }
+    }
+
+    /* the header's three lines, one after the other */
+    .hero .hero-eyebrow { animation: rise-in 0.4s cubic-bezier(0.23, 1, 0.32, 1) 0.02s both; }
+    .hero #greeting     { animation: rise-in 0.4s cubic-bezier(0.23, 1, 0.32, 1) 0.08s both; }
+    .hero .hero-line    { animation: rise-in 0.4s cubic-bezier(0.23, 1, 0.32, 1) 0.16s both; }
+
+    /* the setup dots light up in turn */
+    .setup-badge-dot.on { animation: dot-on 0.4s cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: calc(var(--d, 0) * 110ms + 350ms); }
+
+    /* needs attention: each item slides in; a full section's icon pings three times, then stops */
+    .attention-item { animation: slide-in-left 0.38s cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: calc(var(--i, 0) * 70ms + 260ms); }
+    .attention-item.level-full i { border-radius: 50%; animation: ping-soft 1.8s ease-out 3; animation-delay: calc(var(--i, 0) * 70ms + 700ms); }
+
+    /* the board: years arrive in order, their tiles pop in after them */
+    .demand-board.is-entering .demand-year { animation: rise-in 0.45s cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: calc(var(--y, 0) * 90ms + 120ms); }
+    .demand-board.is-entering .demand-tile { animation: pop-in 0.4s cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: calc(var(--t, 0) * 40ms + 220ms); }
+
+    /* a tile lifts when the pointer is over it and presses when clicked */
+    .demand-tile { transition: transform 0.18s cubic-bezier(0.23, 1, 0.32, 1), border-color 0.2s, box-shadow 0.2s, background 0.2s; }
+    .demand-tile:hover { transform: translateY(-2px); }
+    .demand-tile:active { transform: scale(0.98); }
+
+    /* choosing a section: its subjects ease in and their meters fill from empty */
+    .demand-detail.is-swapping { animation: rise-in 0.32s cubic-bezier(0.23, 1, 0.32, 1) both; }
+    .demand-detail.is-swapping .unit-meter-fill { transform-origin: left center; animation: meter-grow 0.7s cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: calc(var(--r, 0) * 80ms + 120ms); }
+    .demand-detail.is-swapping tbody tr { animation: rise-in 0.3s cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: calc(var(--r, 0) * 60ms + 60ms); }
+
+    /* the names under a subject and the close confirmation open smoothly */
+    .demand-names-row td { animation: rise-in 0.28s cubic-bezier(0.23, 1, 0.32, 1) both; }
+    .demand-confirm { animation: rise-in 0.25s cubic-bezier(0.23, 1, 0.32, 1) both; }
+
+    /* folded parts open smoothly */
+    .demand-help[open] > p, .prospectus-details[open] > .table-wrap { animation: rise-in 0.28s cubic-bezier(0.23, 1, 0.32, 1) both; }
+
+    /* the buttons beside the lists react to a press, like the others */
+    .attention-item .btn-small:active, .demand-actions .btn-small:active { transform: translateY(1px); }
+}
+
+/* Registrar and Faculty dashboards: the same header and slim numbers as the Department's, and the queue (the part
+   they work from) gets the wider column. */
+.stats.is-slim { grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); }
+.stats.is-slim .stat { padding: 0.7rem 0.9rem; }
+.stats.is-slim .stat-value { font-size: 1.5rem; }
+.dash-grid.is-queue { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+@media (max-width: 900px) { .dash-grid.is-queue { grid-template-columns: 1fr; } }
+
+/* The alert colour for a sentence is lightened on the dark background, where the plain red is hard to read. */
+html[data-theme="dark"] .hero-line.is-alert,
+html[data-theme="dark"] .demand-headline.is-alert,
+html[data-theme="dark"] .edp-reason { color: #f87171; }
+
+/* Switch a section (My requests, EDP office result panel) */
+.switch-options { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+.edp-next .switch-options { margin-left: 0; }
+.switch-options li { display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+/* Close or reopen every subject of the chosen section. */
+.demand-all { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
