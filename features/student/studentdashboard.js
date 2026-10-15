@@ -145,6 +145,12 @@ function showView(name) {
     const title = $('topbar-title');
     if (title) title.textContent = VIEWS[name];
 
+    // The chat list lives in the menu, and only the Ask AI page uses it. The menu's own
+    // links stop growing so the list can take the room that is left.
+    const sideChats = $('side-chats');
+    if (sideChats) sideChats.hidden = name !== 'ask-ai';
+    document.querySelector('.sidebar')?.classList.toggle('has-chats', name === 'ask-ai');
+
     // Close the mobile drawer on navigation, or the new view is hidden
     // behind it on small screens.
     shell?.classList.remove('nav-open');
@@ -594,9 +600,11 @@ async function loadKnowledgeBase(student) {
         supabase.from('prerequisite')
             .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
         supabase.from('subject_offering')
-            .select('id, subject_id, section, meeting_type, schedule_days, start_time, end_time, room')
+            .select('id, subject_id, section, meeting_type, schedule_days, start_time, end_time, room, edp_code')
             .eq('academic_year', CURRENT_YEAR)
-            .eq('term', CURRENT_TERM),
+            .eq('term', CURRENT_TERM)
+            // a section the Department closed is not offered
+            .eq('is_open', true),
     ]);
 
     console.log('[kb] prospectus', student.prospectus_id,
@@ -607,6 +615,16 @@ async function loadKnowledgeBase(student) {
     if (subs.error)  console.warn('subject load failed:', subs.error.message);
     if (rules.error) console.warn('rule load failed:', rules.error.message);
 
+    // A section this student reported full (EDP office result) is not offered to them again.
+    let offeringRows = offerings.data ?? [];
+    if (window.EdpResult) {
+        const reported = await supabase.from('request_item').select('offering_id')
+            .eq('edp_result', 'rejected').eq('edp_reason', 'full').not('offering_id', 'is', null);
+        if (!reported.error) {
+            offeringRows = window.EdpResult.dropByOfferingIds(offeringRows, (reported.data ?? []).map(x => x.offering_id));
+        }
+    }
+
     KB = {
         subjects:  subs.data  ?? [],
         rules:     rules.data ?? [],
@@ -614,7 +632,7 @@ async function loadKnowledgeBase(student) {
            Treating that as "nothing is available" would show a student an
            empty recommendation for a reason they cannot see, so the engine
            is told to ignore availability until a schedule exists. */
-        offerings: offerings.data ?? [],
+        offerings: offeringRows,
     };
 
     return KB;
@@ -666,11 +684,20 @@ async function loadPreferences() {
     PREFS = readLocalPrefs();
     if (!supabase || !STUDENT_ROW_ID || PREVIEW) return;
 
-    const { data, error } = await supabase
+    // "compact" (fewest gaps, db/081) comes with the rest; before that column exists the two
+    // older ones are read on their own, so the saved choices still load.
+    let { data, error } = await supabase
         .from('student_preference')
-        .select('time_of_day, load')
+        .select('time_of_day, load, compact')
         .eq('student_id', STUDENT_ROW_ID)
         .maybeSingle();
+    if (error) {
+        ({ data, error } = await supabase
+            .from('student_preference')
+            .select('time_of_day, load')
+            .eq('student_id', STUDENT_ROW_ID)
+            .maybeSingle());
+    }
 
     if (error) {
         console.warn('preferences: account storage unavailable, using this browser:', error.message);
@@ -679,7 +706,7 @@ async function loadPreferences() {
     }
     PREF_STORAGE = 'account';
     if (data) {
-        PREFS = window.CurricuLogicPreferences.clean({ timeOfDay: data.time_of_day, load: data.load });
+        PREFS = window.CurricuLogicPreferences.clean({ timeOfDay: data.time_of_day, load: data.load, compact: data.compact === true });
         writeLocalPrefs();
     }
 }
@@ -688,12 +715,18 @@ async function savePreferences() {
     writeLocalPrefs();
     if (PREF_STORAGE !== 'account' || !supabase || !STUDENT_ROW_ID) return;
 
-    const { error } = await supabase.from('student_preference').upsert({
+    const row = {
         student_id:  STUDENT_ROW_ID,
         time_of_day: PREFS.timeOfDay,
         load:        PREFS.load,
         updated_at:  new Date().toISOString(),
-    }, { onConflict: 'student_id' });
+    };
+    let { error } = await supabase.from('student_preference')
+        .upsert({ ...row, compact: PREFS.compact === true }, { onConflict: 'student_id' });
+    if (error) {
+        // Before db/081 there is no "compact" column: save the two older choices as before.
+        ({ error } = await supabase.from('student_preference').upsert(row, { onConflict: 'student_id' }));
+    }
 
     if (error) {
         console.warn('preferences: could not save to the account, kept in this browser:', error.message);
@@ -720,13 +753,14 @@ function prefNoteHtml(plan) {
     const P = window.CurricuLogicPreferences;
     const s = P?.summarize ? P.summarize(plan) : null;
     if (!s) return '';
-    const hasAny = s.headline || s.leftOut || s.loadNotes.length;
+    const hasAny = s.headline || s.leftOut || s.freeTime || s.loadNotes.length;
     if (!hasAny) return '';
 
     return `
         <div class="pref-note">
             ${s.headline ? `<p><strong>${escapeHtml(s.headline)}</strong>${s.body ? ` ${escapeHtml(s.body)}` : ''}</p>` : ''}
             ${s.leftOut ? `<p>${escapeHtml(s.leftOut)}</p>` : ''}
+            ${s.freeTime ? `<p>${escapeHtml(s.freeTime)}</p>` : ''}
             ${s.loadNotes.map(n => `<p>${escapeHtml(n)}</p>`).join('')}
             ${s.details.length ? `
             <button type="button" class="why-toggle ${PREF_DETAILS_OPEN ? 'is-open' : ''}" id="pref-details-toggle"
@@ -746,7 +780,9 @@ function renderPrefBar(plan) {
 
     const cap = Number(RESULT.maxUnits) || 24;
     const L = window.CurricuLogicPreferences.LOAD_UNITS;
-    const pressed = (kind, value) => (PREFS[kind] ?? (kind === 'load' ? 'full' : '')) === value;
+    const pressed = (kind, value) => kind === 'compact'
+        ? (PREFS.compact ? 'on' : '') === value
+        : (PREFS[kind] ?? (kind === 'load' ? 'full' : '')) === value;
     const choice = (kind, value, label) => `
         <button type="button" class="pref-choice" data-pref="${kind}" data-value="${value}"
                 aria-pressed="${pressed(kind, value)}">${label}</button>`;
@@ -769,6 +805,13 @@ function renderPrefBar(plan) {
                 ${choice('load', 'light', `Light · up to ${Math.min(cap, L.light)}`)}
             </div>
         </div>
+        <div class="pref-row">
+            <span class="pref-label">Free time</span>
+            <div class="pref-choices" role="group" aria-label="Free time between classes">
+                ${choice('compact', '', 'Any')}
+                ${choice('compact', 'on', 'Fewest gaps')}
+            </div>
+        </div>
         ${prefNoteHtml(plan)}
         <span class="pref-hint">
             Preferences only choose between sections and how much to take.
@@ -785,7 +828,9 @@ function renderPrefBar(plan) {
 
     bar.querySelectorAll('[data-pref]').forEach(b => b.addEventListener('click', async () => {
         const kind = b.dataset.pref;
-        PREFS = { ...PREFS, [kind]: b.dataset.value === '' ? null : b.dataset.value };
+        PREFS = kind === 'compact'
+            ? { ...PREFS, compact: b.dataset.value === 'on' }
+            : { ...PREFS, [kind]: b.dataset.value === '' ? null : b.dataset.value };
         await savePreferences();
         renderEligibility(STUDENT);
 
@@ -1085,8 +1130,14 @@ function fmtMeeting(m) {
     return [kind + (m.schedule_days || ''), span].filter(Boolean).join(' ');
 }
 
+/* " · EDP 4101 + 4102" for the codes the school posted for a section, else nothing. */
+function edpSuffix(g) {
+    const codes = window.EnrollmentSheet ? window.EnrollmentSheet.edpCodes(g) : [];
+    return codes.length ? ` · EDP ${codes.join(' + ')}` : '';
+}
+
 function fmtSection(g) {
-    return `${g.section} · ${g.meetings.map(fmtMeeting).join(' + ')}`;
+    return `${g.section} · ${g.meetings.map(fmtMeeting).join(' + ')}${edpSuffix(g)}`;
 }
 
 function bindWhyToggles(scope) {
@@ -1480,6 +1531,8 @@ async function initChatIfNeeded() {
     } else {
         showChatFollowUps(null);
     }
+
+    refreshChatList();
 }
 
 /* A line saying what Cura is looking at. Every number comes from the same
@@ -1536,6 +1589,18 @@ function appendChatMessage(role, text, table, schedule, scheduleLayout) {
         bubble.innerHTML = '<span class="typing" aria-label="Cura is typing"><i></i><i></i><i></i></span>';
     } else {
         bubble.innerHTML = `<p>${escapeHtml(text)}</p>` + renderChatTable(table) + renderScheduleTable(schedule && { ...schedule, layout: scheduleLayout });
+
+        // Under a plan or schedule table: send what the table shows. Only this button
+        // (never Cura's words) starts a send, and the student confirms first.
+        const picks = role === 'model' ? (window.CurriculogicChatPlan?.picksOf({ table, schedule }) ?? []) : [];
+        if (picks.length) {
+            bubble._chatPicks = picks;
+            bubble.insertAdjacentHTML('beforeend', `
+                <div class="chat-send">
+                    <button type="button" class="chat-send-btn" data-chat-send>Send this plan to my adviser</button>
+                    <div class="chat-send-confirm" data-chat-send-box hidden></div>
+                </div>`);
+        }
     }
 
     // The assistant gets its avatar; the student's own messages do not
@@ -1561,7 +1626,7 @@ function renderScheduleTable(schedule) {
     const rows = (schedule.rows ?? []).map(r => `
         <tr>
             <td class="mono">${escapeHtml(r.code)}</td>
-            <td>${escapeHtml(r.section ?? '—')}</td>
+            <td>${escapeHtml(r.section ?? '—')}${(r.edp ?? []).length ? `<br><span class="dim">EDP ${escapeHtml(r.edp.join(' + '))}</span>` : ''}</td>
             <td>${r.meetings.length
                 ? r.meetings.map(m => `<span class="sched-line${m.kind === 'LAB' ? ' is-lab' : ''}">${escapeHtml(m.text)}</span>`).join('')
                 : '<span class="dim">No schedule yet</span>'}</td>
@@ -1613,6 +1678,79 @@ function renderScheduleTable(schedule) {
         </div>${left}`;
 }
 
+/* ---- Send this plan to my adviser (from a Cura answer) ----
+   The table the student is looking at is loaded into the same selection that
+   "Build your plan" uses, and the same submit runs after a confirmation: the server
+   checks it exactly as it does from the plan page. Nothing is sent until "Send". */
+document.addEventListener('click', async (e) => {
+    const start = e.target.closest?.('[data-chat-send]');
+    const yes = e.target.closest?.('[data-chat-send-yes]');
+    const no = e.target.closest?.('[data-chat-send-no]');
+    if (!start && !yes && !no) return;
+
+    const bubble = e.target.closest('.chat-msg');
+    const box = bubble?.querySelector('[data-chat-send-box]');
+    if (!bubble || !box) return;
+
+    if (no) { box.hidden = true; box.innerHTML = ''; return; }
+
+    if (yes) {
+        yes.disabled = true;
+        if (PREVIEW) {
+            box.innerHTML = '<p class="chat-send-done">Preview only: nothing was sent.</p>';
+            return;
+        }
+        const result = await submitAdvisingRequest();
+        box.innerHTML = result?.ok
+            ? `<p class="chat-send-done">Done. I sent ${result.total} subject${result.total === 1 ? '' : 's'} to your adviser${result.flagged ? `; ${result.flagged} were flagged for them to look at` : ''}.</p>`
+            : `<p class="chat-send-error">${escapeHtml(result?.message || 'Could not send your plan. Open Build your plan to see why.')}</p>`;
+        if (result?.ok) bubble.querySelector('[data-chat-send]')?.setAttribute('disabled', '');
+        return;
+    }
+
+    // start: load the table into the selection, then ask.
+    if (!window.CurriculogicChatPlan || (!supabase && !PREVIEW)) return;
+    start.disabled = true;
+    box.hidden = false;
+    box.innerHTML = '<p class="dim">Checking your plan…</p>';
+    try {
+        // The same lists the plan page uses (locks from earlier requests), fetched fresh.
+        await loadRequestPicker();
+        const open = pickerCandidates();
+        const { chosen, notOpen } = window.CurriculogicChatPlan.pairUp(bubble._chatPicks, open);
+
+        if (!chosen.length) {
+            box.innerHTML = '<p class="chat-send-error">None of these subjects can be requested right now. Open Build your plan to see what is open.</p>';
+            return;
+        }
+
+        SELECTED_SUBJECT_IDS.clear();
+        for (const c of chosen) {
+            SELECTED_SUBJECT_IDS.add(c.subjectId);
+            if (c.section) SELECTED_SECTIONS.set(c.subjectId, c.section);
+        }
+        await loadRequestPicker();
+
+        const units = chosen.reduce((t, c) => t + (Number(open.find(o => o.subject.id === c.subjectId)?.subject.units) || 0), 0);
+        const skipped = notOpen.length
+            ? `<p class="dim">Not included, no longer open to request: ${notOpen.map(escapeHtml).join(', ')}.</p>` : '';
+        box.innerHTML = `
+            <p><strong>${escapeHtml(window.CurriculogicChatPlan.summary(chosen.length, units))}</strong></p>
+            ${skipped}
+            <p class="dim">Your adviser reviews it; nothing is approved yet.</p>
+            <div class="chat-send-actions">
+                <button type="button" class="chat-send-btn" data-chat-send-yes>Send</button>
+                <button type="button" class="link-btn" data-chat-send-no>Not yet</button>
+            </div>`;
+        box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } catch (err) {
+        console.warn('chat send prepare failed:', err);
+        box.innerHTML = '<p class="chat-send-error">Could not check your plan just now. Please try again.</p>';
+    } finally {
+        start.disabled = false;
+    }
+});
+
 /* The By subject / By day switch under a schedule table. */
 document.addEventListener('click', (e) => {
     const btn = e.target.closest?.('[data-sched-layout]');
@@ -1638,7 +1776,7 @@ function renderChatTable(entries) {
             <td class="mono">${escapeHtml(e.code)}</td>
             <td>${escapeHtml(e.title)}</td>
             ${withTimes ? `<td>${e.when
-                ? `${e.section ? `<span class="dim">${escapeHtml(e.section)}</span> ` : ''}${(e.meetings ?? []).map(m =>
+                ? `${e.section ? `<span class="dim">${escapeHtml(e.section)}${(e.edp ?? []).length ? ` · EDP ${escapeHtml(e.edp.join(' + '))}` : ''}</span> ` : ''}${(e.meetings ?? []).map(m =>
                     `<span class="sched-line${m.kind === 'LAB' ? ' is-lab' : ''}">${escapeHtml(m.text)}</span>`).join('')}`
                 : '<span class="dim">No schedule yet</span>'}</td>` : ''}
             <td class="n">${e.units ?? ''}</td>
@@ -1662,10 +1800,18 @@ $('chat-form')?.addEventListener('submit', async (e) => {
 
     const input = $('chat-input');
     const text = input?.value.trim();
-    if (!text || !supabase) return;
+    if (!text || (!supabase && !PREVIEW)) return;
 
     appendChatMessage('user', text);
     input.value = '';
+
+    // The preview has no assistant: it answers with the real plan table so the
+    // buttons under a table can be tried.
+    if (PREVIEW) {
+        appendChatMessage('model', 'Preview only: no assistant here. This is your suggested plan.',
+            window.EligibilityChat.tableFor(CHAT_SUMMARY), null, 'bySubject');
+        return;
+    }
 
     // The suggestions step aside while Cura answers; fresh ones follow the reply.
     const suggestions = $('chat-suggestions');
@@ -1682,10 +1828,11 @@ $('chat-form')?.addEventListener('submit', async (e) => {
         pending?.remove();
         appendChatMessage('model', result.text, result.table, result.schedule, result.scheduleLayout);
         showChatFollowUps({ table: !!result.table?.length });
+        refreshChatList();
     } catch (err) {
         console.warn('chat send failed:', err);
         pending?.remove();
-        appendChatMessage('model', 'Sorry, I could not reach the assistant just now. Please try again.');
+        appendChatMessage('model', err?.studentMessage || 'Sorry, I could not reach the assistant just now. Please try again.');
         showChatFollowUps(null);
     } finally {
         if (sendBtn) sendBtn.disabled = false;
@@ -1693,6 +1840,206 @@ $('chat-form')?.addEventListener('submit', async (e) => {
         input.focus();
     }
 });
+
+/* The list of chats (db/074): one entry per conversation, grouped by day, newest first.
+   Opening one replays it and carries on in it; New chat starts a blank one (saved when
+   its first message is sent); the pencil renames. */
+let CHAT_LIST = [];
+
+async function refreshChatList() {
+    if (!supabase || !window.EligibilityChat) return;
+    CHAT_LIST = await window.EligibilityChat.listConversations(supabase);
+    renderChatList();
+}
+
+function renderChatList() {
+    const box = $('chat-list');
+    if (!box) return;
+    const L = window.CurriculogicChatList;
+    const open = window.EligibilityChat?.getConversationId?.() ?? null;
+
+    if (!L || !CHAT_LIST.length) {
+        box.innerHTML = '<p class="chat-list-empty">Your chats will show here.</p>';
+        return;
+    }
+    box.innerHTML = L.groupByDay(CHAT_LIST, new Date()).map(g =>
+        `<div class="chat-list-day">${escapeHtml(g.label)}</div>` +
+        g.items.map(c => `<div class="chat-item${c.id === open ? ' is-open' : ''}" data-id="${escapeHtml(c.id)}">
+            <button type="button" class="chat-item-open" title="${escapeHtml(L.titleOf(c))}">${escapeHtml(L.titleOf(c))}</button>
+            <button type="button" class="chat-item-more" aria-label="Chat options" aria-haspopup="menu" title="Options"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+        </div>`).join('')
+    ).join('');
+}
+
+// On a phone the chat list is inside the menu drawer; close it once a choice is made.
+function closeMenuDrawer() {
+    shell?.classList.remove('nav-open');
+}
+
+// The greeting the page ships with, kept so a blank chat can put it back.
+const CHAT_GREETING_HTML = $('chat-log')?.innerHTML ?? '';
+
+function showChatMessages(rows) {
+    const log = $('chat-log');
+    if (!log) return;
+    log.innerHTML = CHAT_GREETING_HTML;
+    for (const m of rows) {
+        appendChatMessage(
+            m.role, m.text,
+            m.show_recommended_table ? window.EligibilityChat.tableFor(CHAT_SUMMARY) : null,
+            m.show_schedule_table ? window.EligibilityChat.scheduleFor(CHAT_SUMMARY, m.schedule_option ?? null) : null,
+        );
+    }
+    const last = rows[rows.length - 1];
+    showChatFollowUps(rows.length ? { table: !!(last?.role === 'model' && last.show_recommended_table) } : null);
+}
+
+function chatBusy() {
+    return !!$('chat-input')?.disabled;     // an answer is on its way
+}
+
+document.querySelectorAll('[data-chat-new]').forEach((btn) => btn.addEventListener('click', () => {
+    if (!window.EligibilityChat || chatBusy()) return;
+    window.EligibilityChat.startNewChat();
+    showChatMessages([]);
+    renderChatList();
+    closeMenuDrawer();
+    $('chat-input')?.focus();
+}));
+
+
+$('chat-list')?.addEventListener('click', async (e) => {
+    const item = e.target.closest('.chat-item');
+    if (!item || !supabase || !window.EligibilityChat) return;
+
+    if (e.target.closest('.chat-item-more')) {
+        openChatMenu(item, e.target.closest('.chat-item-more'));
+        return;
+    }
+    if (!e.target.closest('.chat-item-open') || chatBusy()) return;
+    if (item.dataset.id === window.EligibilityChat.getConversationId()) { closeMenuDrawer(); return; }
+
+    const rows = await window.EligibilityChat.openConversation(supabase, item.dataset.id);
+    showChatMessages(rows);
+    renderChatList();
+    closeMenuDrawer();
+});
+
+/* The "..." menu on a chat (Rename, Delete) and the confirmation before a delete. */
+let MENU_CHAT_ID = null;
+
+function closeChatMenu() {
+    const menu = $('chat-menu');
+    if (menu) menu.hidden = true;
+    MENU_CHAT_ID = null;
+}
+
+function openChatMenu(item, anchor) {
+    const menu = $('chat-menu');
+    if (!menu) return;
+    if (!menu.hidden && MENU_CHAT_ID === item.dataset.id) { closeChatMenu(); return; }
+    MENU_CHAT_ID = item.dataset.id;
+    menu.hidden = false;
+
+    const r = anchor.getBoundingClientRect();
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+    menu.style.top = (r.bottom + h + 8 > window.innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + 'px';
+    menu.querySelector('button')?.focus();
+}
+
+let chatToastTimer = null;
+function chatToast(text) {
+    const box = $('chat-toast');
+    if (!box) return;
+    box.textContent = text;
+    box.hidden = false;
+    clearTimeout(chatToastTimer);
+    chatToastTimer = setTimeout(() => { box.hidden = true; }, 3000);
+}
+
+function confirmDeleteChat(chat) {
+    const dlg = $('chat-confirm');
+    if (!dlg || typeof dlg.showModal !== 'function') return Promise.resolve(false);
+    $('chat-confirm-text').textContent =
+        `"${window.CurriculogicChatList.titleOf(chat)}" and all its messages will be deleted for good. This can't be undone.`;
+    return new Promise(resolve => {
+        dlg.addEventListener('close', () => resolve(dlg.returnValue === 'delete'), { once: true });
+        dlg.returnValue = 'cancel';
+        dlg.showModal();
+        dlg.querySelector('.chat-confirm-cancel')?.focus();
+    });
+}
+
+async function deleteChat(id) {
+    const chat = CHAT_LIST.find(c => c.id === id);
+    if (!chat || chatBusy()) return;
+    if (!await confirmDeleteChat(chat)) return;
+
+    const wasOpen = id === window.EligibilityChat.getConversationId();
+    try {
+        await window.EligibilityChat.deleteConversation(supabase, id);
+    } catch (err) {
+        chatToast(err?.message || 'Could not delete this chat. Please try again.');
+        return;
+    }
+    CHAT_LIST = CHAT_LIST.filter(c => c.id !== id);
+    if (wasOpen) showChatMessages([]);
+    renderChatList();
+    chatToast('Chat deleted');
+}
+
+$('chat-menu')?.addEventListener('click', (e) => {
+    const act = e.target.closest('button')?.dataset.act;
+    const id = MENU_CHAT_ID;
+    closeChatMenu();
+    if (!act || !id) return;
+    if (act === 'rename') {
+        const item = [...document.querySelectorAll('#chat-list .chat-item')].find(el => el.dataset.id === id);
+        if (item) startRename(item);
+    } else if (act === 'delete') {
+        deleteChat(id);
+    }
+});
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#chat-menu') && !e.target.closest('.chat-item-more')) closeChatMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeChatMenu(); });
+$('chat-list')?.addEventListener('scroll', closeChatMenu);
+
+function startRename(item) {
+    const chat = CHAT_LIST.find(c => c.id === item.dataset.id);
+    if (!chat) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'chat-item-input';
+    input.maxLength = 60;
+    input.value = window.CurriculogicChatList.titleOf(chat);
+    input.setAttribute('aria-label', 'Chat name');
+    item.replaceChildren(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const finish = async (save) => {
+        if (done) return;
+        done = true;
+        if (save && input.value.trim() && input.value.trim() !== window.CurriculogicChatList.titleOf(chat)) {
+            try {
+                chat.title = await window.EligibilityChat.renameConversation(supabase, chat.id, input.value);
+                chatToast('Chat renamed');
+            } catch (err) {
+                chatToast(err?.message || 'Could not rename this chat. Please try again.');
+            }
+        }
+        renderChatList();
+    };
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.stopPropagation(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+}
 
 $('chat-suggestions')?.addEventListener('click', (e) => {
     const chip = e.target.closest('.chat-chip');
@@ -1741,15 +2088,19 @@ async function fetchMyRequests() {
         return MY_REQUESTS;
     }
 
-    const { data, error } = await supabase
+    const select = (itemColumns) => supabase
         .from('request')
         .select(`
             id, status, registrar_status, registrar_notes,
             requested_term, requested_year, created_at,
-            request_item(id, subject_id, status, remarks, offering_id, subject:subject_id(code, title, units))
+            request_item(id, subject_id, status, remarks, offering_id, ${itemColumns}subject:subject_id(code, title, units))
         `)
         .eq('student_id', STUDENT_ROW_ID)
         .order('created_at', { ascending: false });
+
+    // The EDP result columns come from db/077. Until it is applied, ask without them rather than lose the page.
+    let { data, error } = await select('edp_result, edp_reason, ');
+    if (error && /edp_/.test(error.message)) ({ data, error } = await select(''));
 
     if (error) {
         console.warn('fetchMyRequests failed:', error.message);
@@ -1910,6 +2261,10 @@ async function loadRequestPicker() {
         const s = entry.subject;
         const rejected = SUBJECT_LOCKS.resubmittable.get(s.id);
         const why = suggestedIds.has(s.id) ? entry.reason : '';
+        // A subject that must be taken together with another says so, even
+        // when it is only "also eligible" and has no reason of its own.
+        const pair = (entry.alongside ?? []).map(a => a.code).join(' and ');
+        const pairLine = pair && !why.includes(pair) ? `Goes with ${pair}: take them in the same term.` : '';
         return `
             <label class="req-row" data-row-for="${s.id}">
                 <input type="checkbox" data-subject-id="${s.id}"
@@ -1918,6 +2273,7 @@ async function loadRequestPicker() {
                 <span class="req-main">
                     <span class="req-title">${escapeHtml(s.title)}</span>
                     ${why ? `<span class="req-why">${escapeHtml(why)}</span>` : ''}
+                    ${pairLine ? `<span class="req-why">${escapeHtml(pairLine)}</span>` : ''}
                     ${rejected ? `<span class="req-reject-reason">Sent back: ${escapeHtml(rejected)}</span>` : ''}
                     ${renderSchedule(entry)}
                     <span class="req-clash" hidden></span>
@@ -2190,7 +2546,8 @@ async function submitAdvisingRequest() {
         showMsg('req-msg', 'Those subjects are no longer available to request. Refreshing…');
         SELECTED_SUBJECT_IDS.clear();
         if (btn) { btn.disabled = true; btn.textContent = 'Submit for review'; }
-        return loadRequestPicker();
+        await loadRequestPicker();
+        return { ok: false, message: 'Those subjects are no longer available to request.' };
     }
 
     try {
@@ -2205,7 +2562,7 @@ async function submitAdvisingRequest() {
                 serverMessage = body?.error ?? null;
             } catch (_) {}
             showMsg('req-msg', serverMessage || 'Could not submit your request. Please try again.');
-            return;
+            return { ok: false, message: serverMessage || 'Could not submit your request. Please try again.' };
         }
 
         const flagged = data.flaggedCount ?? 0;
@@ -2232,9 +2589,12 @@ async function submitAdvisingRequest() {
             showChatFollowUps(null);
         }
 
+        return { ok: true, total, flagged };
+
     } catch (err) {
         console.warn('submitAdvisingRequest threw:', err);
         showMsg('req-msg', 'Could not reach the server. Please try again.');
+        return { ok: false, message: 'Could not reach the server. Please try again.' };
     } finally {
         if (btn) { btn.disabled = SELECTED_SUBJECT_IDS.size === 0; btn.textContent = 'Submit for review'; }
     }
@@ -2257,6 +2617,295 @@ function itemStatusChip(status) {
     if (status === 'valid' || status === 'approved') return 'ok';
     if (status === 'rejected') return 'danger';
     return 'info';   // 'flagged' -- awaiting Faculty's decision
+}
+
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-sheet]');
+    if (btn) printEnrollmentSheet(btn.dataset.sheet);
+});
+
+/* EDP office result
+   After the student takes the enrolment form to the EDP office, they tell this page which subjects were
+   turned down and why (db/077_edp_results.sql, shared/js/edpresult.js). It changes only their own plan:
+   it never closes a section for other students, and the system cannot see what EDP really decided, so
+   everything here is the student's own report. For each subject turned down the page says what to do next
+   and lists other sections (or other subjects) that do not clash with the rest of the plan. */
+
+const EDP_RESULT_CHOICES = [['', 'Not reported yet'], ['accepted', 'Accepted'], ['rejected', 'Turned down']];
+
+function edpResultSummary(rows) {
+    const rejected = rows.filter(x => x.result === 'rejected').length;
+    const accepted = rows.filter(x => x.result === 'accepted').length;
+    if (!rejected && !accepted) return 'Nothing reported yet';
+    return [accepted ? `${accepted} accepted` : '', rejected ? `${rejected} turned down` : ''].filter(Boolean).join(' · ');
+}
+
+/* What to do about the subjects turned down: the reason's next step, and where there is one, other sections. */
+function edpNextStepsHtml(request) {
+    const ER = window.EdpResult;
+    const rows = ER.checklistRows(request).filter(x => x.result === 'rejected');
+    if (!rows.length) return '';
+
+    const rejectedIds = new Set(rows.map(x => x.itemId));
+    const kept = (request.request_item ?? []).filter(i => i.status === 'approved' && !rejectedIds.has(i.id));
+    const keptUnits = kept.reduce((t, i) => t + (Number(i.subject?.units) || 0), 0);
+    const limit = Number(RESULT?.maxUnits) || unitLimits(STUDENT).maxUnits;
+    const room = Math.max(0, limit - keptUnits - (Number(RESULT?.enrolledUnits) || 0));
+    const eligible = (RESULT?.eligible ?? []).filter(e => !SUBJECT_LOCKS.locked.has(e.subject.id));
+
+    const alts = ER.alternatives({
+        request, rejected: rejectedIds, eligible, room,
+        fullKeys: ER.fullKeys(MY_REQUESTS), timeOfDay: PREFS.timeOfDay ?? null,
+    });
+
+    const list = rows.map(x => {
+        const alt = alts.get(x.itemId) ?? { sameSubject: [], replacements: [] };
+        let more = '';
+        if (ER.needsNewSection(x.reason)) {
+            if (alt.sameSubject.length) {
+                more = `<p class="edp-alt-head">Other sections of ${escapeHtml(x.code)} that fit your plan:</p>
+                    <ul>${alt.sameSubject.map(g => `<li>${escapeHtml(fmtSection(g))}</li>`).join('')}</ul>
+                    <p class="dim">Write its EDP code on your form. You do not need your adviser’s approval to change section.</p>`;
+            } else if (alt.replacements.length) {
+                more = `<p class="edp-alt-head">No other section of ${escapeHtml(x.code)} fits without a clash. These subjects are open to you and fit:</p>
+                    <ul>${alt.replacements.map(r => `<li><strong>${escapeHtml(r.code)}</strong> ${escapeHtml(r.title)} (${escapeHtml(r.units)} units): ${escapeHtml(fmtSection(r.group))}</li>`).join('')}</ul>
+                    <p class="dim">Taking a different subject is a change to your plan: tell your adviser.</p>`;
+            } else {
+                more = `<p class="dim">No other section or subject fits without a clash. Ask your adviser, or ask Cura.</p>`;
+            }
+        }
+        return `<li>
+            <strong>${escapeHtml(x.code)}</strong> <span class="dim">${escapeHtml(x.title)}</span>
+            <div class="edp-reason">${escapeHtml(ER.reasonLabel(x.reason))}</div>
+            <p>${escapeHtml(ER.nextStep(x.reason))}</p>
+            ${more}
+        </li>`;
+    }).join('');
+
+    return `<div class="edp-next"><strong>What to do next</strong><ul class="edp-next-list">${list}</ul></div>`;
+}
+
+/* Switch a subject to another section without going back to the adviser (db/079_move_item_section.sql). Only
+   sections that do not clash with the rest of the plan are listed; the database checks the rest. */
+function switchSectionHtml(request) {
+    const ER = window.EdpResult;
+    const full = ER.fullKeys(MY_REQUESTS);
+    const blocks = (request.request_item ?? [])
+        .filter(i => i.status === 'approved' && i._section)
+        .map(i => ({ i, opts: ER.moveOptions({ request, item: i, fullKeys: full }) }))
+        .filter(x => x.opts.length);
+    if (!blocks.length) return '';
+
+    const list = blocks.map(({ i, opts }) => `<li>
+            <strong>${escapeHtml(i.subject?.code ?? '')}</strong> <span class="dim">now in ${escapeHtml(i._section.section)}</span>
+            <ul class="switch-options">${opts.map(o => `<li>
+                <span>${escapeHtml(fmtSection(o.group))}</span>
+                <button type="button" class="btn-small" data-switch-item="${i.id}" data-switch-offering="${o.offeringId}" data-switch-section="${escapeHtml(o.group.section)}">Switch</button>
+            </li>`).join('')}</ul>
+        </li>`).join('');
+
+    return `<div class="edp-next switch-box"><strong>Switch a section</strong>
+        <p class="dim">Pick another section of the same subject. It does not clash with the rest of your plan. Your adviser is only told, nothing needs their approval. Write the new EDP code on your form.</p>
+        <ul class="edp-next-list">${list}</ul>
+        <span class="msg" data-switch-msg role="status"></span></div>`;
+}
+
+async function switchSection(btn) {
+    const panel = btn.closest('.edp-panel');
+    const msg = panel?.querySelector('[data-switch-msg]');
+    const say = (text, cls) => { if (msg) { msg.textContent = text; msg.className = `msg ${cls ?? ''}`; } };
+
+    // two taps: the first asks, the second does it
+    if (btn.dataset.armed !== '1') {
+        panel.querySelectorAll('[data-switch-item][data-armed]').forEach(b => { b.dataset.armed = ''; b.textContent = 'Switch'; });
+        btn.dataset.armed = '1';
+        btn.textContent = 'Tap again to switch';
+        say('', '');
+        return;
+    }
+
+    const itemId = Number(btn.dataset.switchItem);
+    const offeringId = Number(btn.dataset.switchOffering);
+    const requestId = panel.dataset.edpRequest;
+    btn.disabled = true;
+    say('Switching…', '');
+
+    if (!PREVIEW) {
+        const { data, error } = await supabase.rpc('move_request_item_section', { p_item_id: itemId, p_new_offering_id: offeringId });
+        if (error) {
+            console.warn('move_request_item_section failed:', error.message);
+            say('Could not switch: ' + error.message, 'error');
+            btn.disabled = false; btn.dataset.armed = ''; btn.textContent = 'Switch';
+            return;
+        }
+        say(`Switched to ${data?.to_section ?? btn.dataset.switchSection}.`, 'success');
+    }
+
+    // keep the page's copy in step, then redraw the panel with the new section
+    const request = REQUESTS_ON_PAGE.find(r => String(r.id) === String(requestId));
+    const item = (request?.request_item ?? []).find(i => i.id === itemId);
+    const group = (item?._allSections ?? []).find(g => g.section === btn.dataset.switchSection);
+    if (item && group) {
+        item.offering_id = offeringId;
+        item._section = group;
+        item.edp_result = null; item.edp_reason = null;
+    }
+    // draw the whole page again so the table above shows the new section too, keeping the same cards open
+    const open = new Set([...document.querySelectorAll('details.req-card[open]')].map(d => d.dataset.reqId));
+    open.add(String(requestId));
+    await loadRequestHistory();
+    document.querySelectorAll('details.req-card').forEach(d => { if (open.has(d.dataset.reqId)) d.open = true; });
+    const panelNow = document.querySelector(`.edp-panel[data-edp-request="${requestId}"]`);
+    if (panelNow) panelNow.open = true;
+    const note = panelNow?.querySelector('[data-switch-msg]') ?? panelNow?.querySelector('[data-edp-msg]');
+    if (note) { note.textContent = `Switched to ${btn.dataset.switchSection}. Write its EDP code on your form.`; note.className = 'msg success'; }
+}
+
+function edpResultPanel(request) {
+    const ER = window.EdpResult;
+    if (!ER) return '';
+    const rows = ER.checklistRows(request);
+    if (!rows.length) return '';
+
+    const anyRejected = rows.some(x => x.result === 'rejected');
+    const body = rows.map(x => `
+        <tr data-item="${x.itemId}">
+            <td><span class="req-code">${escapeHtml(x.code)}</span><span class="req-item-title">${escapeHtml(x.title)}</span></td>
+            <td class="dim">${escapeHtml(x.section ?? '—')}${x.edp.length ? ` · EDP ${escapeHtml(x.edp.join(' + '))}` : ''}</td>
+            <td><select data-edp-result aria-label="What happened to ${escapeHtml(x.code)}">
+                ${EDP_RESULT_CHOICES.map(([v, l]) => `<option value="${v}" ${(x.result ?? '') === v ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+            </select></td>
+            <td><select data-edp-reason aria-label="Why ${escapeHtml(x.code)} was turned down" ${x.result === 'rejected' ? '' : 'hidden'}>
+                <option value="">Choose a reason</option>
+                ${ER.REASONS.map(r => `<option value="${r.value}" ${escapeHtml(x.reason === r.value ? 'selected' : '')}>${escapeHtml(r.label)}</option>`).join('')}
+            </select></td>
+        </tr>`).join('');
+
+    return `
+        <details class="edp-panel" data-edp-request="${request.id}" ${anyRejected ? 'open' : ''}>
+            <summary><strong>EDP office result</strong> <span class="dim">${escapeHtml(edpResultSummary(rows))}</span></summary>
+            <p class="dim">Did the EDP office turn a subject down? Tell us which and why, and we will show what to do next.
+                This only changes your own plan. It does not close a section for other students.</p>
+            <div class="table-wrap">
+                <table class="data-table edp-table">
+                    <thead><tr><th>Subject</th><th>Section</th><th>What happened</th><th>Why</th></tr></thead>
+                    <tbody>${body}</tbody>
+                </table>
+            </div>
+            <div class="edp-actions">
+                <button type="button" class="btn-accent" data-edp-save="${request.id}">Save</button>
+                <span class="msg" data-edp-msg role="status"></span>
+            </div>
+            ${edpNextStepsHtml(request)}
+            ${switchSectionHtml(request)}
+        </details>`;
+}
+
+/* Redraws one request's panel after a save, keeping the rest of the page where it is. */
+function redrawEdpPanel(requestId) {
+    const request = REQUESTS_ON_PAGE.find(r => String(r.id) === String(requestId));
+    const old = document.querySelector(`.edp-panel[data-edp-request="${requestId}"]`);
+    if (!request || !old) return;
+    const holder = document.createElement('div');
+    holder.innerHTML = edpResultPanel(request);
+    const fresh = holder.firstElementChild;
+    fresh.open = true;
+    old.replaceWith(fresh);
+}
+
+async function saveEdpResults(requestId, btn) {
+    const ER = window.EdpResult;
+    const panel = btn.closest('.edp-panel');
+    const msg = panel?.querySelector('[data-edp-msg]');
+    const say = (text, cls) => { if (msg) { msg.textContent = text; msg.className = `msg ${cls ?? ''}`; } };
+
+    const choices = [...panel.querySelectorAll('tr[data-item]')].map(tr => ({
+        itemId: Number(tr.dataset.item),
+        result: tr.querySelector('[data-edp-result]').value || null,
+        reason: tr.querySelector('[data-edp-reason]').value || null,
+    }));
+
+    const bad = ER.problems(choices);
+    if (bad.length) { say(bad[0].message, 'error'); return; }
+
+    btn.disabled = true;
+    say('Saving…', '');
+
+    if (!PREVIEW) {
+        const { error } = await supabase.rpc('report_edp_results', { p_results: ER.payload(choices) });
+        if (error) {
+            console.warn('report_edp_results failed:', error.message);
+            say('Could not save: ' + error.message, 'error');
+            btn.disabled = false;
+            return;
+        }
+    }
+
+    // Keep the page's copy in step, so nothing has to be fetched again.
+    const request = REQUESTS_ON_PAGE.find(r => String(r.id) === String(requestId));
+    for (const c of choices) {
+        const item = (request?.request_item ?? []).find(i => i.id === c.itemId);
+        if (!item) continue;
+        item.edp_result = c.result;
+        item.edp_reason = c.result === 'rejected' ? c.reason : null;
+    }
+    redrawEdpPanel(requestId);
+    const fresh = document.querySelector(`.edp-panel[data-edp-request="${requestId}"] [data-edp-msg]`);
+    if (fresh) { fresh.textContent = 'Saved.'; fresh.className = 'msg success'; }
+}
+
+document.addEventListener('click', (e) => {
+    const save = e.target.closest('[data-edp-save]');
+    if (save) saveEdpResults(save.dataset.edpSave, save);
+    const sw = e.target.closest('[data-switch-item]');
+    if (sw) switchSection(sw);
+});
+
+/* A reason is asked for only when a subject is marked turned down. */
+document.addEventListener('change', (e) => {
+    const sel = e.target.closest('[data-edp-result]');
+    if (!sel) return;
+    const reason = sel.closest('tr')?.querySelector('[data-edp-reason]');
+    if (reason) reason.hidden = sel.value !== 'rejected';
+});
+
+/* The requests drawn on the My requests page, so the Enrolment sheet button can find its request. */
+let REQUESTS_ON_PAGE = [];
+
+/* Builds and prints the Enrolment sheet of one approved request: its subjects with EDP codes, and for each a
+   couple of backup sections that do not clash with the rest of the plan (shared/js/backupsections.js). */
+function printEnrollmentSheet(requestId) {
+    const request = REQUESTS_ON_PAGE.find(r => String(r.id) === String(requestId));
+    if (!request || !window.EnrollmentSheet || !window.BackupSections) return;
+
+    const kept = (request.request_item ?? []).filter(i => i.status !== 'rejected' && i._section);
+    const plan = kept.map(i => ({ code: i.subject?.code ?? '', chosen: i._section.section, sections: i._allSections ?? [i._section] }));
+    const backups = window.BackupSections.backupsFor(plan, { timeOfDay: PREFS.timeOfDay ?? null });
+
+    const sheet = window.EnrollmentSheet.build({
+        items: kept.map(i => ({
+            code: i.subject?.code ?? '',
+            title: i.subject?.title ?? '',
+            units: i.subject?.units,
+            section: i._section,
+            backups: backups.get(i.subject?.code ?? '') ?? [],
+        })),
+    });
+
+    const w = window.open('', '_blank', 'width=900,height=1000');
+    if (!w) {
+        const msg = $('req-msg');
+        if (msg) { msg.textContent = 'The print window was blocked. Allow pop-ups for this site.'; msg.className = 'msg error'; }
+        return;
+    }
+    w.document.write(window.EnrollmentSheet.html(sheet, {
+        student: { name: [STUDENT?.first_name, STUDENT?.last_name].filter(Boolean).join(' '), id: STUDENT?.student_id },
+        program: programName(STUDENT),
+        term: { number: request.requested_term, year: request.requested_year },
+    }));
+    w.document.close();
+    w.onload = () => { w.focus(); w.print(); };
+    setTimeout(() => { try { w.focus(); w.print(); } catch (e) { /* closed */ } }, 400);
 }
 
 /* Full-page status view (the "My requests" nav item) -- reuses the
@@ -2321,7 +2970,7 @@ async function attachRequestSections(requests) {
         const subjectIds = [...new Set(picked.map(o => o.subject_id))];
         if (subjectIds.length) {
             const all = await supabase.from('subject_offering')
-                .select('id, subject_id, section, academic_year, term, meeting_type, schedule_days, start_time, end_time')
+                .select('id, subject_id, section, academic_year, term, meeting_type, schedule_days, start_time, end_time, edp_code, is_open')
                 .in('subject_id', subjectIds);
             rows = all.data ?? [];
         }
@@ -2335,6 +2984,12 @@ async function attachRequestSections(requests) {
         const meetings = rows.filter(x => x.subject_id === o.subject_id && x.section === o.section
             && x.academic_year === o.academic_year && x.term === o.term);
         item._section = window.ScheduleConflicts.groupSections(meetings)[0] ?? null;
+        // the Department closed the section this plan holds: said on the request, never offered as a backup
+        item._sectionClosed = meetings.length > 0 && meetings.every(m => m.is_open === false);
+        // every OPEN section of that subject in that term (and the one in the plan), for backups and alternatives
+        const sameTerm = rows.filter(x => x.subject_id === o.subject_id && x.academic_year === o.academic_year && x.term === o.term);
+        item._allSections = window.ScheduleConflicts.groupSections(
+            window.EdpResult ? window.EdpResult.openRows(sameTerm, o.section) : sameTerm);
     }
 }
 
@@ -2394,6 +3049,7 @@ async function loadRequestHistory() {
             </div>`).join('');
     }
 
+    REQUESTS_ON_PAGE = requests;
     body.innerHTML = requests.map((r, index) => {
         const { faculty, registrar } = requestStages(r);
         const items = r.request_item ?? [];
@@ -2413,6 +3069,7 @@ async function loadRequestHistory() {
                         <span class="req-code">${escapeHtml(item.subject?.code ?? '')}</span>
                         <span class="req-item-title">${escapeHtml(item.subject?.title ?? '')}</span>
                         ${item.remarks ? `<span class="req-item-note ${item.status === 'rejected' ? 'is-bad' : ''}">${escapeHtml(item.remarks)}</span>` : ''}
+                        ${item._sectionClosed ? '<span class="req-item-note is-bad">The Department closed this section. Choose another section before you go to the EDP office.</span>' : ''}
                     </td>
                     <td class="dim req-item-section">${sectionText ? escapeHtml(sectionText) : '—'}</td>
                     <td class="num">${escapeHtml(item.subject?.units ?? '')}</td>
@@ -2427,7 +3084,7 @@ async function loadRequestHistory() {
         ].join(' \u00b7 ');
 
         return `
-        <details class="req-card" ${index === 0 ? 'open' : ''}>
+        <details class="req-card" data-req-id="${r.id}" ${index === 0 ? 'open' : ''}>
             <summary class="req-card-head">
                 <span class="req-card-title">
                     <strong>${escapeHtml(requestTitle(r))}</strong>
@@ -2455,6 +3112,15 @@ async function loadRequestHistory() {
                     </table>
                 </div>
 
+                ${RS.finalApproved(r) ? `
+                    <div class="req-sheet">
+                        <button type="button" class="btn-accent" data-sheet="${r.id}">
+                            <i class="fa-solid fa-print" aria-hidden="true"></i> Enrolment sheet
+                        </button>
+                        <span class="dim">One page for the EDP office: your EDP codes, plus backup sections in case one is full.
+                            Seats and conflicts are confirmed by the EDP office, not by this system.</span>
+                    </div>` : ''}
+                ${RS.finalApproved(r) ? edpResultPanel(r) : ''}
                 ${RS.finalApproved(r) ? `
                     <p class="req-foot is-ok"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>
                         ${r.status === 'partially_approved'

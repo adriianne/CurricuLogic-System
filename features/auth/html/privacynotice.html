@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+    <!-- Content-Security-Policy: what this page may load and run. Keep identical on every page (tests/csp.test.mjs); explained in docs/SECURITY-OPERATIONS.md. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://kibleqlooeaetpbelhve.supabase.co; connect-src 'self' https://kibleqlooeaetpbelhve.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'">
+
     <title>Data Privacy Notice — CurricuLogic</title>
     <meta name="description" content="How CurricuLogic collects, uses and protects student and staff data.">
     <meta name="theme-color" content="#f6f2e9">
@@ -25,7 +28,7 @@
     </a>
 
     <h1>Data Privacy Notice</h1>
-    <p class="notice-meta">CurricuLogic · Last updated 13 October 2026</p>
+    <p class="notice-meta">CurricuLogic · Last updated 15 October 2026</p>
 
     <p class="draft-banner" role="note">
         <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
@@ -47,9 +50,10 @@
         <li><strong>Identity and contact:</strong> your name, student ID and university email address.</li>
         <li><strong>Academic information:</strong> your programme, year level, prospectus, subjects taken, grades, and standing.</li>
         <li><strong>Advising activity:</strong> the study plans you build and submit, adviser decisions, and notifications sent to you.</li>
+        <li><strong>EDP office reports:</strong> if you tell the system what the EDP office decided about a subject (accepted or turned down, and the reason you choose), and any change of section you make after your plan was approved.</li>
         <li><strong>Profile photo</strong>, if you upload one.</li>
         <li><strong>Sign-in data:</strong> your password (stored only as a one-way hash) and sign-in records kept by our authentication provider.</li>
-        <li><strong>Messages to Cura</strong>, the eligibility assistant, which are processed so it can answer your questions.</li>
+        <li><strong>Your chats with Cura</strong>, the eligibility assistant: what you type, Cura's replies, and the names you give your chats. See section 3 for how the AI service is used.</li>
     </ul>
     <p>
         Most academic information comes from university records. You supply only the details
@@ -60,33 +64,70 @@
     <ul>
         <li>To verify that an account request matches a real student record.</li>
         <li>To show which subjects you are eligible to take, and to help you build a plan with no schedule clashes.</li>
-        <li>To let your adviser review and approve your plan, and to produce your advising slip.</li>
+        <li>To let your adviser review and approve your plan, and to produce your advising slip. A plan is sent to your adviser only when you press a send button and confirm; this includes the "Send this plan to my adviser" button under a plan or schedule shown in Cura.</li>
         <li>To keep the system secure and to investigate misuse.</li>
     </ul>
     <p>We do not sell personal data, and we do not use it for advertising.</p>
 
-    <h2>3. Who can see it</h2>
+    <h2>3. How Cura uses an AI service</h2>
+    <p>
+        Cura is an assistant that explains the results of the system's own eligibility rules.
+        The rules decide what you may take; Cura only puts those results into words. To write
+        its replies it sends the following to a third-party AI service, <strong>Google's Gemini
+        API</strong>, through our server:
+    </p>
+    <ul>
+        <li>your message and the earlier messages of the chat you have open;</li>
+        <li>a summary of your standing: your first name, the subjects suggested for you, the subjects still locked with the reasons, the subjects you already submitted to your adviser, units earned, subject sections and their meeting times, your saved class-time and load preferences, and, if you have an approved plan, its subjects, sections and EDP codes and anything you reported about the EDP office.</li>
+    </ul>
+    <p>
+        The plans and schedules you see in Cura are built by the system from your record. The AI
+        service only decides whether to show them and writes the sentences around them.
+    </p>
+    <p>
+        It does <strong>not</strong> send your student ID, email address, password, profile photo
+        or full grade list. Please do not type sensitive personal information into the chat that
+        you would not want processed this way. Because the service is run by Google, the data is
+        handled under Google's own terms for the Gemini API. Under Google's free Gemini API
+        terms, text sent to the service may be kept and used by Google to improve its products,
+        and may be reviewed by people, so do not enter anything you would not want shared this way.
+        <em>[This assumes the free plan. To be updated if the university moves to a paid plan with
+        different terms.]</em>
+        Cura's answers can be wrong: check anything important with your adviser.
+    </p>
+    <p>
+        Your chats are saved in our database so you can come back to them. You can rename a
+        chat, or delete one yourself from the chat list; deleting removes it and its messages
+        permanently. Staff cannot read your chats from the system's screens. People who administer
+        the database itself can technically access stored data, so please do not put anything in a
+        chat that you would not want kept.
+    </p>
+
+    <h2>4. Who can see it</h2>
     <ul>
         <li><strong>You</strong> can see your own record, plans and notifications.</li>
         <li><strong>Faculty advisers</strong> can see the students in their programme, including grades, plans and photos.</li>
         <li><strong>The Registrar</strong> can see student records and account requests for their programme, and verifies accounts.</li>
-        <li><strong>The Department</strong> can see student records and adviser-approved plans for their programme, and manages the curriculum.</li>
+        <li><strong>Your adviser</strong> is told when you switch to another section of an approved subject. Nothing needs their approval.</li>
+        <li><strong>The Department</strong> can see student records and adviser-approved plans for their programme, manages the curriculum and the schedule, and can see which students chose each section so it can plan seats. It can close a section; students who chose it are then notified.</li>
         <li><strong>System administrators</strong> manage accounts and settings.</li>
     </ul>
     <p>
         Access is limited by role and by programme in the database itself, not only on the
         page. Service providers that host the system, such as our database and authentication
-        provider, process data on our behalf.
+        provider, and the AI service described in section 3, process data on our behalf.
     </p>
 
-    <h2>4. How long we keep it</h2>
+    <h2>5. How long we keep it</h2>
     <p>
-        Academic records are kept for as long as the university needs them for advising and
-        record-keeping. Declined or unmatched account requests are kept only as long as needed
-        to review them. The exact retention periods are to be confirmed by the university.
+        The system removes some data automatically every day: sign-ups that were never confirmed
+        by email are removed after 7 days, notifications you have read after 90 days, and chats with
+        Cura after six months. Academic records, advising requests and approvals are kept for as
+        long as the university needs them for advising and record-keeping.
+        <em>[The period for these is to be confirmed by the university.]</em>
     </p>
 
-    <h2>5. How we protect it</h2>
+    <h2>6. How we protect it</h2>
     <ul>
         <li>Data is sent over encrypted connections.</li>
         <li>Passwords are hashed and are never visible to staff.</li>
@@ -94,7 +135,7 @@
         <li>Accounts are created only after the Registrar matches them to a student record.</li>
     </ul>
 
-    <h2>6. Your rights</h2>
+    <h2>7. Your rights</h2>
     <p>Under the Data Privacy Act you may:</p>
     <ul>
         <li>ask what personal data we hold about you;</li>
@@ -104,13 +145,13 @@
     </ul>
     <p>
         Some academic records cannot be deleted while the university is required to keep them.
-        You can change your profile photo and password yourself from your profile page.
+        You can change your profile photo and password yourself from your profile page, and delete your Cura chats from the chat list.
     </p>
 
-    <h2>7. Contact</h2>
+    <h2>8. Contact</h2>
     <p>
         For questions or requests about your data, write to
-        <a href="mailto:support@curriculogic.uc.edu.ph">support@curriculogic.uc.edu.ph</a>.
+        <a href="mailto:curriculogicph@gmail.com">curriculogicph@gmail.com</a>.
         The university's Data Protection Officer contact is to be added here.
     </p>
 
@@ -120,3 +161,4 @@
 
 </body>
 </html>
+    

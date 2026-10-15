@@ -709,3 +709,21 @@ img { max-width: 100%; }
     from { opacity: 0; }
     to   { opacity: 1; }
 }
+
+/* "Forgot password?" under the password field (student and staff pages). */
+.forgot-row {
+    margin: -6px 0 14px;
+    text-align: right;
+    font-size: 0.85rem;
+}
+.forgot-row a {
+    color: var(--indigo-dark);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: var(--indigo-tint);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+}
+@media (hover: hover) and (pointer: fine) {
+    .forgot-row a:hover { text-decoration-color: var(--indigo); }
+}

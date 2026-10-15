@@ -818,6 +818,7 @@ function setStat(id, n, className) {
 }
 
 function renderStats() {
+    renderDashboardSummary();
     setStat('stat-students', COUNTS.total, 'stat-value');
     setStat('stat-verified', COUNTS.verified, 'stat-value');
     setStat('stat-pending',  Math.max(0, COUNTS.total - COUNTS.verified), 'stat-value');
@@ -827,6 +828,51 @@ function renderStats() {
     setStat('prof-stat-students', COUNTS.total);
     setStat('prof-stat-verified', COUNTS.verified);
     setStat('prof-stat-pending',  Math.max(0, COUNTS.total - COUNTS.verified));
+}
+
+let REQUEST_COUNT = null;   // plans waiting for this adviser; null until counted
+let REQUEST_FAILED = false;  // the count could not be read
+
+/* The header sentence and the "Needs attention" list for an adviser: plans waiting for review, and students whose
+   record is not verified yet. Both are numbers this page already loads. */
+function renderDashboardSummary() {
+    const DS = window.DashboardSummary;
+    if (!DS) return;
+
+    const waiting = REQUEST_COUNT ?? 0;
+    const unverified = Math.max(0, COUNTS.total - COUNTS.verified);
+
+    const items = [];
+    if (REQUEST_FAILED) {
+        items.push({ level: 'info', title: 'The waiting plans could not be counted', detail: 'Try again in a moment.', go: '#requests', label: 'Open requests' });
+    }
+    if (waiting > 0) {
+        items.push({
+            level: 'near',
+            title: DS.count(waiting, 'plan') + ' waiting for your review',
+            detail: 'A student sent it for your approval.',
+            go: '#requests', label: 'Review',
+        });
+    }
+    if (unverified > 0) {
+        items.push({
+            level: 'info',
+            title: DS.count(unverified, 'student record') + ' not verified yet',
+            detail: 'Pending with the Registrar. Eligibility cannot be worked out until then.',
+            go: '#students', label: 'Open students',
+        });
+    }
+
+    const P = window.CurriculogicPrograms;
+    setText('hero-eyebrow', ['Faculty adviser', P?.codeOf(FACULTY?.program_id, ''), P?.collegeOf(FACULTY?.program_id, '') || FACULTY?.department].filter(Boolean).join(' \u00b7 '));
+    setText('hero-line', DS.sentence([
+        waiting > 0 && DS.count(waiting, 'plan') + ' waiting for your review',
+        unverified > 0 && DS.count(unverified, 'student record') + ' not verified yet',
+    ], REQUEST_FAILED ? 'The waiting plans could not be counted. Try again in a moment.'
+        : REQUEST_COUNT === null ? 'Checking what is waiting.' : 'Nothing is waiting for your review.'));
+
+    setText('attention-note', items.length ? DS.count(items.length, 'item') : '');
+    DS.render($('attention-body'), items, escapeHtml);
 }
 
 function renderRecent() {
@@ -1914,6 +1960,8 @@ async function notifyStudentOfReview(requestId) {
 
 async function loadRequestCount() {
     if (PREVIEW) {
+        REQUEST_COUNT = 3;
+        renderDashboardSummary();
         setStat('stat-requests', 3, 'stat-value');
         setStat('prof-stat-requests', 3);
         return;
@@ -1925,9 +1973,14 @@ async function loadRequestCount() {
 
     if (error) {
         console.warn('request count failed:', error.message);
+        REQUEST_FAILED = true;
+        renderDashboardSummary();
         setText('stat-requests', '—', 'stat-value muted');
         return;
     }
+    REQUEST_COUNT = count ?? 0;
+    REQUEST_FAILED = false;
+    renderDashboardSummary();
     setStat('stat-requests', count ?? 0, 'stat-value');
     setStat('prof-stat-requests', count ?? 0);
 }

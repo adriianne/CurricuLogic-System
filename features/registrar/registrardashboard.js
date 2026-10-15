@@ -547,6 +547,7 @@ async function loadStudents() {
 function afterLoad() {
     renderStats();
     renderRecent();
+    renderDashboardSummary();
     renderRequests();
     renderStudentChips();
 }
@@ -616,6 +617,56 @@ function renderRecent() {
         </div>`;
 }
 
+
+/* The header sentence and the "Needs attention" list: what is waiting for the Registrar, from numbers this page
+   already has (the counts, the oldest pending request, the approved plans). */
+function renderDashboardSummary() {
+    const DS = window.DashboardSummary;
+    if (!DS) return;
+
+    const waiting = COUNTS.pending;
+    const oldest = pending()[0] ?? null;
+    const oldestDays = oldest ? DS.ageDays(oldest.created_at) : 0;
+    const unverified = Math.max(0, COUNTS.approved - COUNTS.verified);
+
+    const items = [];
+    if (waiting > 0) {
+        items.push({
+            level: oldestDays >= 7 ? 'full' : 'near',
+            title: DS.count(waiting, 'account request') + ' awaiting review',
+            detail: oldest ? 'Oldest: ' + (fullName(oldest) || oldest.student_id || 'a student') + ', ' + daysAgo(oldest.created_at) + '.' : '',
+            go: '#requests', label: 'Review',
+        });
+    }
+    if (unverified > 0) {
+        items.push({
+            level: 'info',
+            title: DS.count(unverified, 'approved student') + ' without a verified record',
+            detail: 'Their eligibility cannot be worked out until the record is verified.',
+            go: '#students', label: 'Open students',
+        });
+    }
+    if (ADVISING_COUNT > 0) {
+        items.push({
+            level: 'info',
+            title: DS.count(ADVISING_COUNT, 'approved plan'),
+            detail: 'Approved by an adviser, ready to print.',
+            go: '#advising', label: 'Open plans',
+        });
+    }
+
+    const P = window.CurriculogicPrograms;
+    setText('hero-eyebrow', ['Registrar', P?.codeOf(REGISTRAR?.program_id, ''), P?.collegeOf(REGISTRAR?.program_id, '') || REGISTRAR?.department].filter(Boolean).join(' \u00b7 '));
+    setText('hero-line', DS.sentence([
+        waiting > 0 && DS.count(waiting, 'account request') + ' waiting',
+        waiting > 0 && oldestDays >= 2 && 'the oldest has waited ' + DS.count(oldestDays, 'day'),
+        unverified > 0 && DS.count(unverified, 'approved student') + ' without a verified record',
+    ], ADVISING_COUNT > 0 ? 'Nothing is waiting for you. ' + DS.count(ADVISING_COUNT, 'approved plan') + ' ready.' : 'Nothing is waiting for you right now.'));
+    $('hero-line')?.classList.toggle('is-alert', items.some(i => i.level === 'full'));
+
+    setText('attention-note', items.length ? DS.count(items.length, 'item') : '');
+    DS.render($('attention-body'), items, escapeHtml);
+}
 
 /* account requests */
 
@@ -1955,6 +2006,7 @@ async function loadAdvisingCount() {
     ADVISING_COUNT = count ?? 0;
     setStat('stat-advising', ADVISING_COUNT, 'stat-value');
     setStat('prof-stat-plans', ADVISING_COUNT);
+    renderDashboardSummary();
 
     // Nothing is waiting on the Registrar any more, so the sidebar carries no badge.
     const badge = $('nav-advising');

@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+    <!-- Content-Security-Policy: what this page may load and run. Keep identical on every page (tests/csp.test.mjs); explained in docs/SECURITY-OPERATIONS.md. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://kibleqlooeaetpbelhve.supabase.co; connect-src 'self' https://kibleqlooeaetpbelhve.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'">
+
     <title>Log in — CurricuLogic</title>
     <meta name="description" content="Log in to CurricuLogic to check your subject eligibility and plan your term.">
 
@@ -110,6 +113,8 @@
                 </div>
             </div>
 
+            <p class="forgot-row"><a href="forgotpassword.html">Forgot password?</a></p>
+
             <div class="form-row form-row-above">
                 <label class="check">
                     <input type="checkbox" id="remember">
@@ -134,7 +139,7 @@
                 <span class="sep">|</span>
                 <a href="../../../index.html#how-it-works">How it works</a>
                 <span class="sep">|</span>
-                <a href="mailto:support@curriculogic.uc.edu.ph">Support</a>
+                <a href="mailto:curriculogicph@gmail.com">Support</a>
             </nav>
 
             <p class="copyright">&copy; 2026 CurricuLogic. All rights reserved.</p>

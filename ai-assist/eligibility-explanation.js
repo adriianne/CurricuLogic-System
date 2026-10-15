@@ -35,6 +35,7 @@ function summarizeSections(r) {
             days: m.schedule_days,
             start: m.start_time,
             end: m.end_time,
+            edp: m.edp_code ?? null,
         })),
         timeOfDay: SC.sectionTimeOfDay(g.meetings),
     }));
@@ -74,6 +75,9 @@ function summarizeForExplanation(assessResult, studentName, opts = {}) {
         units: r.subject.units,
         retake: r.retake,
         reason: r.reason,
+        // Codes of subjects this one must be taken together with (a co-requisite met
+        // only because both are taken this term). Empty when it stands alone.
+        takenTogetherWith: (r.alongside ?? []).map(a => a.code),
         sections: summarizeSections(r),
         // Set only when the student has stated a preference: the section
         // that was picked for them and why, so Cura cites it, not guesses.
@@ -89,10 +93,15 @@ function summarizeForExplanation(assessResult, studentName, opts = {}) {
     // What the student asked for and what it changed, as computed by
     // shared/engine/preferences.js. Null when nothing was applied.
     const pref = assessResult.preference ?? null;
-    const preferences = pref && (pref.timeOfDay || pref.load)
+    const preferences = pref && (pref.timeOfDay || pref.load || pref.compact)
         ? {
             timeOfDay: pref.timeOfDay,
             load: pref.load,
+            // Fewest gaps: set when the student asked for classes close together, with the free time between
+            // classes in the suggested plan (minutes a week) and what it would have been without the preference.
+            fewestGaps: pref.compact === true,
+            freeMinutesPerWeek: pref.compact === true ? (pref.freeMinutes ?? null) : null,
+            freeMinutesWithoutIt: pref.compact === true ? (pref.freeMinutesBefore ?? null) : null,
             unitCeiling: pref.ceiling,
             movedToLaterTerm: pref.deferred,
             notes: pref.notes,
@@ -151,6 +160,8 @@ function summarizeForExplanation(assessResult, studentName, opts = {}) {
                 // Can it be taken together with each suggested subject? possible:true says in
                 // which section, and which suggested subjects (dropFirst) would have to be dropped.
                 together: l.together ?? [],
+                // Left out because it must be taken with these subjects and they do not fit.
+                mustBeWith: l.mustBeWith ?? [],
             }))
             : null,
         // Other clash-free plans the student can ask to see, each named by "label" and described by

@@ -952,6 +952,10 @@ async function createAccount() {
     const role       = $('a-role').value;
     const password   = $('a-password').value;
     const confirm    = $('a-confirm').value;
+    // "link": no password is typed; the person is emailed a one-time link to
+    // choose their own (db/072). "password": the old way, a temporary password
+    // the admin hands over, kept for when email is not set up.
+    const sendLink   = signInMode() === 'link';
 
     // Validation. Employee ID is only meaningful for staff roles; a
     // student has no employee record at all, so requiring it here was
@@ -985,9 +989,11 @@ async function createAccount() {
     if (dep.error) return showMsg(boxId, dep.error);
     const department = dep.value;
 
-    const pwProblem = CurriculogicPasswordRules.problem(password, role);
-    if (pwProblem) return showMsg(boxId, pwProblem);
-    if (password !== confirm) return showMsg(boxId, 'The two passwords do not match.');
+    if (!sendLink) {
+        const pwProblem = CurriculogicPasswordRules.problem(password, role);
+        if (pwProblem) return showMsg(boxId, pwProblem);
+        if (password !== confirm) return showMsg(boxId, 'The two passwords do not match.');
+    }
 
     const btn = $('create-account');
     btn.disabled = true;
@@ -1024,7 +1030,9 @@ async function createAccount() {
             p_first_name: first,
             p_last_name: last,
             p_email: email,
-            p_password: password,
+            // A blank password makes the database give the account a random one
+            // that nobody sees (db/072); the emailed link replaces it.
+            p_password: sendLink ? null : password,
             p_role: role,
             p_employee_id: null,
             p_student_id: role === 'student' ? studentId : null,
@@ -1049,7 +1057,19 @@ async function createAccount() {
             : (role === 'student' && !studentId && data?.student_id)
                 ? ` Student ID ${data.student_id} was assigned (they sign in with uc-${data.student_id}).`
                 : '';
-        showMsg(boxId, `${first} ${last} account created.${assigned} They can now sign in.`, 'success');
+        if (sendLink) {
+            // The account exists whatever happens next, so a failed email is
+            // reported on its own and never as a failed creation.
+            const mail = await CurriculogicPasswordReset.sendSetupLink(
+                supabase, email, CurriculogicPasswordReset.setPasswordUrl(window.location.href));
+            showMsg(boxId, mail.ok
+                ? `${first} ${last} account created.${assigned} A link to choose a password was emailed to ${email}.`
+                : `${first} ${last} account created.${assigned} The setup email could not be sent: ${mail.message} ` +
+                  'They can ask for it themselves with "Forgot password" on the login page.',
+                mail.ok ? 'success' : 'pending');
+        } else {
+            showMsg(boxId, `${first} ${last} account created.${assigned} They can now sign in with the temporary password.`, 'success');
+        }
         await loadStaff(true);
 
     } catch (err) {
@@ -1060,6 +1080,26 @@ async function createAccount() {
         btn.innerHTML = '<i class="fa-solid fa-user-plus" aria-hidden="true"></i><span>Create account</span>';
     }
 }
+
+/* How the new account gets its password: 'link' (emailed, the default) or
+   'password' (a temporary one typed here). */
+function signInMode() {
+    return document.querySelector('input[name="a-signin"]:checked')?.value ?? 'link';
+}
+
+function updateSignInMode() {
+    const typed = signInMode() === 'password';
+    const fields = $('a-password-fields');
+    if (fields) fields.hidden = !typed;
+    const sub = $('a-signin-sub');
+    if (sub) {
+        sub.textContent = typed
+            ? 'At least 8 characters with a special character (! @ # $ %). Admin accounts need 12. They will be asked to choose their own at first sign-in.'
+            : 'The person is emailed a one-time link to choose their own password. You never see or type it.';
+    }
+}
+
+document.querySelectorAll('input[name="a-signin"]').forEach(r => r.addEventListener('change', updateSignInMode));
 
 function clearCreateForm() {
     ['a-first-name', 'a-last-name', 'a-email', 'a-employee-id', 'a-student-id', 'a-department', 'a-password', 'a-confirm']
@@ -1362,10 +1402,14 @@ function validateBulkRows(rows, fileName) {
         const studentId = (r.student_id || '').replace(/[\s-]/g, '');
         const department = r.department || '';
         const yearLevel = r.year_level ? parseInt(r.year_level) : null;
-        const password = r.password || CurriculogicPasswordRules.generate(role);
+        // A blank password column means "email a setup link" (db/072): the
+        // person chooses their own and nobody has to be told one. A typed one
+        // is still accepted, for when email is not set up.
+        const password = String(r.password ?? '').trim();
+        const viaLink  = password === '';
         const username = r.username || '';
 
-        const base = { line: r.__line, first, last, email, role, employeeId, studentId, programCode: '', department, yearLevel, password, username };
+        const base = { line: r.__line, first, last, email, role, employeeId, studentId, programCode: '', department, yearLevel, password, viaLink, username };
 
         // Basic validation
         const firstProblem = first ? CurriculogicNameRules.problem(first, 'first name') : 'Missing first name.';
@@ -1386,8 +1430,10 @@ function validateBulkRows(rows, fileName) {
 
         const gate = CurriculogicBulkAccounts.programmeGate(selectedProgram, role, r.program_code);
         if (gate.error) { bad.push({ ...base, programCode: String(r.program_code || '').trim().toUpperCase(), why: gate.error }); continue; }
-        const pwProblem = CurriculogicPasswordRules.problem(password, role);
-        if (pwProblem) { bad.push({ ...base, why: pwProblem }); continue; }
+        if (!viaLink) {
+            const pwProblem = CurriculogicPasswordRules.problem(password, role);
+            if (pwProblem) { bad.push({ ...base, why: pwProblem }); continue; }
+        }
 
         // Role-specific validation
         if (role === 'student') {
@@ -1505,7 +1551,7 @@ function renderBulkPreview(ok, bad, fileName) {
             <h3 class="group-head" style="margin-top:var(--s3);">Ready to create (${filteredOk.length})</h3>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Program</th><th>ID</th><th>Password</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Program</th><th>ID</th><th>Sign-in</th></tr></thead>
                     <tbody>${filteredOk.slice(0, 10).map(r => `
                         <tr>
                             <td>${escapeHtml(r.first)} ${escapeHtml(r.last)}</td>
@@ -1513,7 +1559,7 @@ function renderBulkPreview(ok, bad, fileName) {
                             <td><span class="pill ${r.role === 'student' ? 'info' : r.role === 'admin' ? 'bad' : 'waiting'}">${escapeHtml(r.role)}</span></td>
                             <td class="mono">${escapeHtml(r.programCode || '—')}</td>
                             <td class="mono">${escapeHtml(r.studentId || r.employeeId || r.username || '—')}</td>
-                            <td class="mono dim">${escapeHtml(r.password)}</td>
+                            <td class="${r.viaLink ? '' : 'mono '}dim">${r.viaLink ? 'Setup link by email' : escapeHtml(r.password)}</td>
                         </tr>
                     `).join('')}</tbody>
                 </table>
@@ -1573,7 +1619,8 @@ async function commitBulk(fileName, bad) {
 
     const total = toCreate.length;
     const t = window.UploadProgress.tracker([
-        { id: 'create',  weight: 95, label: 'Creating accounts' },
+        { id: 'create',  weight: 55, label: 'Creating accounts' },
+        { id: 'email',   weight: 40, label: 'Emailing setup links' },
         { id: 'history', weight: 5,  label: 'Saving the upload history' },
     ]);
     bulkProgress(t.update('create', 0, `0 of ${total}`));
@@ -1594,7 +1641,7 @@ async function commitBulk(fileName, bad) {
                 p_first_name: row.first,
                 p_last_name: row.last,
                 p_email: row.email,
-                p_password: row.password,
+                p_password: row.viaLink ? null : row.password,
                 p_role: row.role,
                 p_employee_id: row.employeeId || null,
                 p_student_id: row.studentId || null,
@@ -1621,6 +1668,32 @@ async function commitBulk(fileName, bad) {
 
     bulkProgress(t.update('create', 1, `${total} of ${total}`));
 
+    // Setup links, one email per account. A failed email never undoes an
+    // account: it is shown in the result, and the person can ask for the link
+    // again with "Forgot password". When the sender says its limit is reached
+    // the rest are marked and skipped, instead of failing one by one.
+    const toMail = success.filter(r => r.viaLink);
+    if (toMail.length) {
+        const redirectTo = CurriculogicPasswordReset.setPasswordUrl(window.location.href);
+        let stopped = null;
+        for (const [i, row] of toMail.entries()) {
+            bulkProgress(t.update('email', window.UploadProgress.fraction(i, toMail.length), `${i} of ${toMail.length}`));
+            if (stopped) { row.mail = { ok: false, message: stopped }; continue; }
+
+            row.mail = PREVIEW
+                ? { ok: true }
+                : await CurriculogicPasswordReset.sendSetupLink(supabase, row.email, redirectTo);
+
+            // Rate limit reached, or the sender itself is broken: every further
+            // row would fail the same way, so mark them without trying.
+            if (!row.mail.ok && /Too many emails|check the email settings/.test(row.mail.message)) stopped = row.mail.message;
+            if (!PREVIEW) await new Promise(r => setTimeout(r, 700));
+        }
+    }
+    bulkProgress(t.update('email', 1, `${toMail.length} of ${toMail.length}`));
+    const mailed     = toMail.filter(r => r.mail?.ok).length;
+    const notMailed  = toMail.length - mailed;
+
     // Save history (if not preview)
     if (!PREVIEW) {
         bulkProgress(t.update('history', 0));
@@ -1644,18 +1717,23 @@ async function commitBulk(fileName, bad) {
                 <i class="fa-solid ${failed.length ? 'fa-triangle-exclamation' : 'fa-circle-check'}" aria-hidden="true"></i>
                 <div>
                     <strong>${success.length} account${success.length === 1 ? '' : 's'} created${failed.length ? `, ${failed.length} failed` : ''}</strong>
+                    ${toMail.length ? `<br>${mailed} setup link${mailed === 1 ? '' : 's'} emailed${notMailed ? `, ${notMailed} not sent (the account exists; the person can use "Forgot password" on the login page)` : ''}.` : ''}
                 </div>
             </div>
             ${success.length ? `
                 <div class="table-wrap" style="margin-top:var(--s2);">
                     <table class="data-table">
-                        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Password</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Sign-in</th></tr></thead>
                         <tbody>${success.map(s => `
                             <tr>
                                 <td>${escapeHtml(s.first)} ${escapeHtml(s.last)}</td>
                                 <td class="mono">${escapeHtml(s.email)}</td>
                                 <td><span class="pill info">${escapeHtml(s.role)}</span></td>
-                                <td class="mono dim">${escapeHtml(s.password)}</td>
+                                ${s.viaLink
+                                    ? (s.mail?.ok
+                                        ? '<td><span class="pill ok">Link emailed</span></td>'
+                                        : `<td><span class="pill waiting">Not sent</span> <span class="dim">${escapeHtml(s.mail?.message ?? '')}</span></td>`)
+                                    : `<td class="mono dim">${escapeHtml(s.password)}</td>`}
                             </tr>
                         `).join('')}</tbody>
                     </table>

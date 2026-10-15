@@ -665,6 +665,9 @@ function rowHtml(r) {
             </div>
         </td>
         <td class="cb-del"><button data-del="${r.uid}" title="Remove">&times;</button></td>
+    </tr>
+    <tr class="cb-err" data-err-for="${r.uid}"${bad ? '' : ' hidden'}>
+        <td colspan="7" role="status">${esc(r.errors.join(' '))}</td>
     </tr>`;
 }
 
@@ -1607,7 +1610,18 @@ function bind() {
 
         validate();
 
-        tr.classList.toggle('cb-bad', row.errors.length > 0);
+        /* Every row, not only the edited one: a duplicate code makes the
+           other row bad or good again, and each row shows its reasons. */
+        for (const r of ROWS) {
+            const rtr = MOUNT.querySelector(`tr[data-uid="${r.uid}"]`);
+            if (!rtr) continue;
+            rtr.classList.toggle('cb-bad', r.errors.length > 0);
+            const errRow = MOUNT.querySelector(`tr[data-err-for="${r.uid}"]`);
+            if (errRow) {
+                errRow.hidden = r.errors.length === 0;
+                errRow.firstElementChild.textContent = r.errors.join(' ');
+            }
+        }
 
         const total = tr.querySelector('.cb-total');
         if (total) total.textContent = unitsOf(row) || '';

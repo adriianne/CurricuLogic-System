@@ -3,19 +3,15 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+        <!-- Content-Security-Policy: what this page may load and run. Keep identical on every page (tests/csp.test.mjs); explained in docs/SECURITY-OPERATIONS.md. -->
+        <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://kibleqlooeaetpbelhve.supabase.co; connect-src 'self' https://kibleqlooeaetpbelhve.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'">
         <meta name="robots" content="noindex, nofollow">
 
         <title>Dashboard — CurricuLogic</title>
 
         <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
-        <script>
-            /* Apply the saved (or system) theme before anything is drawn: no white flash. See shared/js/theme.js. */
-            try {
-                var t = localStorage.getItem('curriculogic-theme');
-                if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                document.documentElement.dataset.theme = t;
-            } catch (e) { /* storage blocked: the page opens light */ }
-        </script>
+    <script src="../../shared/js/themeinit.js"></script>
         <link rel="stylesheet" href="../../shared/css/dashboard.css">
         <link rel="stylesheet" href="../prospectus/prospectus.css">
         <link rel="stylesheet" href="../../ai-assist/css/ai-chat.css">
@@ -64,6 +60,14 @@
                     <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
                 </a>
             </nav>
+
+            <!-- Cura chats: shown only on the Ask AI page -->
+            <section id="side-chats" class="side-chats" aria-label="Your chats" hidden>
+                <button type="button" class="chat-newbtn" data-chat-new>
+                    <i class="fa-solid fa-plus" aria-hidden="true"></i><span>New chat</span>
+                </button>
+                <nav id="chat-list" class="chat-list" aria-label="Past chats"></nav>
+            </section>
 
             <p class="side-foot">
                 University of Cebu
@@ -271,6 +275,11 @@
                             back for revision reappears with the reason so you can fix and
                             resubmit it.
                         </p>
+                        <p class="page-note">
+                            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                            A recommendation, not a reservation: seats and schedule conflicts are
+                            confirmed by the EDP office. Each section below shows its EDP code.
+                        </p>
                     </div>
 
                     <div id="req-msg" class="msg" role="status"></div>
@@ -344,7 +353,27 @@
                     </div>
 
                     <section class="card ai-chat-card">
+                        <div class="chat-shell">
+                            <div id="chat-menu" class="chat-menu" role="menu" hidden>
+                                <button type="button" role="menuitem" data-act="rename"><i class="fa-solid fa-pen" aria-hidden="true"></i>Rename</button>
+                                <button type="button" role="menuitem" data-act="delete" class="is-danger"><i class="fa-solid fa-trash" aria-hidden="true"></i>Delete</button>
+                            </div>
+                            <dialog id="chat-confirm" class="chat-confirm" aria-labelledby="chat-confirm-title">
+                                <form method="dialog">
+                                    <h3 id="chat-confirm-title">Delete this chat?</h3>
+                                    <p id="chat-confirm-text"></p>
+                                    <div class="chat-confirm-actions">
+                                        <button type="submit" value="cancel" class="chat-confirm-cancel">Cancel</button>
+                                        <button type="submit" value="delete" class="chat-confirm-delete">Delete</button>
+                                    </div>
+                                </form>
+                            </dialog>
+                            <div id="chat-toast" class="chat-toast" role="status" aria-live="polite" hidden></div>
+                            <div class="chat-main">
                         <div class="chat-head">
+                            <button type="button" class="chat-new-head" data-chat-new title="Start a new conversation">
+                                <i class="fa-solid fa-plus" aria-hidden="true"></i><span>New chat</span>
+                            </button>
                             <span class="chat-head-logo" aria-hidden="true"><img src="../../assets/CurriculogicLogo.png" alt="" width="34" height="34"></span>
                             <div class="chat-head-text">
                                 <strong>Cura</strong>
@@ -375,6 +404,9 @@
                                     <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
                                 </button>
                             </form>
+                        </div>
+                    
+                            </div>
                         </div>
                     </section>
 
@@ -503,16 +535,21 @@
 <script src="../../shared/js/programs.js"></script>
 <script src="../../shared/js/requeststatus.js"></script>
     <script src="../../shared/js/scheduleconflicts.js"></script>
+    <script src="../../shared/js/backupsections.js"></script>
+    <script src="../../shared/js/enrollmentsheet.js"></script>
+    <script src="../../shared/js/edpresult.js"></script>
     <script src="../../ai-assist/eligibility-explanation.js"></script>
     <script src="../../shared/js/scheduletable.js"></script>
     <script src="../../ai-assist/eligibility-chat.js"></script>
     <script src="../../ai-assist/chatsuggestions.js"></script>
+    <script src="../../ai-assist/chatlist.js"></script>
     <script src="../../shared/engine/engine.js"></script>
     <script src="../../shared/engine/preferences.js"></script>
     <script src="../../shared/js/prospectusgrid.js"></script>
     <script src="../../shared/js/passwordrules.js"></script>
 <script src="../../shared/js/forcepasswordchange.js"></script>
     <script src="../../shared/js/autoplan.js"></script>
+    <script src="../../shared/js/chatplan.js"></script>
     <script src="../../shared/js/motion.js"></script>
     <script src="../../shared/js/profilephoto.js"></script>
     <script src="../../shared/js/theme.js"></script>

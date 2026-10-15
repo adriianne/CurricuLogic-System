@@ -3,19 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Content-Security-Policy: what this page may load and run. Keep identical on every page (tests/csp.test.mjs); explained in docs/SECURITY-OPERATIONS.md. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://kibleqlooeaetpbelhve.supabase.co; connect-src 'self' https://kibleqlooeaetpbelhve.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'">
     <meta name="robots" content="noindex, nofollow">
 
     <title>Department dashboard — CurricuLogic</title>
 
     <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
-    <script>
-        /* Apply the saved (or system) theme before anything is drawn: no white flash. See shared/js/theme.js. */
-        try {
-            var t = localStorage.getItem('curriculogic-theme');
-            if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-            document.documentElement.dataset.theme = t;
-        } catch (e) { /* storage blocked: the page opens light */ }
-    </script>
+    <script src="../../shared/js/themeinit.js"></script>
     <link rel="stylesheet" href="../../shared/css/dashboard.css">
     <link rel="stylesheet" href="grade_upload.css">
     <link rel="stylesheet" href="../prospectus/prospectus.css">
@@ -116,15 +112,12 @@
             <!-- Dashboard -->
     <section class="view view-wide" id="view-dashboard">
 
-    <div class="page-head">
+    <div class="page-head hero">
         <div class="page-head-row">
             <div>
+                <p class="hero-eyebrow" id="hero-eyebrow">Department</p>
                 <h1 class="page-title" id="greeting">Welcome back</h1>
-                <p class="page-sub">
-                    The curriculum you author here is what the recommendation
-                    engine reasons over. Every rule is read at runtime — a
-                    change takes effect immediately.
-                </p>
+                <p class="hero-line" id="hero-line" role="status">Checking this term.</p>
             </div>
             <div class="setup-badge" id="setup-badge" hidden></div>
         </div>
@@ -132,7 +125,7 @@
 
     <div id="status-notice"></div>
 
-    <div class="dashboard-tiles">
+    <div class="dashboard-tiles is-slim">
 
         <a class="tile" href="#curriculum">
             <div class="tile-head">
@@ -188,7 +181,18 @@
 
     </div>
 
-    <section class="card">
+    <div class="dash-grid">
+    <section class="card" id="attention-card">
+        <div class="card-head">
+            <span class="card-title">Needs attention</span>
+            <span class="card-note" id="attention-note"></span>
+        </div>
+        <div class="card-body">
+            <ul class="attention-list" id="attention-body"><li class="dim">Checking.</li></ul>
+        </div>
+    </section>
+
+    <section class="card" id="prospectus-card">
         <div class="card-head">
             <span class="card-title">Active prospectus</span>
             <span class="card-note" id="prospectus-note"></span>
@@ -199,6 +203,28 @@
                 <h3>Loading</h3>
                 <p>Fetching the curriculum.</p>
             </div>
+        </div>
+    </section>
+    </div>
+
+    <section class="card" id="demand-card">
+        <div class="card-head">
+            <span class="card-title">Section demand</span>
+            <span class="card-note" id="demand-note"></span>
+        </div>
+        <div class="card-body">
+            <p class="demand-headline" id="demand-headline" role="status" hidden>Loading.</p>
+            <details class="demand-help">
+                <summary>How to read this</summary>
+                <p class="review-hint">
+                    Each tile is a section. Choose one to see its subjects and how many students chose each.
+                    A student counts when they chose it in a plan that was sent or approved. It is not the
+                    EDP office's seat count, which this system cannot see. A subject with no capacity set is
+                    judged against 45.
+                </p>
+            </details>
+            <p class="msg" id="demand-msg" role="status"></p>
+            <div id="demand-body"></div>
         </div>
     </section>
 
@@ -822,7 +848,7 @@
                     <div class="prof-avatar" id="detail-avatar" aria-hidden="true"></div>
                     <div class="prof-id">
                         <h1 class="prof-name" id="detail-name">Student</h1>
-                        <p class="prof-sub" id="detail-sub"></p>
+                        <p class="prof-sub" id="student-sub"></p>
                         <div class="prof-pills" id="detail-pills"></div>
                     </div>
                 </section>
@@ -1076,6 +1102,7 @@
 <script src="../../shared/js/idlesignout.js"></script>
 <script src="../../shared/js/subjectgroups.js"></script>
 <script src="../../shared/js/systemconfig.js"></script>
+<script src="../../shared/js/sectiondemand.js"></script>
 <script src="../../shared/js/programs.js"></script>
 <script src="../../shared/js/requeststatus.js"></script>
 <script src="../../shared/js/gradefile.js"></script>

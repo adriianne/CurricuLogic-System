@@ -259,6 +259,7 @@ function showView(name, param) {
     if (name === 'prospectus') loadProspectusList();
     if (name === 'curriculum') renderSubjects();
     if (name === 'subject' && param) openSubject(Number(param));
+    if (name === 'dashboard') loadSectionDemand();
     if (name === 'schedule') initSchedule();
     if (name === 'students') openStudentList();
     if (name === 'student' && param) openStudent(param);
@@ -607,7 +608,9 @@ $('p-avatar-file')?.addEventListener('change', async (e) => {
 
     try {
         const dataUrl = await downscaleImage(file, 400, 0.85);
-        const blob = await (await fetch(dataUrl)).blob();
+        // Not fetch(dataUrl): the Content-Security-Policy forbids fetching a data: address.
+        const blob = CurriculogicPhoto.dataUrlToBlob(dataUrl);
+        if (!blob) throw new Error('Could not read the picture.');
         const path = `${AUTH_UID}/avatar-${Date.now()}.jpg`;
 
         const { error: upErr } = await supabase.storage
@@ -772,6 +775,7 @@ function afterLoad() {
     renderIntegrity();
     renderSubjects();
     renderSubjectOptions();
+    renderDashboardSummary();
 }
 
 /* dashboard */
@@ -826,35 +830,40 @@ function renderProspectus() {
         byTerm.get(k).push(s);
     }
 
+    const programme = window.CurriculogicPrograms?.nameOf(PROSPECTUS.program_id, PREVIEW ? 'BS Information Technology' : '\u2014') ?? '\u2014';
+    const totalUnits = SUBJECTS.filter(x => x.term != null).reduce((t, x) => t + Number(x.units || 0), 0);
+
     body.innerHTML = `
-        <dl>
-            <div class="detail"><dt>Programme</dt><dd>${escapeHtml(
-                window.CurriculogicPrograms?.nameOf(PROSPECTUS.program_id, PREVIEW ? 'BS Information Technology' : '—') ?? '—')}</dd></div>
-            <div class="detail"><dt>Effective year</dt><dd>${escapeHtml(PROSPECTUS.academic_year)}</dd></div>
-            <div class="detail"><dt>Status</dt><dd>${PROSPECTUS.is_active
-                ? '<span class="pill ok">Active</span>'
-                : '<span class="pill waiting">Draft</span>'}</dd></div>
-        </dl>
-        <div class="table-wrap" style="margin-top: var(--s3)">
-            <table class="data-table">
-                <thead><tr><th>Year</th><th>Term</th><th class="num">Subjects</th><th class="num">Units</th></tr></thead>
-                <tbody>${[...byTerm.entries()].map(([k, list]) => {
-                    const [y, t] = k.split('-');
-                    const u = list.reduce((sum, s) => sum + Number(s.units || 0), 0);
-                    return `<tr>
-                        <td>${ordinal(Number(y))}</td>
-                        <td>${termLabel(Number(t))}</td>
-                        <td class="num">${list.length}</td>
-                        <td class="num">${u}</td>
-                    </tr>`;
-                }).join('')}</tbody>
-            </table>
-        </div>`;
+        <div class="prospectus-line">
+            <strong>${escapeHtml(programme)}</strong>
+            ${PROSPECTUS.is_active ? '<span class="pill ok">Active</span>' : '<span class="pill waiting">Draft</span>'}
+        </div>
+        <p class="dim prospectus-facts">Effective ${escapeHtml(PROSPECTUS.academic_year)} \u00b7 ${SUBJECTS.length} subjects \u00b7 ${totalUnits} units</p>
+        <details class="prospectus-details">
+            <summary>Year-by-year breakdown</summary>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Year</th><th>Term</th><th class="num">Subjects</th><th class="num">Units</th></tr></thead>
+                    <tbody>${[...byTerm.entries()].map(([k, list]) => {
+                        const [y, t] = k.split('-');
+                        const u = list.reduce((sum, x) => sum + Number(x.units || 0), 0);
+                        return `<tr>
+                            <td>${ordinal(Number(y))}</td>
+                            <td>${termLabel(Number(t))}</td>
+                            <td class="num">${list.length}</td>
+                            <td class="num">${u}</td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>
+        </details>`;
 }
 
 /* Integrity checks run client-side on every load. A cycle would make the
    forward-chaining engine spin rather than fail, so it is worth catching
    the moment a rule is added. */
+let INTEGRITY_COUNT = 0;
+
 function renderIntegrity() {
     const body = $('integrity-body');
     const card = $('integrity-card');
@@ -905,6 +914,7 @@ function renderIntegrity() {
 
     const unique = [...new Set(issues)];
     const count  = unique.length;
+    INTEGRITY_COUNT = count;
 
     // Tile — reflects count, tinted amber when issues exist.
     const tile = document.querySelector('[data-tile="integrity"]');
@@ -2154,7 +2164,7 @@ function renderSetupBadge() {
 
     badge.hidden = false;
     badge.innerHTML = `
-        ${done.map(on => `<span class="setup-badge-dot${on ? ' on' : ''}"></span>`).join('')}
+        ${done.map((on, n) => `<span class="setup-badge-dot${on ? ' on' : ''}" style="--d:${n}"></span>`).join('')}
         <span class="setup-badge-text">Setup ${complete}/${total}</span>
     `;
 }
@@ -5654,7 +5664,7 @@ async function openStudent(studentRowId) {
 
     if (!s) {
         setText('detail-name', 'Student not found');
-        setText('detail-sub', '');
+        setText('student-sub', '');
         $('detail-pills').innerHTML = '';
         $('detail-term-body').innerHTML = '';
         $('detail-progress-body').innerHTML = '';
@@ -5677,7 +5687,7 @@ async function openStudent(studentRowId) {
 function renderStudentHero(s) {
     window.CurriculogicPhoto.paint($('detail-avatar'), null, SL().initialsOf(s.first_name, s.last_name, s.email));
     setText('detail-name', fullName(s) || '—');
-    setText('detail-sub', `${s.student_id || 'No ID yet'} · ${yearText(s.year_level)} · ${programName(s)}`);
+    setText('student-sub', `${s.student_id || 'No ID yet'} · ${yearText(s.year_level)} · ${programName(s)}`);
     $('detail-pills').innerHTML = recordPill(s);
     renderStudentDetails(s, '');
 }
@@ -5910,6 +5920,422 @@ async function renderStudentProgress(s, records, seq) {
         </div>`;
     const bar = body.querySelector('.stu-bar i');
     if (bar) requestAnimationFrame(() => { bar.style.width = `${p.percent}%`; });
+}
+
+
+/* section demand
+   How many students chose each section (db/076_section_demand.sql), so the Department can open
+   another section before the enrolment day instead of after students are turned away. The rules
+   (45 by default, a warning five seats before) are in shared/js/sectiondemand.js. */
+
+const PREVIEW_DEMAND = [
+    { subject_id: 1, subject_code: 'CC-INTCOM11',  subject_title: 'Introduction to Computing',        section: 'BSIT-1A', edp_codes: ['4101', '4102'], capacity: null, is_open: true,  selected: 47, awaiting: 9, approved: 38 },
+    { subject_id: 2, subject_code: 'CC-COMPROG11', subject_title: 'Computer Programming 1',           section: 'BSIT-1A', edp_codes: ['4111', '4112'], capacity: null, is_open: true,  selected: 41, awaiting: 6, approved: 35 },
+    { subject_id: 3, subject_code: 'MATH 101',     subject_title: 'Mathematics in the Modern World',  section: 'BSIT-1A', edp_codes: ['4121'],         capacity: null, is_open: true,  selected: 8,  awaiting: 1, approved: 7 },
+    { subject_id: 1, subject_code: 'CC-INTCOM11',  subject_title: 'Introduction to Computing',        section: 'BSIT-1B', edp_codes: ['4103', '4104'], capacity: null, is_open: true,  selected: 12, awaiting: 2, approved: 10 },
+    { subject_id: 2, subject_code: 'CC-COMPROG11', subject_title: 'Computer Programming 1',           section: 'BSIT-1B', edp_codes: ['4113', '4114'], capacity: 30,   is_open: true,  selected: 26, awaiting: 4, approved: 22 },
+    { subject_id: 3, subject_code: 'MATH 101',     subject_title: 'Mathematics in the Modern World',  section: 'BSIT-1C', edp_codes: ['4122'],         capacity: null, is_open: false, selected: 3,  awaiting: 0, approved: 3 },
+    { subject_id: 4, subject_code: 'IT-OOPROG21',  subject_title: 'Object Oriented Programming',      section: 'BSIT-2A', edp_codes: ['4201', '4202'], capacity: null, is_open: true,  selected: 20, awaiting: 3, approved: 17 },
+    { subject_id: 7, subject_code: 'IT-NET41',     subject_title: 'Networking 2',                     section: 'BSIT-4A', edp_codes: ['4401'],         capacity: null, is_open: true,  selected: 31, awaiting: 4, approved: 27 },
+    { subject_id: 5, subject_code: 'IT-SAD21',     subject_title: 'System Analysis & Design',         section: 'BSIT-3C', edp_codes: ['4301', '4302'], capacity: null, is_open: true,  selected: 18, awaiting: 2, approved: 16 },
+    { subject_id: 6, subject_code: 'IT-CPSTONE30', subject_title: 'Capstone Project 1',               section: 'BSIT-3C', edp_codes: ['4311'],         capacity: null, is_open: true,  selected: 6,  awaiting: 1, approved: 5 },
+];
+
+const PREVIEW_DEMAND_NAMES = [
+    { student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva', year_level: 1, request_status: 'approved' },
+    { student_id: '2401203', first_name: 'Marco',  last_name: 'Deveza',     year_level: 1, request_status: 'submitted' },
+];
+
+let DEMAND_ROWS = [];
+let DEMAND_TERM = null;
+let DEMAND_LOADED = false;
+let DEMAND_FAILED = null;      // why the demand could not be shown, in words
+let DEMAND_SHOW_ALL = true;
+
+/* The card, the header and the list all say so, instead of staying on "Checking". */
+function showDemandFailure(message) {
+    DEMAND_FAILED = message;
+    const body = $('demand-body');
+    if (body) body.innerHTML = `<p class="dim">${escapeHtml(message)}</p>`;
+    renderDashboardSummary();
+}
+
+async function loadSectionDemand() {
+    const body = $('demand-body');
+    if (!body || !window.SectionDemand) return;
+
+    if (PREVIEW) {
+        DEMAND_TERM = { year: 2023, term: 1 };
+        DEMAND_ROWS = PREVIEW_DEMAND;
+        DEMAND_LOADED = true;
+        DEMAND_FAILED = null;
+        return renderSectionDemand();
+    }
+
+    try { DEMAND_TERM = await window.CurriculogicTerm?.load() ?? null; }
+    catch (_) { DEMAND_TERM = null; }
+    if (!DEMAND_TERM) {
+        showDemandFailure('The current term is not set, so section demand cannot be shown.');
+        return;
+    }
+
+    const { data, error } = await supabase.rpc('section_demand', { p_year: DEMAND_TERM.year, p_term: DEMAND_TERM.term });
+    if (error) {
+        console.warn('section demand failed:', error.message);
+        showDemandFailure('Section demand could not be loaded. Try again in a moment.');
+        return;
+    }
+    DEMAND_ROWS = data ?? [];
+    DEMAND_LOADED = true;
+    DEMAND_FAILED = null;
+    renderSectionDemand();
+}
+
+/* The card lists SECTIONS (BSIT-1A, BSIT-3C ...) as compact tiles. Choosing a tile shows the subjects inside that
+   section right below: how many students chose each, its EDP code, and the Names and Close buttons. */
+let DEMAND_PICKED = null;      // the section whose subjects are showing
+let DEMAND_DRAWN = false;      // the board has been drawn once: later redraws do not replay the entrance
+let DEMAND_SWAP = false;       // a section was just chosen: its subjects slide in
+
+function renderSectionDemand() {
+    const SD = window.SectionDemand;
+    const body = $('demand-body');
+    const prepared = SD.prepare(DEMAND_ROWS);
+    const summary = SD.summarize(prepared);
+    const groups = SD.groupBySection(prepared);
+
+    setText('demand-note', DEMAND_TERM
+        ? window.CurriculogicTerm.formatLabel(DEMAND_TERM.term, DEMAND_TERM.year) : '');
+    setText('demand-headline', SD.headlineBySection(groups));
+    $('demand-headline')?.classList.toggle('is-alert', summary.full > 0);
+
+    renderDashboardSummary();
+    if (!groups.length) {
+        body.innerHTML = '<p class="dim">No sections are scheduled for this term yet.</p>';
+        return;
+    }
+
+    const needs = (g) => g.level === 'full' || g.level === 'near';
+    const shown = DEMAND_SHOW_ALL ? groups : groups.filter(needs);
+    const LABEL = { full: ['bad', 'Full'], near: ['waiting', 'Near full'], ok: ['ok', 'Room'], closed: ['info', 'Closed'] };
+
+    // Nothing chosen yet, or the chosen one is filtered out: start with the first that needs attention.
+    if (!shown.some(g => g.section === DEMAND_PICKED)) {
+        DEMAND_PICKED = (shown.find(needs) ?? shown[0])?.section ?? null;
+    }
+    const picked = shown.find(g => g.section === DEMAND_PICKED) ?? null;
+    const entering = !DEMAND_DRAWN;          // first draw, or the filter changed: the board arrives
+    const swapping = entering || DEMAND_SWAP;  // the subjects panel eases in and its meters fill
+    DEMAND_DRAWN = true;
+    DEMAND_SWAP = false;
+
+    let tileIndex = 0;
+    const tileHtml = (g) => {
+        const [tone, label] = LABEL[g.level];
+        const on = g.section === DEMAND_PICKED;
+        return `
+        <button type="button" class="demand-tile level-${escapeHtml(g.level)}${on ? ' is-picked' : ''}" style="--t:${tileIndex++}"
+                data-demand-pick="${escapeHtml(g.section)}" aria-pressed="${escapeHtml(String(on))}">
+            <span class="demand-tile-top"><strong>${escapeHtml(g.section)}</strong><span class="pill ${tone}">${escapeHtml(label)}</span></span>
+            <span class="dim">${g.subjects} subject${g.subjects === 1 ? '' : 's'} · ${g.students} choice${g.students === 1 ? '' : 's'}</span>
+        </button>`;
+    };
+
+    // 1st Year, 2nd Year ... headings over the tiles of that year
+    let yearIndex = 0;
+    const yearHtml = (y) => `
+        <div class="demand-year" style="--y:${yearIndex++}">
+            <h4 class="demand-year-title">${escapeHtml(y.label)}
+                <span class="dim">${y.sections} section${y.sections === 1 ? '' : 's'}${y.attention ? ' \u00b7 ' + y.attention + ' need' + (y.attention === 1 ? 's' : '') + ' attention' : ''}</span>
+            </h4>
+            <div class="demand-tiles">${y.groups.map(tileHtml).join('')}</div>
+        </div>`;
+
+    let rowIndex = 0;
+    const rowHtml = (r) => {
+        const [tone, label] = LABEL[r.state.level];
+        const pct = Math.round(r.state.share * 100);
+        return `
+            <tr data-subject="${r.subject_id}" data-section="${escapeHtml(r.section)}" style="--r:${rowIndex++}">
+                <td><strong>${escapeHtml(r.subject_code)}</strong><div class="dim">${escapeHtml(r.subject_title)}</div></td>
+                <td class="mono">${escapeHtml((r.edp_codes ?? []).join(', ') || '—')}</td>
+                <td class="demand-count">
+                    <span><strong>${Number(r.selected) || 0}</strong> of ${r.state.capacity}${r.state.capacityIsDefault ? ' <span class="dim">(default)</span>' : ''}</span>
+                    <div class="unit-meter"><div class="unit-meter-fill${r.state.level === 'full' ? ' over-cap' : r.state.level === 'near' ? ' is-near' : ''}" style="width:${pct}%"></div></div>
+                    <div class="dim">${escapeHtml(SD.advice(r))}</div>
+                </td>
+                <td><span class="pill ${tone}">${escapeHtml(label)}</span></td>
+                <td class="demand-actions">
+                    <button type="button" class="btn-small" data-demand-names>Names</button>
+                    <button type="button" class="btn-small" data-demand-toggle>${r.is_open === false ? 'Reopen' : 'Close'}</button>
+                </td>
+            </tr>`;
+    };
+
+    const detailHtml = (g) => {
+        const bits = [
+            g.counts.full ? `${g.counts.full} full` : '',
+            g.counts.near ? `${g.counts.near} near full` : '',
+            g.counts.closed ? `${g.counts.closed} closed` : '',
+        ].filter(Boolean).join(' · ');
+        return `
+        <section class="demand-detail${swapping ? ' is-swapping' : ''}" aria-label="Subjects of ${escapeHtml(g.section)}">
+            <div class="demand-detail-head">
+                <h3>${escapeHtml(g.section)}</h3>
+                <span class="dim">${g.subjects} subject${g.subjects === 1 ? '' : 's'} · ${g.students} student choice${g.students === 1 ? '' : 's'}${bits ? ' · ' + escapeHtml(bits) : ''}</span>
+                <span class="demand-all" data-demand-all-box>
+                    <button type="button" class="btn-small" data-demand-all="${escapeHtml(g.section)}">${g.rows.every(r => r.is_open === false) ? 'Reopen all subjects' : 'Close all subjects'}</button>
+                </span>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table demand-table">
+                    <thead><tr><th>Subject</th><th>EDP</th><th>Chose it</th><th>Status</th><th></th></tr></thead>
+                    <tbody>${g.rows.map(rowHtml).join('')}</tbody>
+                </table>
+            </div>
+        </section>`;
+    };
+
+    body.innerHTML = `
+        <div class="demand-toolbar">
+            <button type="button" class="btn-small" id="demand-toggle" aria-pressed="${escapeHtml(String(!DEMAND_SHOW_ALL))}">
+                ${DEMAND_SHOW_ALL ? 'Only sections that need attention' : `Show all ${groups.length} sections`}
+            </button>
+        </div>
+        ${shown.length ? `<div class="demand-board${entering ? ' is-entering' : ''}">${SD.groupByYear(shown).map(yearHtml).join('')}</div>` : '<p class="dim">No section needs attention.</p>'}
+        ${picked ? detailHtml(picked) : ''}`;
+
+    $('demand-toggle')?.addEventListener('click', () => { DEMAND_SHOW_ALL = !DEMAND_SHOW_ALL; DEMAND_DRAWN = false; renderSectionDemand(); });
+    body.querySelectorAll('[data-demand-pick]').forEach(btn => btn.addEventListener('click', () => {
+        DEMAND_PICKED = btn.dataset.demandPick;
+        DEMAND_SWAP = true;
+        renderSectionDemand();
+    }));
+    body.querySelectorAll('[data-demand-names]').forEach(btn =>
+        btn.addEventListener('click', () => showDemandNames(btn.closest('tr'))));
+    body.querySelectorAll('[data-demand-toggle]').forEach(btn =>
+        btn.addEventListener('click', () => askToggleSection(btn.closest('tr'))));
+    body.querySelectorAll('[data-demand-all]').forEach(btn =>
+        btn.addEventListener('click', () => askToggleWholeSection(btn.dataset.demandAll)));
+}
+
+/* Every subject of one section at once (db/080). Closing tells each student who chose any of them, once. */
+function askToggleWholeSection(section) {
+    const rows = DEMAND_ROWS.filter(r => r.section === section);
+    if (!rows.length) return;
+    const closing = !rows.every(r => r.is_open === false);
+    const box = document.querySelector('[data-demand-all-box]');
+    if (!box) return;
+    const count = rows.length;
+    box.innerHTML = `
+        <span class="demand-confirm">
+            ${closing
+                ? `Close all ${count} subject${count === 1 ? '' : 's'} of ${escapeHtml(section)}? Every student who chose any of them will be told once.`
+                : `Open all subjects of ${escapeHtml(section)} again?`}
+            <button type="button" class="btn-small btn-accent" data-demand-all-yes>${closing ? 'Close all' : 'Reopen all'}</button>
+            <button type="button" class="btn-small" data-demand-all-no>Cancel</button>
+        </span>`;
+    box.querySelector('[data-demand-all-no]').addEventListener('click', renderSectionDemand);
+    box.querySelector('[data-demand-all-yes]').addEventListener('click', (e) => toggleWholeSection(section, !closing, rows, e.currentTarget));
+}
+
+async function toggleWholeSection(section, open, rows, btn) {
+    btn.disabled = true;
+    const say = (text, cls) => { const m = $('demand-msg'); if (m) { m.textContent = text; m.className = `msg ${cls ?? ''}`; } };
+
+    let told = 0;
+    let changed = rows.length;
+    if (PREVIEW) {
+        // The real count of students is worked out by the database (each student once); a preview cannot know it.
+        for (const r of rows) r.is_open = open;
+        say(open
+            ? `${section} is open again (${changed} subject${changed === 1 ? '' : 's'}).`
+            : `${section} is closed (${changed} subject${changed === 1 ? '' : 's'}). Preview: the students who chose it would be told once each.`, 'success');
+        renderSectionDemand();
+        return;
+    } else {
+        const { data, error } = await supabase.rpc('set_section_all_open', {
+            p_section: section, p_year: DEMAND_TERM.year, p_term: DEMAND_TERM.term, p_open: open,
+        });
+        if (error) {
+            console.warn('set_section_all_open failed:', error.message);
+            say('Could not change the section: ' + error.message, 'error');
+            renderSectionDemand();
+            return;
+        }
+        told = Number(data?.notified) || 0;
+        changed = Number(data?.subjects) || 0;
+        await loadSectionDemand();
+    }
+    say(open
+        ? `${section} is open again (${changed} subject${changed === 1 ? '' : 's'}).`
+        : `${section} is closed (${changed} subject${changed === 1 ? '' : 's'}).${told ? ` ${told} student${told === 1 ? ' was' : 's were'} told.` : ' No student had chosen it.'}`, 'success');
+}
+
+/* The status line under the title and the "Needs attention" list. Both read what the page already knows: the
+   section demand, the schedule count, and the curriculum checks. Nothing here is a new number. */
+function dashboardFindings() {
+    const SD = window.SectionDemand;
+    const items = [];
+
+    if (DEMAND_LOADED && SD) {
+        const groups = SD.groupBySection(SD.prepare(DEMAND_ROWS))
+            .filter(g => g.level === 'full' || g.level === 'near');
+        const order = [...groups].sort((a, b) => b.counts.full - a.counts.full || b.counts.near - a.counts.near);
+        for (const g of order) {
+            const worst = g.rows.filter(r => r.state.level === 'full' || r.state.level === 'near').slice(0, 2)
+                .map(r => `${r.subject_code} ${r.state.level === 'full' ? 'full' : 'near full'} (${Number(r.selected) || 0} of ${r.state.capacity})`).join(', ');
+            items.push({ kind: 'section', level: g.level, section: g.section, title: g.section, detail: worst });
+        }
+    }
+    if (DEMAND_FAILED) {
+        items.push({ kind: 'note', level: 'info', title: DEMAND_FAILED, detail: '' });
+    }
+    if (READY.offerings === 0) {
+        items.push({ kind: 'link', level: 'info', title: 'No schedule is published yet', detail: 'Students cannot be given a section until it is.', href: '#schedule', label: 'Open schedule' });
+    }
+    if (INTEGRITY_COUNT > 0) {
+        items.push({ kind: 'link', level: 'info', title: `${INTEGRITY_COUNT} curriculum issue${INTEGRITY_COUNT === 1 ? '' : 's'} to review`, detail: 'Rules that point at the same or a later term.', href: '#curriculum', label: 'Review rules' });
+    }
+    return items;
+}
+
+function renderDashboardSummary() {
+    const items = dashboardFindings();
+    const sections = items.filter(i => i.kind === 'section');
+
+    // header: programme, department, term, and one honest sentence
+    const term = DEMAND_TERM ?? SYSTEM_TERM;
+    const termText = term && window.CurriculogicTerm ? window.CurriculogicTerm.formatLabel(term.term, term.year) : '';
+    setText('hero-eyebrow', [PROGRAM_CODE, STAFF?.department, termText].filter(Boolean).join(' \u00b7 '));
+
+    const parts = [];
+    if (sections.length) parts.push(`${sections.length} section${sections.length === 1 ? '' : 's'} need${sections.length === 1 ? 's' : ''} attention`);
+    if (DEMAND_FAILED) parts.push('section demand could not be loaded');
+    if (READY.offerings === 0) parts.push('the schedule is not published yet');
+    if (INTEGRITY_COUNT > 0) parts.push(`${INTEGRITY_COUNT} curriculum issue${INTEGRITY_COUNT === 1 ? '' : 's'} to review`);
+    const line = parts.length
+        ? parts.join(' \u00b7 ').replace(/^./, c => c.toUpperCase()) + '.'
+        : (DEMAND_LOADED && !DEMAND_FAILED ? 'Everything looks in order for this term.' : 'Checking this term.');
+    setText('hero-line', line);
+    $('hero-line')?.classList.toggle('is-alert', sections.some(i => i.level === 'full'));
+
+    // the list
+    const body = $('attention-body');
+    if (!body) return;
+    setText('attention-note', items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : '');
+    if (!items.length) {
+        body.innerHTML = `<li class="attention-item level-ok"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><div class="grow">${DEMAND_LOADED ? 'Nothing needs your attention right now.' : 'Checking this term.'}</div></li>`;
+        return;
+    }
+    const shown = items.slice(0, 5);
+    const more = items.length - shown.length;
+    const html = shown.map((i, n) => `
+        <li class="attention-item level-${escapeHtml(i.level)}" style="--i:${n}">
+            <i class="fa-solid ${i.level === 'full' ? 'fa-triangle-exclamation' : i.level === 'near' ? 'fa-circle-exclamation' : 'fa-circle-info'}" aria-hidden="true"></i>
+            <div class="grow"><strong>${escapeHtml(i.title)}</strong> <span class="dim">${escapeHtml(i.detail)}</span></div>
+            ${i.kind === 'section'
+                ? `<button type="button" class="btn-small" data-attn-open="${escapeHtml(i.section)}">Open</button>`
+                : i.href ? `<button type="button" class="btn-small" data-attn-go="${escapeHtml(i.href)}">${escapeHtml(i.label)}</button>` : ''}
+        </li>`).join('') + (more > 0 ? `<li class="dim">and ${more} more.</li>` : '');
+    // the same list again (the board was only redrawn): leave it, so it does not replay
+    if (body.dataset.sig === html) return;
+    body.dataset.sig = html;
+    body.innerHTML = html;
+    body.querySelectorAll('[data-attn-go]').forEach(btn => btn.addEventListener('click', () => { window.location.hash = btn.dataset.attnGo; }));
+    body.querySelectorAll('[data-attn-open]').forEach(btn => btn.addEventListener('click', () => {
+        DEMAND_PICKED = btn.dataset.attnOpen;
+        DEMAND_SHOW_ALL = true;
+        DEMAND_SWAP = true;
+        renderSectionDemand();
+        $('demand-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+}
+
+/* Closing a section tells the students who chose it, so it asks first, in the row. Reopening tells nobody. */
+function askToggleSection(tr) {
+    const row = DEMAND_ROWS.find(r => String(r.subject_id) === tr.dataset.subject && r.section === tr.dataset.section);
+    if (!row) return;
+    const closing = row.is_open !== false;
+    const cell = tr.querySelector('.demand-actions');
+    const who = Number(row.selected) || 0;
+    cell.innerHTML = `
+        <span class="demand-confirm">
+            ${closing
+                ? `Close ${escapeHtml(row.subject_code)} ${escapeHtml(row.section)}? ${who} student${who === 1 ? '' : 's'} who chose it will be told.`
+                : `Open ${escapeHtml(row.subject_code)} ${escapeHtml(row.section)} again?`}
+            <button type="button" class="btn-small btn-accent" data-demand-yes>${closing ? 'Close it' : 'Reopen it'}</button>
+            <button type="button" class="btn-small" data-demand-no>Cancel</button>
+        </span>`;
+    cell.querySelector('[data-demand-no]').addEventListener('click', renderSectionDemand);
+    cell.querySelector('[data-demand-yes]').addEventListener('click', (e) => toggleSection(row, !closing, e.currentTarget));
+}
+
+async function toggleSection(row, open, btn) {
+    btn.disabled = true;
+    const say = (text, cls) => { const m = $('demand-msg'); if (m) { m.textContent = text; m.className = `msg ${cls ?? ''}`; } };
+
+    let told = 0;
+    if (PREVIEW) {
+        row.is_open = open;
+        told = open ? 0 : Number(row.selected) || 0;
+    } else {
+        const { data, error } = await supabase.rpc('set_section_open', {
+            p_subject_id: row.subject_id, p_section: row.section,
+            p_year: DEMAND_TERM.year, p_term: DEMAND_TERM.term, p_open: open,
+        });
+        if (error) {
+            console.warn('set_section_open failed:', error.message);
+            say('Could not change the section: ' + error.message, 'error');
+            renderSectionDemand();
+            return;
+        }
+        told = Number(data?.notified) || 0;
+        await loadSectionDemand();
+    }
+    say(open
+        ? `${row.subject_code} ${row.section} is open again.`
+        : `${row.subject_code} ${row.section} is closed.${told ? ` ${told} student${told === 1 ? ' was' : 's were'} told.` : ' No student had chosen it.'}`, 'success');
+    if (PREVIEW) renderSectionDemand();
+}
+
+/* The names behind one section's count, in a row under it. A second press closes it. */
+async function showDemandNames(tr) {
+    if (!tr) return;
+    const next = tr.nextElementSibling;
+    if (next?.classList.contains('demand-names-row')) { next.remove(); return; }
+
+    const row = DEMAND_ROWS.find(r => String(r.subject_id) === tr.dataset.subject && r.section === tr.dataset.section);
+    const cols = tr.children.length;
+    const open = document.createElement('tr');
+    open.className = 'demand-names-row';
+    open.innerHTML = `<td colspan="${cols}" class="dim">Loading names.</td>`;
+    tr.after(open);
+
+    let list = [];
+    if (PREVIEW) {
+        list = PREVIEW_DEMAND_NAMES;
+    } else {
+        const { data, error } = await supabase.rpc('section_demand_students', {
+            p_subject_id: Number(tr.dataset.subject), p_section: tr.dataset.section,
+            p_year: DEMAND_TERM.year, p_term: DEMAND_TERM.term,
+        });
+        if (error) {
+            console.warn('section names failed:', error.message);
+            open.firstElementChild.textContent = 'Could not load the names.';
+            return;
+        }
+        list = data ?? [];
+    }
+
+    const others = Math.max(0, (Number(row?.selected) || 0) - list.length);
+    open.firstElementChild.innerHTML = `
+        <ul class="demand-names">
+            ${list.map(n => `<li><strong>${escapeHtml(n.last_name)}, ${escapeHtml(n.first_name)}</strong>
+                <span class="dim">${escapeHtml(n.student_id ?? '')}${n.year_level ? ' \u00b7 year ' + n.year_level : ''}
+                \u00b7 ${n.request_status === 'submitted' ? 'waiting for the adviser' : 'approved'}</span></li>`).join('') || '<li class="dim">No students of this department yet.</li>'}
+        </ul>
+        ${others ? `<p class="dim">\u002b ${others} student${others === 1 ? '' : 's'} from other programmes.</p>` : ''}`;
 }
 
 

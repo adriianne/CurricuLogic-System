@@ -3,19 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Content-Security-Policy: what this page may load and run. Keep identical on every page (tests/csp.test.mjs); explained in docs/SECURITY-OPERATIONS.md. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://kibleqlooeaetpbelhve.supabase.co; connect-src 'self' https://kibleqlooeaetpbelhve.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'">
     <meta name="robots" content="noindex, nofollow">
 
     <title>Admin Dashboard — CurricuLogic</title>
 
     <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
-    <script>
-        /* Apply the saved (or system) theme before anything is drawn: no white flash. See shared/js/theme.js. */
-        try {
-            var t = localStorage.getItem('curriculogic-theme');
-            if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-            document.documentElement.dataset.theme = t;
-        } catch (e) { /* storage blocked: the page opens light */ }
-    </script>
+    <script src="../../shared/js/themeinit.js"></script>
     <link rel="stylesheet" href="../../shared/css/dashboard.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -223,8 +219,9 @@
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                     <div>
                         <strong>Pre-approved accounts</strong>
-                        Staff accounts created here bypass the registration queue. The
-                        user receives an email confirmation and can sign in immediately.
+                        Accounts created here bypass the registration queue. By default
+                        the person is emailed a one-time link to choose their own
+                        password, and can sign in once they have.
                     </div>
                 </div>
 
@@ -314,9 +311,21 @@
                         <div class="form-section">
                             <div class="form-section-head">
                                 <span class="form-section-title">Sign-in</span>
-                                <span class="form-section-sub">At least 8 characters with a special character (! @ # $ %). Admin accounts need 12.</span>
+                                <span class="form-section-sub" id="a-signin-sub">The person is emailed a one-time link to choose their own password. You never see or type it.</span>
                             </div>
-                            <div class="form-grid cols-2">
+
+                            <div class="signin-choice" role="radiogroup" aria-label="How the person gets their password">
+                                <label class="signin-option">
+                                    <input type="radio" name="a-signin" value="link" checked>
+                                    <span><strong>Email a setup link</strong> <em>(recommended)</em></span>
+                                </label>
+                                <label class="signin-option">
+                                    <input type="radio" name="a-signin" value="password">
+                                    <span>I will give them a temporary password</span>
+                                </label>
+                            </div>
+
+                            <div class="form-grid cols-2" id="a-password-fields" hidden>
                                 <div class="field">
                                     <label for="a-password">Temporary password</label>
                                     <div class="input-wrap">
@@ -380,7 +389,7 @@
                             <li><b>Staff</b> (faculty, registrar, department): leave <span class="mono">employee_id</span> blank, it is assigned automatically (EMP-00001, EMP-00002, ...). Only an admin row needs one (SYS-...) plus a username.</li>
                             <li><b>Students:</b> <span class="mono">student_id</span> is optional. Give it if the student already has one (7 digits), or leave it blank and the system assigns the next number.</li>
                             <li><b>Programme:</b> every role except admin also needs <span class="mono">program_code</span>. It decides a student's curriculum, and is what each staff role's per-programme account cap is checked against.</li>
-                            <li><b>Optional:</b> <span class="mono">password, department, year_level</span>.</li>
+                            <li><b>Optional:</b> <span class="mono">password, department, year_level</span>. Leave <span class="mono">password</span> blank and each person is emailed a one-time link to choose their own; type one only if you will hand it over yourself.</li>
                         </ul>
                     </div>
                 </div>
@@ -784,6 +793,7 @@
 <script src="../../shared/js/passwordrules.js"></script>
 <script src="../../shared/js/namerules.js"></script>
 <script src="../../shared/js/emailrules.js"></script>
+<script src="../../shared/js/passwordreset.js"></script>
 <script src="../../shared/js/forcepasswordchange.js"></script>
 <script src="../../shared/js/uploadlimits.js"></script>
 <script src="../../shared/js/uploadprogress.js"></script>

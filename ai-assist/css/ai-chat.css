@@ -429,3 +429,309 @@
 .chat-log { overflow-x: hidden; }
 .chat-row, .chat-row .chat-msg { min-width: 0; }
 .chat-msg-model .chat-table { max-width: 100%; }
+
+/* ── Chats: the list lives in the app menu, under the main links ──────── */
+.chat-shell { min-width: 0; }
+.chat-main { min-width: 0; display: flex; flex-direction: column; }
+
+/* The menu is a column: brand, links, then (on the Ask AI page) the chats, then the
+   footer. The links stop growing so the chats take the room that is left. */
+.sidebar.has-chats .side-nav { flex: 0 0 auto; overflow: visible; }
+.side-chats {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0.4rem 0.5rem 0.5rem;
+    padding: 0.6rem 0.4rem;
+    border-top: 1px solid var(--line, #e8ecf3);
+}
+.side-chats[hidden] { display: none; }
+
+.chat-newbtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--line, #e8ecf3);
+    border-radius: 10px;
+    background: var(--surface, #fff);
+    color: var(--ink, #0f172a);
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.chat-newbtn:hover { background: var(--bg-soft, #f4f6fb); }
+.chat-newbtn:disabled { opacity: 0.5; cursor: default; }
+
+.chat-list { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.chat-list-day {
+    margin: 0.8rem 0.5rem 0.3rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--slate, #64748b);
+}
+.chat-list-day:first-child { margin-top: 0.2rem; }
+.chat-list-empty { margin: 0.6rem 0.5rem; font-size: 0.82rem; color: var(--slate, #64748b); }
+
+.chat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    border-radius: 8px;
+}
+.chat-item:hover { background: var(--bg-soft, #f4f6fb); }
+.chat-item.is-open { background: #eef2ff; box-shadow: inset 3px 0 0 var(--indigo, #4f46e5); }
+.chat-item-open {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0.5rem 0.6rem;
+    border: 0;
+    background: none;
+    color: var(--ink, #0f172a);
+    font: inherit;
+    font-size: 0.84rem;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+.chat-item.is-open .chat-item-open { font-weight: 600; color: var(--indigo, #4f46e5); }
+.chat-item-more {
+    flex: 0 0 auto;
+    width: 1.9rem;
+    height: 1.9rem;
+    margin-right: 0.15rem;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--slate, #64748b);
+    cursor: pointer;
+    opacity: 0;
+}
+.chat-item:hover .chat-item-more,
+.chat-item.is-open .chat-item-more,
+.chat-item-more:focus-visible { opacity: 1; }
+@media (hover: none) { .chat-item-more { opacity: 1; } }
+.chat-item-more:hover { color: var(--ink, #0f172a); background: rgba(15, 23, 42, 0.06); }
+.chat-item-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0.2rem 0.3rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--indigo, #4f46e5);
+    border-radius: 6px;
+    background: var(--surface, #fff);
+    color: var(--ink, #0f172a);
+    font: inherit;
+    font-size: 0.84rem;
+}
+.chat-item-open:focus-visible,
+.chat-newbtn:focus-visible,
+.chat-item-more:focus-visible { outline: 2px solid var(--indigo, #4f46e5); outline-offset: -2px; }
+
+/* "New chat" in the conversation's header, for when the menu is closed (phones). */
+.chat-new-head {
+    margin-left: auto;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.8rem;
+    border: 1px solid var(--line, #e8ecf3);
+    border-radius: 999px;
+    background: var(--surface, #fff);
+    color: var(--ink, #0f172a);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.chat-new-head:hover { background: var(--bg-soft, #f4f6fb); }
+.chat-new-head:focus-visible { outline: 2px solid var(--indigo, #4f46e5); outline-offset: 2px; }
+@media (max-width: 640px) {
+    .chat-new-head { padding: 0.45rem 0.65rem; }
+    .chat-new-head span { display: none; }
+}
+@media (min-width: 901px) {
+    /* the menu already has a New chat button */
+    .chat-new-head { display: none; }
+}
+
+/* The "..." menu, the delete confirmation and the small notice. */
+.chat-menu {
+    position: fixed;
+    z-index: 80;
+    min-width: 9.5rem;
+    padding: 0.3rem;
+    border: 1px solid var(--line, #e8ecf3);
+    border-radius: 10px;
+    background: var(--surface, #fff);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+}
+.chat-menu[hidden] { display: none; }
+.chat-menu button {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.5rem 0.7rem;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    color: var(--ink, #0f172a);
+    font: inherit;
+    font-size: 0.88rem;
+    text-align: left;
+    cursor: pointer;
+}
+.chat-menu button:hover,
+.chat-menu button:focus-visible { background: var(--bg-soft, #f4f6fb); outline: none; }
+.chat-menu button.is-danger { color: #b42318; }
+.chat-menu button.is-danger:hover,
+.chat-menu button.is-danger:focus-visible { background: rgba(180, 35, 24, 0.1); }
+
+.chat-confirm {
+    width: min(24rem, calc(100vw - 2rem));
+    padding: 1.2rem 1.3rem;
+    border: 1px solid var(--line, #e8ecf3);
+    border-radius: 14px;
+    background: var(--surface, #fff);
+    color: var(--ink, #0f172a);
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+}
+.chat-confirm::backdrop { background: rgba(15, 23, 42, 0.45); }
+.chat-confirm h3 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.chat-confirm p { margin: 0 0 1.1rem; font-size: 0.9rem; line-height: 1.5; color: var(--slate, #64748b); overflow-wrap: anywhere; }
+.chat-confirm-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }
+.chat-confirm-actions button {
+    padding: 0.55rem 1rem;
+    border: 1px solid var(--line, #e8ecf3);
+    border-radius: 9px;
+    background: var(--surface, #fff);
+    color: var(--ink, #0f172a);
+    font: inherit;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.chat-confirm-actions .chat-confirm-delete { border-color: #b42318; background: #b42318; color: #fff; }
+.chat-confirm-actions button:focus-visible { outline: 2px solid var(--indigo, #4f46e5); outline-offset: 2px; }
+
+.chat-toast {
+    position: fixed;
+    z-index: 90;
+    left: 50%;
+    bottom: 1.4rem;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 2rem);
+    padding: 0.6rem 1rem;
+    border-radius: 999px;
+    background: var(--ink, #0f172a);
+    color: var(--surface, #fff);
+    font-size: 0.86rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.3);
+}
+.chat-toast[hidden] { display: none; }
+
+/* ── Glass: the chats in the menu sit on soft colour, as frosted glass ───── */
+.side-chats {
+    background:
+        radial-gradient(14rem 10rem at 0% 0%, rgba(99, 102, 241, 0.26), transparent 72%),
+        radial-gradient(12rem 12rem at 100% 100%, rgba(236, 72, 153, 0.20), transparent 72%),
+        radial-gradient(10rem 9rem at 90% 40%, rgba(56, 189, 248, 0.22), transparent 72%);
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
+}
+.chat-newbtn {
+    background: rgba(255, 255, 255, 0.6);
+    border-color: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.chat-newbtn:hover { background: rgba(255, 255, 255, 0.88); }
+.chat-item:hover { background: rgba(255, 255, 255, 0.55); }
+.chat-item.is-open {
+    background: rgba(255, 255, 255, 0.75);
+    box-shadow: inset 3px 0 0 var(--indigo, #4f46e5), 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.chat-item-more:hover { background: rgba(255, 255, 255, 0.7); }
+
+.chat-menu,
+.chat-confirm {
+    background: rgba(255, 255, 255, 0.78);
+    -webkit-backdrop-filter: blur(18px) saturate(170%);
+    backdrop-filter: blur(18px) saturate(170%);
+    border-color: rgba(255, 255, 255, 0.8);
+}
+
+html[data-theme="dark"] .side-chats {
+    background:
+        radial-gradient(14rem 10rem at 0% 0%, rgba(129, 140, 248, 0.30), transparent 72%),
+        radial-gradient(12rem 12rem at 100% 100%, rgba(236, 72, 153, 0.22), transparent 72%),
+        radial-gradient(10rem 9rem at 90% 40%, rgba(56, 189, 248, 0.18), transparent 72%);
+    border-color: rgba(255, 255, 255, 0.10);
+}
+html[data-theme="dark"] .chat-newbtn {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: none;
+}
+html[data-theme="dark"] .chat-newbtn:hover { background: rgba(255, 255, 255, 0.13); }
+html[data-theme="dark"] .chat-item:hover { background: rgba(255, 255, 255, 0.08); }
+html[data-theme="dark"] .chat-item.is-open {
+    background: rgba(255, 255, 255, 0.13);
+    box-shadow: inset 3px 0 0 var(--indigo, #9d97ff), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+html[data-theme="dark"] .chat-item.is-open .chat-item-open { color: var(--ink, #e6e8f2); }
+html[data-theme="dark"] .chat-item-more:hover { background: rgba(255, 255, 255, 0.12); }
+html[data-theme="dark"] .chat-menu,
+html[data-theme="dark"] .chat-confirm {
+    background: rgba(28, 32, 48, 0.78);
+    border-color: rgba(255, 255, 255, 0.14);
+}
+html[data-theme="dark"] .chat-menu button:hover,
+html[data-theme="dark"] .chat-menu button:focus-visible { background: rgba(255, 255, 255, 0.1); }
+html[data-theme="dark"] .chat-menu button.is-danger { color: #fda29b; }
+
+/* No blur support: plain solid panels. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .chat-menu, .chat-confirm { background: var(--surface, #fff); }
+    html[data-theme="dark"] .chat-menu,
+    html[data-theme="dark"] .chat-confirm { background: var(--surface, #1b2030); }
+}
+
+/* The page's rise-in animation keeps a transform on the card after it ends (fill-mode
+   "both"), which makes the card the reference box for position: fixed. The list's
+   "..." menu, the notice and the phone drawer are fixed to the window, so release the
+   card once its animation has finished. */
+.view:not([hidden]) > .ai-chat-card { animation-fill-mode: backwards; }
+
+/* The page's reset removes a modal dialog's automatic margin, which is what centres it. */
+.chat-confirm { margin: auto; inset: 0; }
+
+/* On a short screen the chats keep a usable height and the menu scrolls instead. */
+.sidebar.has-chats { overflow-y: auto; }
+.sidebar.has-chats .side-chats { min-height: 12rem; }
+.sidebar.has-chats .side-foot { flex-shrink: 0; }
+
+/* "Send this plan to my adviser" under a plan or schedule table. */
+.chat-send { margin-top: 0.6rem; }
+.chat-send-btn {
+    font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    padding: 0.4rem 0.9rem; border-radius: 999px;
+    border: 1px solid currentColor; background: transparent; color: var(--indigo, #4f46e5);
+}
+.chat-send-btn:disabled { opacity: 0.5; cursor: default; }
+.chat-send-confirm { margin-top: 0.5rem; font-size: 0.85rem; }
+.chat-send-confirm p { margin: 0.25rem 0; }
+.chat-send-actions { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.4rem; }
+.chat-send-done { color: #047857; font-weight: 600; }
+.chat-send-error { color: #b91c1c; }

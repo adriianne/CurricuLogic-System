@@ -56,6 +56,9 @@
 .pros-grid .pg-stage {
     position: relative;
     transition: height .3s cubic-bezier(.4, 0, .2, 1);
+    /* The panels of the other years wait 24px off to the side for the slide
+       animation; without this they widen the page on a phone. */
+    overflow-x: clip;
 }
 .pros-grid .pg-yr {
     position: absolute;
@@ -82,6 +85,10 @@
     border: 1px solid var(--line, #E2E8F0);
     border-radius: 12px;
     overflow: hidden;
+    /* Lets the card layout below depend on this panel's own width, not the
+       screen's: two panels side by side on a laptop are as narrow as one on
+       a phone. */
+    container: pg-panel / inline-size;
 }
 .pros-grid .pg-panel-head {
     display: flex;
@@ -199,11 +206,61 @@
     .pros-grid .pg-summer { max-width: 100%; }
     .pros-grid .pg-pair   { grid-template-columns: 1fr; }
 }
-@media (max-width: 640px) {
-    .pros-grid th, .pros-grid td { padding-left: 12px; padding-right: 12px; }
-    /* Lab is the least load-bearing column when space is tight. */
-    .pros-grid .pg-sems th:nth-child(4),
-    .pros-grid .pg-sems td:nth-child(4) { display: none; }
+/* Narrow panels (a phone, or two panels side by side on a laptop): each
+   subject becomes a small card instead of a table row, so the title is
+   never squeezed and the status is never pushed off the panel.
+     CODE                       STATUS
+     Descriptive title
+     3 units                    Grade
+     Prerequisite: ...
+   Lec and Lab are left out; the total is what a student plans with. */
+@container pg-panel (max-width: 600px) {
+    .pros-grid .pg-panel table,
+    .pros-grid .pg-panel tbody { display: block; width: 100%; }
+    .pros-grid .pg-panel thead { display: none; }
+
+    .pros-grid .pg-panel tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 4px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line, #E2E8F0);
+    }
+    .pros-grid .pg-panel tbody tr:last-child { border-bottom: none; }
+    .pros-grid .pg-panel tbody td {
+        display: block;
+        padding: 0;
+        border: none;
+        width: auto;
+        text-align: left;
+        min-width: 0;
+    }
+
+    .pros-grid .pg-panel td.pg-code { grid-column: 1; grid-row: 1; }
+    .pros-grid .pg-panel td.pg-st   { grid-column: 2; grid-row: 1; justify-self: end; }
+    .pros-grid .pg-panel td:nth-child(2) {
+        grid-column: 1 / -1; grid-row: 2;
+        font-size: 14px; line-height: 1.4; overflow-wrap: anywhere;
+    }
+    .pros-grid .pg-panel td.pg-u:not(.t) { display: none; }
+    .pros-grid .pg-panel td.pg-u.t       { grid-column: 1; grid-row: 3; }
+    .pros-grid .pg-panel td.pg-u.t::after { content: ' units'; font-weight: 400; }
+    .pros-grid .pg-panel td.pg-gr        { grid-column: 2; grid-row: 3; justify-self: end; }
+    .pros-grid .pg-panel td.pg-gr::before { content: 'Grade '; font-weight: 400; color: var(--ink-3, #94A3B8); }
+    .pros-grid .pg-panel td.pg-gr:empty,
+    .pros-grid .pg-panel td.pg-st:empty  { display: none; }
+    .pros-grid .pg-panel td.pg-pre {
+        grid-column: 1 / -1; grid-row: 4;
+        overflow-wrap: anywhere;
+    }
+    .pros-grid .pg-panel td.pg-pre::before {
+        content: 'Prerequisite: ';
+        font-family: var(--font-body, 'Inter', sans-serif);
+        color: var(--ink-3, #94A3B8);
+    }
+
+    .pros-grid .pg-row { padding-left: 12px; padding-right: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1120,6 +1177,12 @@
     margin-top: auto;
 }
 
+/* Stack, as the note above says. minmax(0, 1fr) lets a column shrink below
+   its content, so a wide child cannot push the page sideways. */
+@media (max-width: 720px) {
+    .upload-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 .upload-intro {
     margin-bottom: var(--s3);
 }
@@ -1658,4 +1721,137 @@
     color: var(--green, #0f8a5f);
     border-color: #86efac;
     background: #f0fdf4;
+}
+
+/* ── Schedule grid on a narrow screen ───────────────────────────────
+   Nine columns (EDP code, subject, type, units, start, end, days, room, delete)
+   need about 700px. In a narrower box the subject dropdown shrank to a few
+   pixels and could not be read, so each offering is edited as a card:
+     [ EDP code ............ ]   trash
+     [ subject ........................ ]
+     Type        Units
+     Start       End
+     Days        Room
+   A lab row keeps its arrow in front of the subject. The grid's own box is the
+   container, so it also applies to a laptop window with the sidebar open. */
+.sched-form { container: sched-form / inline-size; }
+@container sched-form (max-width: 720px) {
+    .sched-form .sched-edit-table,
+    .sched-form .sched-edit-table tbody { display: block; width: 100%; }
+    .sched-form .sched-edit-table thead { display: none; }
+
+    .sched-form .sched-edit-table tbody tr:not(.sched-add-row) {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        column-gap: 10px;
+        row-gap: 10px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+    }
+    .sched-form .sched-edit-table tbody tr:not(.sched-add-row) td {
+        display: block;
+        width: auto;
+        min-width: 0;
+        padding: 0;
+        border: 0 !important;
+        background: none !important;
+        overflow: visible;
+        text-align: left;
+    }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(1) { grid-column: 1 / 4; grid-row: 1; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(9) { grid-column: 4;     grid-row: 1; justify-self: end; align-self: end; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(3) { grid-column: 1 / 3;  grid-row: 3; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(4) { grid-column: 3 / 5;  grid-row: 3; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(5) { grid-column: 1 / 3;  grid-row: 4; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(6) { grid-column: 3 / 5;  grid-row: 4; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(7) { grid-column: 1 / 3;  grid-row: 5; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(8) { grid-column: 3 / 5;  grid-row: 5; }
+
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(n+1):nth-child(-n+8)::before {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--slate);
+    }
+    .sched-form .sched-edit-table td:nth-child(1)::before { content: 'EDP code'; }
+    .sched-form .sched-edit-table td:nth-child(2)::before { content: 'Subject'; }
+    .sched-form .sched-edit-table td:nth-child(3)::before { content: 'Type'; }
+    .sched-form .sched-edit-table td:nth-child(4)::before { content: 'Units'; }
+    .sched-form .sched-edit-table td:nth-child(5)::before { content: 'Start time'; }
+    .sched-form .sched-edit-table td:nth-child(6)::before { content: 'End time'; }
+    .sched-form .sched-edit-table td:nth-child(7)::before { content: 'Days'; }
+    .sched-form .sched-edit-table td:nth-child(8)::before { content: 'Room'; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(4) { line-height: 32px; padding-top: 0; }
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td:nth-child(4)::before { line-height: 1; }
+
+    /* The grid shows no border until focus, which suits a printed-form table.
+       On a card the fields need an outline to read as something to edit. */
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td input,
+    .sched-form .sched-edit-table tr:not(.sched-add-row) td select {
+        border: 1px solid var(--line);
+        background: var(--surface, #fff);
+    }
+    .sched-form .sched-edit-table tr.sched-row-lab { background: rgba(15, 138, 95, 0.05); }
+    .sched-form .sched-row-lab .sched-subject-cell { padding-left: 0; }
+
+    .sched-form .sched-edit-table tr.sched-add-row { display: block; }
+    .sched-form .sched-edit-table tr.sched-add-row td { display: block; padding: 10px 14px; border: 0; }
+}
+
+/* ── Plan detail (Registrar "Approved plans" > one plan; Faculty "Advising
+   requests" > one request) ──────────────────────────────────────────────
+   The head holds the subject count, a status chip and a Print or Approve all
+   button; on a phone they did not fit one line and the button ran off the
+   edge. Let the head wrap, with the actions on their own line. */
+.card-head:has(> .req-detail-actions) { flex-wrap: wrap; row-gap: 0.5rem; }
+.req-detail-count { white-space: nowrap; }
+@media (max-width: 640px) {
+    .card-head:has(> .req-detail-actions) .req-detail-actions {
+        margin-left: 0;
+        flex: 1 1 100%;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+}
+
+/* The five-column subject table (code, title, units, schedule, status and the
+   per-subject buttons) squeezed titles to a few letters per line. In a narrow
+   box each subject is a card:
+     CODE                       STATUS  [approve] [reject]
+     Descriptive title
+     3.0 units
+     Schedule: BSIT-1A · MW · 10:00–11:30 */
+#adv-detail-body, #req-detail-body { container: req-body / inline-size; }
+@container req-body (max-width: 640px) {
+    .req-table, .req-table tbody { display: block; width: 100%; }
+    .req-table thead { display: none; }
+    .req-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 4px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+    }
+    .req-table tbody tr:last-child { border-bottom: none; }
+    .req-table tbody td {
+        display: block;
+        width: auto;
+        min-width: 0;
+        padding: 0;
+        border: none;
+        text-align: left;
+    }
+    .req-table td:nth-child(1) { grid-column: 1; grid-row: 1; align-self: center; }
+    .req-table td.req-status-cell { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; }
+    .req-table td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; overflow-wrap: anywhere; }
+    .req-table td.num { text-align: left; }
+    .req-table td:nth-child(3) { grid-column: 1 / -1; grid-row: 3; font-size: 0.82rem; color: var(--slate); }
+    .req-table td:nth-child(3)::after { content: ' units'; }
+    .req-table td:nth-child(4) { grid-column: 1 / -1; grid-row: 4; font-size: 0.82rem; overflow-wrap: anywhere; }
+    .req-table td:nth-child(4):not(:empty)::before { content: 'Schedule '; color: var(--slate); }
 }

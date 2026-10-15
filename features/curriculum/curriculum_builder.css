@@ -57,6 +57,10 @@
 
 .cb tr.cb-bad td input { border-color: #FCA5A5; background: #FFFBFB; }
 
+/* Why a row is marked bad: a full-width line under the row, hidden when it has none. */
+.cb tr.cb-err[hidden] { display: none; }
+.cb tr.cb-err td { padding: 0 12px 8px; font-size: 12px; line-height: 1.4; color: #B91C1C; }
+
 /* Column shares under table-layout:fixed. Code and prerequisite need
    room; the title takes what is left. */
 .cb th:nth-child(1) { width: 22%; }
@@ -183,6 +187,82 @@
     .cb .cb-sems { grid-template-columns: 1fr; }
     .cb .cb-summer { max-width: 100%; }
     .cb .cb-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Buttons and the hint wrap instead of running off the right edge. */
+@media (max-width: 640px) {
+    .cb .cb-actions { flex-wrap: wrap; }
+    .cb .cb-hint { flex-basis: 100%; margin-left: 0; }
+}
+
+/* Narrow panels (a phone, or two semesters side by side on a laptop): seven
+   table columns leave the title almost no room, so each subject is edited as
+   a small card instead:
+     [ code ............ ]  x
+     [ descriptive title ........ ]
+     Lec    Lab    Total
+     [ prerequisite ........... v ]
+   The error line (tr.cb-err) stays under its card. The panel is the
+   container. A panel holding an open prerequisite list rises above the next
+   panel, because the container makes each panel its own stacking layer. */
+.cb .cb-panel { container: cb-panel / inline-size; }
+.cb .cb-panel:has(.cb-picker) { position: relative; z-index: 20; }
+@container cb-panel (max-width: 560px) {
+    .cb .cb-panel table,
+    .cb .cb-panel tbody { display: block; width: 100%; }
+    .cb .cb-panel thead { display: none; }
+
+    .cb .cb-panel tbody tr[data-uid] {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+        column-gap: 8px;
+        row-gap: 8px;
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid var(--line, #E2E8F0);
+    }
+    .cb .cb-panel tbody td {
+        display: block;
+        width: auto;
+        padding: 0;
+        border: none;
+        overflow: visible;
+    }
+    .cb .cb-panel td:nth-child(1) { grid-column: 1 / 4; grid-row: 1; }
+    .cb .cb-panel td:nth-child(7) { grid-column: 4; grid-row: 1; }
+    .cb .cb-panel td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+    .cb .cb-panel td:nth-child(3) { grid-column: 1; grid-row: 3; }
+    .cb .cb-panel td:nth-child(4) { grid-column: 2; grid-row: 3; }
+    .cb .cb-panel td:nth-child(5) { grid-column: 3; grid-row: 3; }
+    .cb .cb-panel td:nth-child(6) { grid-column: 1 / -1; grid-row: 4; }
+
+    .cb .cb-panel td.n { text-align: left; }
+    .cb .cb-panel td:nth-child(3)::before,
+    .cb .cb-panel td:nth-child(4)::before,
+    .cb .cb-panel td:nth-child(5)::before,
+    .cb .cb-panel td:nth-child(6)::before {
+        display: block;
+        margin-bottom: 3px;
+        font: 500 11px/1 var(--font-body, 'Inter', sans-serif);
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: var(--ink-3, #94A3B8);
+    }
+    .cb .cb-panel td:nth-child(3)::before { content: 'Lec'; }
+    .cb .cb-panel td:nth-child(4)::before { content: 'Lab'; }
+    .cb .cb-panel td:nth-child(5)::before { content: 'Total'; }
+    .cb .cb-panel td:nth-child(6)::before { content: 'Prerequisite'; }
+    .cb .cb-panel td.cb-total { padding-top: 0; line-height: 32px; }
+    .cb .cb-panel td.cb-total::before { line-height: 1; }
+    .cb .cb-panel td.n input { text-align: left; padding: 0 8px; }
+
+    .cb .cb-panel tr.cb-err { display: block; }
+    .cb .cb-panel tr.cb-err[hidden] { display: none; }
+    .cb .cb-panel tr.cb-err td { display: block; padding: 0 14px 10px; }
+    .cb .cb-panel tr.cb-none { display: block; }
+    .cb .cb-panel tr.cb-none td { display: block; padding: 16px 14px; }
+
+    /* The list opens at the width of the card, not 340px past its edge. */
+    .cb .cb-picker { left: 0; right: 0; width: auto; }
 }
 
 /* ---- preview ----

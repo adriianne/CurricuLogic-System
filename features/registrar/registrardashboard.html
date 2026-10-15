@@ -3,19 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Content-Security-Policy: what this page may load and run. Keep identical on every page (tests/csp.test.mjs); explained in docs/SECURITY-OPERATIONS.md. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://kibleqlooeaetpbelhve.supabase.co; connect-src 'self' https://kibleqlooeaetpbelhve.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'">
     <meta name="robots" content="noindex, nofollow">
 
     <title>Registrar dashboard — CurricuLogic</title>
 
     <link rel="icon" type="image/png" href="../../assets/CurriculogicLogo.png">
-    <script>
-        /* Apply the saved (or system) theme before anything is drawn: no white flash. See shared/js/theme.js. */
-        try {
-            var t = localStorage.getItem('curriculogic-theme');
-            if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-            document.documentElement.dataset.theme = t;
-        } catch (e) { /* storage blocked: the page opens light */ }
-    </script>
+    <script src="../../shared/js/themeinit.js"></script>
     <link rel="stylesheet" href="../../shared/css/dashboard.css">
     <link rel="stylesheet" href="../prospectus/prospectus.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha384-PPIZEGYM1v8zp5Py7UjFb79S58UeqCL9pYVnVPURKEqvioPROaVAJKKLzvH2rDnI" crossorigin="anonymous">
@@ -109,17 +105,15 @@
             <!-- Dashboard -->
             <section class="view view-wide" id="view-dashboard">
 
-                <div class="page-head">
+                <div class="page-head hero">
+                    <p class="hero-eyebrow" id="hero-eyebrow">Registrar</p>
                     <h1 class="page-title" id="greeting">Welcome back</h1>
-                    <p class="page-sub">
-                        Account requests awaiting review, and the verification status
-                        of every student record on file.
-                    </p>
+                    <p class="hero-line" id="hero-line" role="status">Checking what is waiting.</p>
                 </div>
 
                 <div id="status-notice"></div>
 
-                <div class="stats">
+                <div class="stats is-slim">
                     <div class="stat">
                         <span class="stat-label">Approved plans</span>
                         <span class="stat-value muted" id="stat-advising">—</span>
@@ -147,7 +141,18 @@
                     </div>
                 </div>
 
-                <section class="card">
+                <div class="dash-grid is-queue">
+                    <section class="card" id="attention-card">
+                        <div class="card-head">
+                            <span class="card-title">Needs attention</span>
+                            <span class="card-note" id="attention-note"></span>
+                        </div>
+                        <div class="card-body">
+                            <ul class="attention-list" id="attention-body"><li class="dim">Checking.</li></ul>
+                        </div>
+                    </section>
+
+                    <section class="card">
                     <div class="card-head">
                         <span class="card-title">Oldest pending requests</span>
                         <span class="card-note"><a href="#requests" class="link-quiet">Review all</a></span>
@@ -160,6 +165,7 @@
                         </div>
                     </div>
                 </section>
+                </div>
 
             </section>
 
@@ -541,6 +547,7 @@
 <script src="../../shared/js/accountmatches.js"></script>
 <script src="../../shared/js/profilephoto.js"></script>
 <script src="../../shared/js/motion.js"></script>
+<script src="../../shared/js/dashboardsummary.js"></script>
 <script src="../../shared/js/theme.js"></script>
 <script src="registrardashboard.js"></script>
 </body>

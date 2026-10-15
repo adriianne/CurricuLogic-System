@@ -171,6 +171,9 @@ const OFFERINGS = [
     // other subjects of the same block, so the block counts as scheduled
     meet(95, 'BSIT-2A', 'LEC', 'MW',  '13:00', '14:30'),
     meet(99, 'BSIT-2A', 'LEC', 'TTH', '15:00', '16:30'),
+    // two more sections of subject 66, for "Switch a section": 2B fits the plan, 2C clashes with subject 92
+    meet(66, 'BSIT-2B', 'LEC', 'MW',  '13:00', '14:30'),
+    meet(66, 'BSIT-2C', 'LEC', 'TTH', '10:30', '12:00'),
 ];
 const WITH_SCHEDULE = typeof location !== 'undefined' && new URLSearchParams(location.search).has('schedule');
 
