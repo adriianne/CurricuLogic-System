@@ -72,7 +72,9 @@ function submissionLimit(requests, now = Date.now()) {
    returns [{ subjectId, offeringId, valid, reason }] in the order given. */
 function evaluateSelections(deps, input) {
     const { engine } = deps;
-    const { student, program, records, subjects, rules, offerings, term, selections } = input;
+    const { student, program, records, subjects, rules, term, selections } = input;
+    // a section the Department closed (is_open = false) cannot be chosen
+    const offerings = input.offerings.filter(o => o.is_open !== false);
 
     const result = engine.assess(
         { id: student.id, year_level: student.year_level },
@@ -93,6 +95,8 @@ function evaluateSelections(deps, input) {
 
     // offering id -> subject id, to check a chosen section belongs to its subject.
     const offeringSubject = new Map(offerings.map(o => [o.id, o.subject_id]));
+
+    const picked = new Set(selections.map(sel => sel.subjectId));
 
     return selections.map(sel => {
         const base = { subjectId: sel.subjectId, offeringId: sel.offeringId ?? null };
@@ -116,6 +120,12 @@ function evaluateSelections(deps, input) {
                     ? 'No section is open for this elective this term.'
                     : 'This subject belongs to another semester and has no section this term.';
             return { ...no(why), unavailable: true };
+        }
+
+        // A subject that must be taken together with another needs it in the same request.
+        const missing = (entry.alongside ?? []).filter(a => !picked.has(a.id));
+        if (missing.length) {
+            return no(`${entry.subject.code} must be taken together with ${missing.map(m => m.code).join(' and ')}. Add it to the same request.`);
         }
 
         if (base.offeringId != null && offeringSubject.get(base.offeringId) !== sel.subjectId) {

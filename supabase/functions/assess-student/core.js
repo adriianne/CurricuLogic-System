@@ -24,7 +24,11 @@ function sectionOut(SC, group) {
             start: m.start_time ?? null,
             end: m.end_time ?? null,
             room: m.room ?? null,
+            // the school's EDP code for this meeting (a lecture and a lab have one each)
+            edp: m.edp_code ?? null,
         })),
+        // each EDP code of the section once, in meeting order: what a student writes on the form
+        edp: [...new Set(group.meetings.map(m => String(m.edp_code ?? '').trim()).filter(Boolean))],
     };
 }
 
@@ -41,11 +45,59 @@ function brief(engine, s) {
     };
 }
 
-/* deps:  { engine, preferences, explain, SC }
-   input: { student, program, records, subjects, rules, offerings, term, year, prefs } */
+/* What Cura knows about the student's APPROVED plan, for "the EDP office turned this down, what else fits?":
+   each approved subject with its section and EDP codes, anything the student reported, and other sections of the
+   same subject that do not clash with the rest of the plan (shared/js/edpresult.js, the same rule as the website's
+   and the app's "Switch a section"). Only the newest approved plan is used. null when there is none. */
+function approvedPlanOut(deps, input, offerings) {
+    const { SC, edp } = deps;
+    if (!edp?.moveOptions) return null;
+    const requests = (input.approvedRequests ?? [])
+        .filter(r => (r.status === 'approved' || r.status === 'partially_approved') && r.registrar_status !== 'rejected')
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    const request = requests[0];
+    if (!request) return null;
+
+    const byId = new Map(offerings.map(o => [o.id, o]));
+    const full = new Set((input.reportedFullOfferingIds ?? []).map(id => byId.get(id)).filter(Boolean)
+        .map(o => edp.sectionKey(o.subject_id, o.section)));
+
+    const items = (request.request_item ?? []).filter(i => i.status === 'approved' && byId.has(i.offering_id)).map(i => {
+        const current = byId.get(i.offering_id);
+        const sameTerm = offerings.filter(o => o.subject_id === i.subject_id);
+        const groups = SC.groupSections(edp.openRows(sameTerm, current.section));
+        return { ...i, _section: groups.find(g => g.section === current.section) ?? null, _allSections: groups };
+    }).filter(i => i._section);
+    if (!items.length) return null;
+
+    const plan = { request_item: items };
+    return {
+        subjects: items.map(i => ({
+            code: i.subject?.code ?? null,
+            title: i.subject?.title ?? null,
+            section: i._section.section,
+            edp: sectionOut(SC, i._section).edp,
+            edpOffice: i.edp_result === 'rejected' ? 'turned down' : (i.edp_result ?? null),
+            edpReason: i.edp_result === 'rejected' ? edp.reasonLabel(i.edp_reason) || null : null,
+            otherSections: edp.moveOptions({ request: plan, item: i, fullKeys: full, max: 3 })
+                .map(o => { const out = sectionOut(SC, o.group); return { section: out.section, edp: out.edp, meetings: out.meetings.map(m => ({ type: m.type, days: m.days, start: m.start, end: m.end })) }; }),
+        })),
+    };
+}
+
+/* deps:  { engine, preferences, explain, SC, edp? }   edp = shared/js/edpresult.js
+   input: { student, program, records, subjects, rules, offerings, term, year, prefs,
+            inRequestIds?, reportedFullOfferingIds? }
+   reportedFullOfferingIds: offering ids of the plan items THIS student reported as full at the EDP office;
+   those sections are not offered to them again (it never changes what anyone else sees). */
 function assessStudent(deps, input) {
     const { engine, preferences, explain, SC } = deps;
-    const { student, program, records, subjects, rules, offerings, term, year, prefs, inRequestIds } = input;
+    const { student, program, records, subjects, rules, term, year, prefs, inRequestIds } = input;
+    // sections the Department closed (is_open = false) are not offered
+    const open = input.offerings.filter(o => o.is_open !== false);
+    const offerings = deps.edp && input.reportedFullOfferingIds?.length
+        ? deps.edp.dropByOfferingIds(open, input.reportedFullOfferingIds)
+        : open;
 
     const result = engine.assess(
         { id: student.id, year_level: student.year_level },
@@ -60,6 +112,8 @@ function assessStudent(deps, input) {
     );
     const plan = preferences.apply(result, prefs);
     const summary = explain.summarizeForExplanation(plan, student.first_name, { inRequestIds });
+
+    summary.approvedPlan = approvedPlanOut(deps, input, input.offerings);
 
     const sectionsOf = (e) => SC.groupSections(e.sections).map(g => sectionOut(SC, g));
 
@@ -77,6 +131,8 @@ function assessStudent(deps, input) {
         timeMatch: e.timeMatch ?? null,
         sectionReason: e.preferenceReason ?? null,
         slotOptions: e.slotOptions ?? null,
+        // codes of the subjects this one must be taken together with (empty for most)
+        alongside: (e.alongside ?? []).map(a => a.code),
     }));
 
     const recommendedIds = new Set(plan.recommended.map(e => e.subject.id));
@@ -86,6 +142,7 @@ function assessStudent(deps, input) {
             ...brief(engine, e.subject),
             scheduleState: e.scheduleState,
             retake: !!e.retake,
+            alongside: (e.alongside ?? []).map(a => a.code),
             // Choosable in the plan builder too, so they carry their sections.
             sections: sectionsOf(e),
         }));
@@ -163,6 +220,10 @@ function assessStudent(deps, input) {
         preferences: {
             timeOfDay: plan.preference.timeOfDay,
             load: plan.preference.load,
+            // Fewest gaps: on or off, and the free time between classes in the plan, in minutes a week.
+            compact: plan.preference.compact === true,
+            freeMinutes: plan.preference.freeMinutes ?? null,
+            freeMinutesBefore: plan.preference.freeMinutesBefore ?? null,
             ceiling: plan.preference.ceiling,
             movedToLaterTerm: plan.preference.deferred,
             notes: plan.preference.notes,

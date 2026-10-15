@@ -113,7 +113,7 @@ serve(async (req) => {
       db.from("prerequisite")
         .select("subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value")
         .in("subject_id", subjectIds),
-      db.from("subject_offering").select("id, subject_id")
+      db.from("subject_offering").select("id, subject_id, is_open")
         .eq("academic_year", year).eq("term", term),
       db.from("academic_record")
         .select("subject_id, status, grade, grade_points, taken_term, taken_year")

@@ -29,6 +29,8 @@ import preferences from "../../../shared/engine/preferences.js";
 import SC from "../../../shared/js/scheduleconflicts.js";
 // @ts-ignore
 import explain from "../../../ai-assist/eligibility-explanation.js";
+// @ts-ignore
+import edp from "../../../shared/js/edpresult.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,25 +130,38 @@ serve(async (req) => {
     const term = config?.current_term ?? 1;
     const year = config?.current_academic_year ?? new Date().getUTCFullYear();
 
-    const [rulesRes, offeringsRes, recordsRes, prefRes, requestsRes] = await Promise.all([
+    const [rulesRes, offeringsRes, recordsRes, prefRes, requestsRes, reportedRes, approvedRes] = await Promise.all([
       db.from("prerequisite")
         .select("subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value")
         .in("subject_id", subjectIds),
       db.from("subject_offering")
-        .select("id, subject_id, section, meeting_type, schedule_days, start_time, end_time, room")
+        .select("id, subject_id, section, meeting_type, schedule_days, start_time, end_time, room, edp_code, is_open")
         .eq("academic_year", year).eq("term", term),
       db.from("academic_record")
         .select("subject_id, status, grade, grade_points, taken_term, taken_year")
         .eq("student_id", student.id),
       // Preferences are optional: the table may not exist yet, and a missing
       // row just means "no preference".
-      db.from("student_preference").select("time_of_day, load")
+      // "compact" (fewest gaps, db/081) is read with the rest; if that column is not there yet the
+      // query errors and the two older columns are read on their own just below.
+      db.from("student_preference").select("time_of_day, load, compact")
         .eq("student_id", student.id).maybeSingle(),
       // Optional like preferences: if it cannot be read, nothing is marked in review.
       db.from("request")
         .select("id, status, registrar_status, created_at, request_item(subject_id, status)")
         .eq("student_id", student.id)
         .order("created_at", { ascending: false }),
+      // Sections this student reported full at the EDP office (db/077). Optional too: before that migration the
+      // columns do not exist, the query errors, and nothing is hidden.
+      db.from("request_item").select("offering_id")
+        .eq("edp_result", "rejected").eq("edp_reason", "full").not("offering_id", "is", null),
+      // The approved plan with what the student reported (for Cura's "the EDP office turned it down" answers). Optional.
+      db.from("request")
+        .select("id, status, registrar_status, created_at, request_item(id, subject_id, status, offering_id, edp_result, edp_reason, subject(code, title, units))")
+        .eq("student_id", student.id)
+        .in("status", ["approved", "partially_approved"])
+        .order("created_at", { ascending: false })
+        .limit(3),
     ]);
     if (rulesRes.error) return fail("rules", rulesRes.error);
     if (offeringsRes.error) return fail("offerings", offeringsRes.error);
@@ -154,18 +169,28 @@ serve(async (req) => {
 
     const idSet = new Set(subjectIds);
     const offerings = (offeringsRes.data ?? []).filter((o: { subject_id: number }) => idSet.has(o.subject_id));
-    const prefs = prefRes.error || !prefRes.data
+    let prefRow = prefRes.error ? null : prefRes.data;
+    if (prefRes.error) {
+      const older = await db.from("student_preference").select("time_of_day, load")
+        .eq("student_id", student.id).maybeSingle();
+      prefRow = older.error ? null : older.data;
+    }
+    const prefs = !prefRow
       ? null
-      : { timeOfDay: prefRes.data.time_of_day, load: prefRes.data.load };
+      : { timeOfDay: prefRow.time_of_day, load: prefRow.load, compact: prefRow.compact === true };
 
     const out = core.assessStudent(
-      { engine, preferences, explain, SC },
+      { engine, preferences, explain, SC, edp },
       {
         student, program,
         records: recordsRes.data ?? [],
         subjects: subjects ?? [],
         rules: rulesRes.data ?? [],
         offerings, term, year, prefs,
+        approvedRequests: approvedRes.error ? [] : (approvedRes.data ?? []),
+        reportedFullOfferingIds: reportedRes.error
+          ? []
+          : (reportedRes.data ?? []).map((x: { offering_id: number }) => x.offering_id),
         inRequestIds: requestsRes.error
           ? []
           : [...requestCore.lockedSubjectIds(requestsRes.data ?? [])],
