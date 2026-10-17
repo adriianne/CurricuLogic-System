@@ -90,6 +90,7 @@
 .cb .cb-chip-wrap { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
 .cb .cb-caret { color: var(--ink-3, #94A3B8); font-size: 10px; line-height: 1; flex: none; }
 .cb .cb-pick-empty { font-size: 12px; color: var(--ink-3, #94A3B8); }
+.cb .cb-chip.co { background: transparent; border: 1px dashed currentColor; }
 .cb .cb-chip { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft, #EEF2FF); color: var(--accent, #4F46E5); font: 500 11px/1.5 var(--font-mono, monospace); }
 .cb .cb-chip.mark { background: #FFFBEB; color: #B45309; }
 

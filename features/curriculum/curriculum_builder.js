@@ -142,6 +142,7 @@ function blank(year, term, electiveType = null) {
     return {
         uid: SEQ++,
         electiveType,          // 'IT' or 'FREE' for catalogue rows
+        category: null,        // GE / COMMON_COMPUTING / PROFESSIONAL_IT / ELECTIVE / OTHER, as the curriculum prints it
         code: '', title: '',
         lec: null, lab: null,
         year, term,
@@ -268,7 +269,10 @@ function chipsHtml(row) {
             return `<span class="cb-chip mark">${'*'.repeat(p.standing)}</span>`;
         }
         const t = ROWS.find(r => r.uid === p.uid);
-        return `<span class="cb-chip">${esc(t?.code || '?')}</span>`;
+        // A "goes with" link: taken in the same term, not before.
+        return p.co
+            ? `<span class="cb-chip co" title="Goes with: taken in the same term">+ ${esc(t?.code || '?')}</span>`
+            : `<span class="cb-chip">${esc(t?.code || '?')}</span>`;
     }).join('') + '</span>';
 }
 
@@ -1107,7 +1111,7 @@ function previewRows(rows) {
         const pre = r.prereqs.map(p => {
             if (p.standing) return `<span class="cbp-mark">${'*'.repeat(p.standing)}</span>`;
             const t = ROWS.find(x => x.uid === p.uid);
-            return esc(t?.code || '?');
+            return esc(t?.code || '?') + (p.co ? ' (co)' : '');
         }).join(', ');
 
         return `<tr>
@@ -1297,7 +1301,10 @@ async function analyzeDocument(file) {
         row.lab   = Number.isFinite(item.laboratory_units) ? item.laboratory_units : null;
         row._aiPrereqCodes = Array.isArray(item.prerequisites) ? item.prerequisites : [];
         row._aiNotes  = Array.isArray(item.prerequisite_notes) ? item.prerequisite_notes : [];
+        row._aiCoreqCodes = Array.isArray(item.corequisites) ? item.corequisites : [];
         row._aiMarker = item.footnote_marker ?? null;
+        // The kind of course, cleaned to a value the database accepts (null when the document does not show it).
+        row.category = window.CurriculogicSubjectCategory?.clean(item.category) ?? null;
         ROWS.push(row);
         if (row.code) byCode.set(SC.key(row.code), row);
     }
@@ -1308,6 +1315,7 @@ async function analyzeDocument(file) {
     const followUps = [];      // what a person still has to add by hand
     const interpreted = [];    // wording the builder turned into a rule
     let gatesAdded = 0;
+    let coreqsAdded = 0;
 
     for (const row of ROWS) {
         for (const prereqCode of row._aiPrereqCodes) {
@@ -1319,6 +1327,20 @@ async function analyzeDocument(file) {
             // It is now listed below so it is not lost without a word.
             if (target) row.prereqs.push({ uid: target.uid });
             else followUps.push(`${row.code}: prerequisite "${prereqCode}" is not a subject in this document`);
+        }
+
+        // The "Co requisite" column, when the document has one: subjects that go with this one in the
+        // same term. Each becomes a "goes with" rule; a code that is no subject here is listed, not guessed.
+        const co = window.CurriculogicCorequisites.resolve(
+            row._aiCoreqCodes, row, (code) => byCode.get(SC.key(code)));
+        for (const target of co.targets) {
+            if (!row.prereqs.some(p => p.uid === target.uid)) {
+                row.prereqs.push({ uid: target.uid, co: true });
+                coreqsAdded++;
+            }
+        }
+        for (const code of co.missing) {
+            followUps.push(`${row.code}: co-requisite "${code}" is not a subject in this document`);
         }
 
         // Prerequisite text the AI kept apart from the codes. A code it put
@@ -1368,6 +1390,7 @@ async function analyzeDocument(file) {
         delete row._aiPrereqCodes;
         delete row._aiNotes;
         delete row._aiMarker;
+        delete row._aiCoreqCodes;
     }
 
     TAB = ROWS.find(r => r.year)?.year ?? 1;
@@ -1391,6 +1414,7 @@ async function analyzeDocument(file) {
         showAiStatus(
             `Extracted ${extracted.length} subject${extracted.length === 1 ? '' : 's'}`
             + (gatesAdded ? `, with ${gatesAdded} year-standing gate${gatesAdded === 1 ? '' : 's'} from the document's footnotes` : '')
+            + (coreqsAdded ? `, and ${coreqsAdded} goes-with link${coreqsAdded === 1 ? '' : 's'} from its co-requisite column` : '')
             + '. Review every row below, then press Create to save \u2014 nothing has been saved yet.',
             'success',
             (followUps.length || interpreted.length)
@@ -1749,6 +1773,7 @@ function toSubjectRows() {
         term:          r.term,
         is_elective:   isElectiveRow(r),
         elective_type: electiveTypeOf(r),
+        category:      r.category ?? null,
     }));
 }
 
@@ -1886,6 +1911,7 @@ if (freshVersion) {
         is_elective: isElectiveRow(r),
         is_active: true,
         elective_type: electiveTypeOf(r),
+        category: r.category ?? null,
     }));
 
     const { data: inserted, error: subjectError } = await SB
@@ -1955,7 +1981,7 @@ if (freshVersion) {
                         ruleRows.push({
                             subject_id: subjectId,
                             prerequisite_subject_id: targetId,
-                            requirement_type: 'prerequisite',
+                            requirement_type: window.CurriculogicCorequisites.requirementType(p),
                             rule_type: 'and',
                             rule_group: i + 1,
                             threshold_value: null,
@@ -2037,7 +2063,7 @@ async function loadExisting(prospectusId) {
 
     const [subs, rules] = await Promise.all([
         SB.from('subject')
-            .select('id, code, title, lec_units, lab_units, year_level, term, elective_type')
+            .select('id, code, title, lec_units, lab_units, year_level, term, elective_type, category')
             .eq('prospectus_id', prospectusId)
             .eq('is_active', true)
             .order('year_level').order('term').order('code'),
@@ -2072,6 +2098,7 @@ function applyExisting(data) {
         row.lab          = Number(r.lab_units) || null;
         row.labTouched   = true;
         row.electiveType = r.elective_type ?? null;
+        row.category     = r.category ?? null;
         row.dbId         = r.id;        // marks this row as already saved
 
         ROWS.push(row);
@@ -2086,7 +2113,9 @@ function applyExisting(data) {
             owner.prereqs.push(standingFromDb(rule.threshold_value));
         } else {
             const target = byId.get(rule.prerequisite_subject_id);
-            if (target) owner.prereqs.push({ uid: target.uid });
+            // A saved "goes with" rule stays one when the curriculum is reopened (it was shown as a pre-requisite).
+            if (target) owner.prereqs.push(window.CurriculogicCorequisites.isCoRequisiteRow(rule)
+                ? { uid: target.uid, co: true } : { uid: target.uid });
         }
     }
 
@@ -2149,7 +2178,8 @@ function applyDraft(draft) {
             owner.prereqs.push(standingFromDb(rule.threshold_value));
         } else {
             const target = byCode.get(SC.key(rule.prerequisite_code));
-            if (target) owner.prereqs.push({ uid: target.uid });
+            if (target) owner.prereqs.push(window.CurriculogicCorequisites.isCoRequisiteRow(rule)
+                ? { uid: target.uid, co: true } : { uid: target.uid });
         }
     }
 
@@ -2264,7 +2294,7 @@ async function commit() {
                 prerequisite_subject_id: target
                     ? byCode.get(SC.key(target.code))
                     : null,
-                requirement_type: p.standing ? 'standing' : 'prerequisite',
+                requirement_type: window.CurriculogicCorequisites.requirementType(p),
                 rule_type:        'and',
                 // Every condition shown on one row is required, so each
                 // gets its own group. Groups are ANDed.

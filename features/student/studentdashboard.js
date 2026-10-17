@@ -1450,7 +1450,11 @@ async function loadProspectus() {
                 `${result.completed.length} passed · ${result.eligible.length} available`;
         }
 
-        return window.ProspectusGrid.render(null, null, body, sm, kb);
+        return window.ProspectusGrid.render(null, null, body, sm, kb, {
+            program: programName(STUDENT),
+            college: window.CurriculogicPrograms?.collegeOf(STUDENT?.program_id, '') ?? '',
+            effective: '2023–2024',
+        });
     }
 
     const pid = effectiveProspectusId(STUDENT);
@@ -1470,7 +1474,14 @@ async function loadProspectus() {
             `${result.completed.length} passed · ${result.eligible.length} available`;
     }
 
-    await window.ProspectusGrid.render(supabase, pid, body, sm);
+    // The one-page print names the programme and the curriculum year the student is on.
+    const { data: ver } = await supabase.from('prospectus')
+        .select('academic_year').eq('id', pid).maybeSingle();
+    await window.ProspectusGrid.render(supabase, pid, body, sm, null, {
+        program: programName(STUDENT),
+        college: window.CurriculogicPrograms?.collegeOf(STUDENT?.program_id, '') ?? '',
+        effective: ver?.academic_year ? `${ver.academic_year}–${ver.academic_year + 1}` : '',
+    });
 }
 
 function renderProspectusEmpty() {
@@ -2901,6 +2912,8 @@ function printEnrollmentSheet(requestId) {
     w.document.write(window.EnrollmentSheet.html(sheet, {
         student: { name: [STUDENT?.first_name, STUDENT?.last_name].filter(Boolean).join(' '), id: STUDENT?.student_id },
         program: programName(STUDENT),
+        college: window.CurriculogicPrograms?.collegeOf(STUDENT?.program_id, '') ?? '',
+        yearLevel: Number(STUDENT?.year_level) || null,
         term: { number: request.requested_term, year: request.requested_year },
     }));
     w.document.close();

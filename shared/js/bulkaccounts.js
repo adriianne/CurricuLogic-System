@@ -101,6 +101,35 @@ function programmeGate(selected, role, rowCode) {
     return {};
 }
 
-return { templateProgram, sampleRoles, templateFileName, roleGate, programmeGate };
+/* ---- which sheet holds the accounts ----
+
+   A workbook often carries more than one sheet: a template's instructions, or sheets left over from
+   other work (a real file had two grade sheets in front of the accounts). Reading only the first sheet
+   rejected every row for the wrong reason and never reached the accounts. This chooses the sheet whose
+   header row looks like the account columns. */
+const ACCOUNT_COLUMNS = [
+    'first_name', 'last_name', 'email', 'role',
+    'employee_id', 'student_id', 'program_code', 'department', 'year_level', 'password', 'username',
+];
+
+const normHeader = (h) => String(h ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+
+/* sheets: [{ name, aoa }] with aoa = rows as arrays, header first.
+   Returns { index, name, matched, skipped: [names] }, or null when no sheet has an account header.
+   A sheet qualifies when it has an email column and a name column; the one with most account columns
+   wins, and the earlier sheet wins a tie. */
+function pickSheet(sheets) {
+    let best = null;
+    (sheets ?? []).forEach((sh, index) => {
+        const header = (sh.aoa?.[0] ?? []).map(normHeader);
+        const matched = ACCOUNT_COLUMNS.filter(c => header.includes(c)).length;
+        const qualifies = header.includes('email') && (header.includes('first_name') || header.includes('last_name'));
+        if (qualifies && (!best || matched > best.matched)) best = { index, name: sh.name, matched };
+    });
+    if (!best) return null;
+    return { ...best, skipped: sheets.map(sh => sh.name).filter((_, i) => i !== best.index) };
+}
+
+return { templateProgram, sampleRoles, templateFileName, roleGate, programmeGate, pickSheet, ACCOUNT_COLUMNS };
 
 }));

@@ -1653,6 +1653,9 @@ function renderRequestTable(items) {
                 <button class="btn-icon btn-xs" data-approve-item="${item.id}" title="Approve this subject">
                     <i class="fa-solid fa-check" aria-hidden="true"></i>
                 </button>
+                <button class="btn-icon btn-xs" data-approve-note-item="${item.id}" title="Approve with a note for the student and the Registrar">
+                    <i class="fa-solid fa-pen" aria-hidden="true"></i>
+                </button>
                 <button class="btn-icon btn-xs" data-reject-item="${item.id}" title="Reject this subject">
                     <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                 </button>`;
@@ -1670,9 +1673,10 @@ function renderRequestTable(items) {
                     <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> check
                 </span>${itemButtons}`;
         } else if (item.status === 'approved') {
+            // The adviser's note for this subject, if one was left when approving it.
             statusHtml = `<span class="req-status is-approved">
                 <i class="fa-solid fa-check" aria-hidden="true"></i> approved
-            </span>`;
+            </span>${item.remarks ? `<span class="dim" style="display:block;font-size:12px;margin-top:2px;">${escapeHtml(item.remarks)}</span>` : ''}`;
         } else if (item.status === 'rejected') {
             statusHtml = `<span class="req-status is-rejected">
                 <i class="fa-solid fa-xmark" aria-hidden="true"></i> rejected
@@ -1732,10 +1736,12 @@ async function reviewRequestItem(itemId, decision, note = null) {
     // A rejection carries a reason the student sees. On approval any
     // prior remarks (a stale flag reason from the engine, say) are
     // cleared -- leaving an old warning attached to an approved item
-    // would confuse the next reader.
+    // would confuse the next reader. The exception is a note the adviser
+    // writes on purpose when approving ("approve with a note"): that
+    // replaces the old remarks and is shown to the student and the Registrar.
     const patch = { status: decision === 'approved' ? 'approved' : 'rejected' };
     if (decision === 'rejected' && note) patch.remarks = note;
-    if (decision === 'approved')          patch.remarks = null;
+    if (decision === 'approved')          patch.remarks = note || null;
 
     const { error: updateError } = await supabase
         .from('request_item')
@@ -1998,6 +2004,16 @@ $('view-requests')?.addEventListener('click', (e) => {
 
     const approve = e.target.closest('[data-approve-item]');
     if (approve) return reviewRequestItem(Number(approve.dataset.approveItem), 'approved');
+
+    // Approve, and leave a short note the student and the Registrar will see. Empty = a plain approval.
+    const approveNote = e.target.closest('[data-approve-note-item]');
+    if (approveNote) {
+        const note = window.prompt('Note for the student and the Registrar (optional)?\n\nFor example: "Take this together with NCM 105" or "See me before enrolling".');
+        if (note === null) return;
+        const tooLong = remarkTooLong(note.trim());
+        if (tooLong) return showMsg(parseHash().param ? 'req-detail-msg' : 'req-msg', tooLong);
+        return reviewRequestItem(Number(approveNote.dataset.approveNoteItem), 'approved', note.trim() || null);
+    }
 
     const reject = e.target.closest('[data-reject-item]');
     if (reject) {

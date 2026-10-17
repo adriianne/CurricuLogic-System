@@ -1339,7 +1339,7 @@ async function handleBulkFile(e) {
         bulkProgress(t.update('check', 0, plural(rows.length, 'row')));
         await yieldToUi();
         validateBulkRows(rows, file.name);
-        bulkStatus('done', `${plural(rows.length, 'row')} read and checked`, t.finish().percent);
+        bulkStatus('done', `${plural(rows.length, 'row')} read and checked${rows.sheetNote ? ' (' + rows.sheetNote + ')' : ''}`, t.finish().percent);
     } catch (err) {
         console.error('bulk parse failed:', err);
         bulkStatus('error', 'Could not read that file.');
@@ -1363,9 +1363,17 @@ async function readBulkFile(file) {
 
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array', raw: false, cellDates: false });
-    const ws = wb.Sheets[wb.SheetNames[0]];
+    if (!wb.SheetNames.length) throw new Error('File has no readable sheet.');
 
-    if (!ws) throw new Error('File has no readable sheet.');
+    // Use the sheet whose header looks like the account columns, not blindly the first one.
+    const picked = CurriculogicBulkAccounts.pickSheet(wb.SheetNames.map(name => ({
+        name,
+        aoa: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', raw: false }).slice(0, 1),
+    })));
+    if (!picked) {
+        throw new Error('No sheet in this file has the account columns (first_name, last_name, email, role...). Download the template and fill it in.');
+    }
+    const ws = wb.Sheets[picked.name];
 
     const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
     if (rows.length === 0) throw new Error('File is empty.');
@@ -1374,13 +1382,18 @@ async function readBulkFile(file) {
     if (rowsIssue) throw new Error(rowsIssue);
 
     // Normalize headers
-    return rows.map((r, i) => {
+    const parsed = rows.map((r, i) => {
         const out = { __line: i + 2 };
         for (const [k, v] of Object.entries(r)) {
             out[normalizeHeader(k)] = String(v ?? '').trim();
         }
         return out;
     });
+    // Which sheet was read, said on the status line when the file had others.
+    parsed.sheetNote = picked.skipped.length
+        ? `sheet "${picked.name}" used, ${plural(picked.skipped.length, 'other sheet')} skipped`
+        : '';
+    return parsed;
 }
 
 function validateBulkRows(rows, fileName) {

@@ -9,12 +9,16 @@
 // column that says PASSED, FAILED or RETAKE for what they have already taken. It is
 // the same form for the faculty adviser and the Registrar.
 //
+// It looks like the printed curriculum (shared/js/curriculumprint.js): the UC mark, the year's own colour on the
+// bar and the table headings, ruled cells.
+//
 //   term:     { number: 1|2|3, year: 2023 }   the semester being enrolled
 //   program:  { name, code, college }         of the STUDENT, looked up by the caller
 //   subjects: the student's curriculum  [{ id, code, title, units, lec_units, lab_units, year_level, term, is_elective }]
 //   rules:    prerequisite rows         [{ subject_id, prerequisite_subject_id, requirement_type, rule_group, threshold_value }]
 //   records:  academic_record rows      [{ subject_id, status, taken_year, taken_term }]
 //   approvedIds: subject ids the adviser approved (Registrar reprint); marked in Remarks
+//   approvalNotes: { subjectId: "note" } the adviser left when approving a subject; printed under "Approved"
 //
 // Grade column:
 //   PASSED  a passing record exists
@@ -23,9 +27,9 @@
 //   (blank) not taken yet, or being taken now
 
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory();
-    else root.AdvisingSlip = factory();
-}(typeof self !== 'undefined' ? self : this, function () {
+    if (typeof module === 'object' && module.exports) module.exports = factory(require('./curriculumprint.js'));
+    else root.AdvisingSlip = factory(root.CurriculumPrint);
+}(typeof self !== 'undefined' ? self : this, function (CP) {
 'use strict';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
@@ -95,7 +99,7 @@ function requirementText(subjectId, rules, byId) {
 }
 
 /* The rows of the one semester block being printed, in curriculum order. */
-function semesterRows({ subjects, rules, records, yearLevel, term, approvedIds }) {
+function semesterRows({ subjects, rules, records, yearLevel, term, approvedIds, approvalNotes }) {
     const byId = new Map((subjects ?? []).map(s => [s.id, s]));
     const approved = new Set(approvedIds ?? []);
     const current = term && term.number ? { number: term.number, year: term.year } : null;
@@ -116,15 +120,20 @@ function semesterRows({ subjects, rules, records, yearLevel, term, approvedIds }
             requires: requirementText(s.id, rules, byId),
             requiresLines: requirementLines(s.id, rules, byId),
             approved: approved.has(s.id),
+            note: approved.has(s.id) ? String((approvalNotes ?? {})[s.id] ?? "").trim() : "",
         }));
 }
 
 function slipHtml(data) {
-    const { student, subjects, rules, records, term, adviser, program, approvedIds } = data;
+    const { student, subjects, rules, records, term, adviser, program, approvedIds, approvalNotes } = data;
     const name = [student.first_name, student.last_name].filter(Boolean).join(' ');
     const year = Number(student.year_level) || null;
 
-    const rows = year ? semesterRows({ subjects, rules, records, yearLevel: year, term, approvedIds }) : [];
+    // The colour of the student's year, as on the printed curriculum.
+    const colour = CP ? CP.yearColour(year) : { bar: '#111', tint: '#eee' };
+    const brand = CP ? CP.brandHtml() : '';
+
+    const rows = year ? semesterRows({ subjects, rules, records, yearLevel: year, term, approvedIds, approvalNotes }) : [];
     const total = rows.reduce((t, r) => t + r.total, 0);
 
     const termLabel = term?.number
@@ -146,7 +155,7 @@ function slipHtml(data) {
             <td class="req">${r.requiresLines.length
                 ? r.requiresLines.map(l => `<span class="ln">${esc(l)}</span>`).join('')
                 : '<span class="ln none-dash">—</span>'}</td>
-            <td class="rem">${r.approved ? '<strong>Approved</strong>' : ''}</td>
+            <td class="rem">${r.approved ? '<strong>Approved</strong>' + (r.note ? `<span class="note">${esc(r.note)}</span>` : '') : ''}</td>
           </tr>`).join('')
         : `<tr><td colspan="8" class="none">${year
             ? 'No subjects in this student’s curriculum for this semester.'
@@ -163,9 +172,12 @@ function slipHtml(data) {
     font: 400 10pt/1.4 "Inter", Arial, sans-serif;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
+  :root { --bar: ${colour.bar}; --tint: ${colour.tint}; }
+  ${CP ? CP.BRAND_CSS : ''}
   .head { display: flex; justify-content: space-between; align-items: flex-start;
-          border-bottom: 1.5pt solid #111; padding-bottom: 7pt; margin-bottom: 10pt; }
-  .org { font-weight: 600; font-size: 11pt; }
+          border-bottom: 1.5pt solid var(--bar); padding-bottom: 7pt; margin-bottom: 10pt; }
+  .org { display: flex; align-items: flex-end; gap: 10pt; font-weight: 600; font-size: 11pt; }
+  .org .uni { padding-right: 10pt; }
   .org small { display: block; font-weight: 400; font-size: 8.5pt; color: #444; }
   .doc { text-align: right; }
   .doc h1 { margin: 0; font-size: 13pt; letter-spacing: .02em; text-transform: uppercase; }
@@ -177,13 +189,13 @@ function slipHtml(data) {
               letter-spacing: .05em; color: #666; padding-top: 1pt; }
   .facts .v { font-size: 10.5pt; }
 
-  .block { margin: 0 0 4pt; padding: 4pt 0; text-align: center; font-weight: 700;
-           font-size: 10pt; letter-spacing: .08em; border-top: 1pt solid #111; border-bottom: 1pt solid #111; }
+  .block { margin: 0 0 4pt; padding: 3pt 0; text-align: center; font-weight: 700;
+           font-size: 10pt; letter-spacing: .08em; color: #fff; background: var(--bar); }
 
   table { width: 100%; border-collapse: collapse; }
   th { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .04em;
-       text-align: left; color: #333; padding: 4pt 5pt; border-bottom: 1pt solid #111; }
-  td { padding: 5pt; border-bottom: .5pt solid #ccc; vertical-align: top; }
+       text-align: left; color: #111; padding: 4pt 5pt; background: var(--tint); border: .5pt solid #333; }
+  td { padding: 5pt; border: .5pt solid #333; vertical-align: top; }
   td.n, th.n { text-align: center; width: 28pt; }
   th.grade, td.grade { width: 54pt; }
   td.grade { font-weight: 700; font-size: 8.5pt; letter-spacing: .03em; }
@@ -193,10 +205,11 @@ function slipHtml(data) {
   .req .ln + .ln { margin-top: 1.5pt; }
   .req .none-dash { color: #999; }
   .rem { font-size: 8.5pt; color: #333; width: 58pt; white-space: nowrap; }
+  .rem .note { display: block; white-space: normal; font-size: 7.5pt; font-weight: 400; color: #444; max-width: 110pt; }
   th.req, th.rem { padding-left: 8pt; }
   td.req, td.rem { padding-left: 8pt; }
   .none { text-align: center; color: #666; padding: 12pt; font-style: italic; }
-  tfoot td { border-top: 1pt solid #111; border-bottom: none; font-weight: 700; padding-top: 5pt; }
+  tfoot td { background: var(--tint); font-weight: 700; padding-top: 5pt; }
   thead { display: table-header-group; }
   tr { page-break-inside: avoid; }
 
@@ -208,9 +221,10 @@ function slipHtml(data) {
 <body>
 
 <div class="head">
-  <div class="org">University of Cebu
-    <small>${esc(program?.college ?? '')}</small>
-    <small>${esc(progLine)}</small>
+  <div class="org">${brand}
+    <div>${esc(program?.college || 'University of Cebu')}
+      <small>${esc(progLine)}</small>
+    </div>
   </div>
   <div class="doc">
     <h1>Enrolment Advising Slip</h1>
@@ -280,7 +294,7 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
         .select(`
             id, status, registrar_status, requested_term, requested_year,
             student:student_id (id, first_name, last_name, student_id, year_level, program_id, prospectus_id),
-            request_item (status, subject_id)
+            request_item (status, subject_id, remarks)
         `)
         .eq('id', requestId)
         .maybeSingle();
@@ -294,6 +308,9 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
     if (!approved) return { ok: false, error: 'This plan is not approved yet.' };
 
     const approvedIds = (req.request_item ?? []).filter(i => i.status === 'approved').map(i => i.subject_id);
+    // What the adviser wrote when approving a subject, printed next to it.
+    const approvalNotes = Object.fromEntries((req.request_item ?? [])
+        .filter(i => i.status === 'approved' && i.remarks).map(i => [i.subject_id, i.remarks]));
     if (!approvedIds.length) return { ok: false, error: 'No approved subjects on this plan to print.' };
 
     // The student's own curriculum, else their programme's active one.
@@ -340,6 +357,7 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
         rules: rules ?? [],
         records: records ?? [],
         approvedIds,
+        approvalNotes,
         term: { number: req.requested_term, year: req.requested_year },
         adviser: review?.faculty ? name(review.faculty) : 'Faculty adviser',
         program: {

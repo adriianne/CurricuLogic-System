@@ -130,3 +130,53 @@ describe('roleGate', () => {
         assert.match(B.roleGate('student', '').error, /blank account/);
     });
 });
+
+/* ---- which sheet holds the accounts ---- */
+
+describe('picking the sheet with the accounts', () => {
+    const header = ['first_name', 'last_name', 'email', 'role', 'employee_id', 'student_id', 'program_code', 'department', 'year_level', 'password', 'username'];
+    const grades = { name: 'grades', aoa: [['student_id', 'student_name', 'subject_code', 'grade', 'status'], ['2401187', 'A B', 'X 1', '1.5', '']] };
+    const accounts = { name: 'users', aoa: [header, ['A', 'B', 'a@uc.edu.ph', 'student']] };
+
+    test('skips sheets that are not accounts and says which it skipped', () => {
+        const r = B.pickSheet([grades, grades, accounts]);
+        assert.equal(r.name, 'users');
+        assert.equal(r.index, 2);
+        assert.deepEqual(r.skipped, ['grades', 'grades']);
+    });
+
+    test('a file with one accounts sheet reads as before', () => {
+        const r = B.pickSheet([accounts]);
+        assert.equal(r.index, 0);
+        assert.deepEqual(r.skipped, []);
+    });
+
+    test('headers are matched ignoring case and spaces', () => {
+        const odd = { name: 'People', aoa: [['First Name', 'LAST NAME', 'Email', 'Role'], ['A', 'B', 'a@uc.edu.ph', 'faculty']] };
+        assert.equal(B.pickSheet([grades, odd]).name, 'People');
+    });
+
+    test('the sheet with more account columns wins; on a tie the earlier sheet wins', () => {
+        const small = { name: 'short', aoa: [['first_name', 'email'], ['A', 'a@x']] };
+        assert.equal(B.pickSheet([small, accounts]).name, 'users');
+        const same = { name: 'copy', aoa: [header] };
+        assert.equal(B.pickSheet([accounts, same]).name, 'users');
+    });
+
+    test('a sheet needs an email column and a name column to count', () => {
+        const noEmail = { name: 'a', aoa: [['first_name', 'last_name', 'role']] };
+        const noName = { name: 'b', aoa: [['email', 'role']] };
+        assert.equal(B.pickSheet([noEmail, noName]), null);
+    });
+
+    test('nothing usable gives null, not a wrong sheet', () => {
+        assert.equal(B.pickSheet([grades]), null);
+        assert.equal(B.pickSheet([]), null);
+        assert.equal(B.pickSheet(undefined), null);
+        assert.equal(B.pickSheet([{ name: 'empty', aoa: [] }]), null);
+    });
+
+    test('the account columns are the ones the template writes', () => {
+        assert.deepEqual(B.ACCOUNT_COLUMNS, header);
+    });
+});

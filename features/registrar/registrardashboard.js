@@ -1172,6 +1172,7 @@ async function openStudent(studentRowId) {
     const records = loadStudentRecord(s, seq);
     loadStudentPlan(s, seq);
     records.then(list => renderStudentProgress(s, list, seq));
+    records.then(list => renderDegreeAudit(s, list, seq));
     loadVerifiedBy(s, seq);
 }
 
@@ -1457,6 +1458,108 @@ async function renderStudentProgress(s, records, seq) {
         </div>`;
     const bar = body.querySelector('.stu-bar i');
     if (bar) requestAnimationFrame(() => { bar.style.width = `${p.percent}%`; });
+}
+
+/* ---- degree audit ----
+   The student's whole curriculum with each subject's standing and grade, the way the Faculty adviser sees it, so
+   the record can be compared with the transcript on one screen. Read-only: the same engine run on the records
+   already on file, against the curriculum the student follows. */
+
+const AUDIT_KB = new Map();   // prospectus id -> { subjects, rules }, kept while the page is open
+
+async function auditKbFor(prospectusId) {
+    if (AUDIT_KB.has(prospectusId)) return AUDIT_KB.get(prospectusId);
+    const [subs, rules] = await Promise.all([
+        supabase.from('subject')
+            .select('id, code, title, units, lec_units, lab_units, year_level, term, is_elective, elective_type, category, is_active')
+            .eq('prospectus_id', prospectusId),
+        supabase.from('prerequisite')
+            .select('subject_id, prerequisite_subject_id, requirement_type, rule_type, rule_group, threshold_value'),
+    ]);
+    if (subs.error) console.warn('audit: subject load failed:', subs.error.message);
+    if (rules.error) console.warn('audit: rule load failed:', rules.error.message);
+    // Offerings are not consulted: an audit is about what the student has done, not what runs this term.
+    const kb = { subjects: subs.data ?? [], rules: rules.data ?? [], offerings: [] };
+    AUDIT_KB.set(prospectusId, kb);
+    return kb;
+}
+
+/* assess() output -> the grid's status map. */
+function auditStatusMap(result) {
+    const map = new Map();
+    if (!result) return map;
+    for (const s of result.completed) map.set(s.id, { state: 'passed', detail: 'Passed' });
+    for (const s of result.inProgress) map.set(s.id, { state: 'enrolled', detail: 'Currently enrolled' });
+    for (const e of result.eligible) {
+        map.set(e.subject.id, {
+            state: e.retake ? 'retake' : 'eligible',
+            detail: e.retake ? 'Previously failed. Eligible to retake.' : 'All requirements met.',
+        });
+    }
+    for (const l of result.locked) {
+        map.set(l.subject.id, { state: 'blocked', detail: l.unmet.map(u => u.detail).join(' ') });
+    }
+    return map;
+}
+
+const auditEmpty = (icon, heading, text) => `
+    <div class="empty">
+        <i class="fa-solid ${icon}" aria-hidden="true"></i>
+        <h3>${escapeHtml(heading)}</h3>
+        <p>${escapeHtml(text)}</p>
+    </div>`;
+
+async function renderDegreeAudit(s, records, seq) {
+    const body = $('detail-audit-body');
+    const note = $('detail-audit-note');
+    if (!body || seq !== DETAIL_SEQ) return;
+    if (note) note.textContent = '';
+
+    if (PREVIEW || !supabase) {
+        body.innerHTML = auditEmpty('fa-eye-slash', 'Not shown in preview', 'The degree audit reads the live curriculum.');
+        return;
+    }
+    if (typeof CurricuLogicEngine === 'undefined' || typeof window.ProspectusGrid === 'undefined') {
+        console.error('engine.js or prospectusgrid.js not loaded: check script order');
+        body.innerHTML = auditEmpty('fa-triangle-exclamation', 'Could not run the audit', 'The inference engine did not load.');
+        return;
+    }
+
+    body.innerHTML = auditEmpty('fa-spinner fa-spin', 'Auditing', 'Checking this student against the curriculum.');
+
+    const pid = await prospectusIdOf(s);
+    if (seq !== DETAIL_SEQ) return;
+    if (pid == null) {
+        body.innerHTML = auditEmpty('fa-triangle-exclamation', 'No curriculum assigned', 'This student is not linked to a curriculum version yet.');
+        return;
+    }
+
+    const kb = await auditKbFor(pid);
+    if (seq !== DETAIL_SEQ) return;
+    if (!kb.subjects.length) {
+        body.innerHTML = auditEmpty('fa-diagram-project', 'Curriculum not yet encoded', 'This curriculum version has no subjects.');
+        return;
+    }
+
+    const result = CurricuLogicEngine.assess(
+        { id: s.id, year_level: s.year_level }, records, kb, { respectOfferings: false });
+    if (note && result) {
+        note.textContent = `${result.completed.length} passed · ${result.inProgress.length} taking · ${result.locked.length} locked`;
+    }
+    const RG = window.CurriculogicRecordGrades;
+    const statuses = RG ? RG.attach(auditStatusMap(result), records) : auditStatusMap(result);
+
+    // Printed in the look of the curriculum, with this student's name, ID and grades filled in.
+    const { data: version } = await supabase.from('prospectus').select('academic_year').eq('id', pid).maybeSingle();
+    if (seq !== DETAIL_SEQ) return;
+    const P = window.CurriculogicPrograms;
+    await window.ProspectusGrid.render(supabase, pid, body, statuses, null, {
+        label: 'Print degree audit (1 page)',
+        program: programName(s),
+        college: P?.collegeOf(s.program_id, '') ?? '',
+        effective: version?.academic_year ? `${version.academic_year}–${version.academic_year + 1}` : '',
+        student: { name: fullName(s), id: s.student_id ?? '' },
+    });
 }
 
 const statusClass = (s) =>
@@ -1942,9 +2045,10 @@ function renderAdvisingTable(items) {
 
         let statusHtml;
         if (item.status === 'approved') {
+            // The adviser's note for this subject, if they left one when approving it.
             statusHtml = `<span class="req-status is-approved">
                 <i class="fa-solid fa-check" aria-hidden="true"></i> Approved
-            </span>`;
+            </span>${item.remarks ? `<span class="dim" style="display:block;font-size:12px;margin-top:2px;">${escapeHtml(item.remarks)}</span>` : ''}`;
         } else if (item.status === 'rejected') {
             statusHtml = `<span class="req-status is-rejected" title="${escapeHtml(item.remarks || '')}">
                 <i class="fa-solid fa-xmark" aria-hidden="true"></i> Not approved

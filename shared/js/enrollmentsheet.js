@@ -8,15 +8,15 @@
 // Pure functions: building the rows, plain text for sharing, and a full HTML page for printing.
 //
 //   const sheet = EnrollmentSheet.build({ items: [{ code, title, units, section, backups }] });
-//   EnrollmentSheet.html(sheet, { student, program, term })      // a printable page
+//   EnrollmentSheet.html(sheet, { student, program, college, yearLevel, term })      // a printable page, in the look of the printed curriculum
 //   EnrollmentSheet.text(sheet, { student, program, term })      // for a share sheet or a message
 //
 // A "section" is what ScheduleConflicts.groupSections returns: { section, meetings: [offering rows] }.
 
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory(require('./scheduleconflicts.js'));
-    else root.EnrollmentSheet = factory(root.ScheduleConflicts);
-}(typeof self !== 'undefined' ? self : this, function (SC) {
+    if (typeof module === 'object' && module.exports) module.exports = factory(require('./scheduleconflicts.js'), require('./curriculumprint.js'));
+    else root.EnrollmentSheet = factory(root.ScheduleConflicts, root.CurriculumPrint);
+}(typeof self !== 'undefined' ? self : this, function (SC, CP) {
 'use strict';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
@@ -122,26 +122,35 @@ function html(sheet, info = {}) {
 
     const who = [info.student?.name, info.student?.id].filter(Boolean).join(' · ');
     const prog = [info.program, termText(info.term)].filter(Boolean).join(' · ');
+    const colour = CP ? CP.yearColour(info.yearLevel) : { bar: '#111', tint: '#eee' };
+    const brand = CP ? CP.brandHtml() : '';
     const printed = new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
 
     return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Enrolment sheet</title>
 <style>
-  body { font: 13px/1.45 system-ui, Segoe UI, Arial, sans-serif; color: #111; margin: 24px; }
-  h1 { font-size: 20px; margin: 0 0 2px; }
-  .meta { color: #444; margin-bottom: 14px; }
+  :root { --bar: ${colour.bar}; --tint: ${colour.tint}; }
+  ${CP ? CP.BRAND_CSS : ''}
+  @page { size: A4; margin: 10mm; }
+  body { font: 13px/1.45 system-ui, Segoe UI, Arial, sans-serif; color: #111; margin: 24px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .head { display: flex; align-items: flex-end; gap: 12px; border-bottom: 2px solid var(--bar); padding-bottom: 8px; margin-bottom: 10px; }
+  .head .org { font-size: 15px; font-weight: 700; line-height: 1.2; }
+  .head .org small { display: block; font-size: 11px; font-weight: 400; color: #444; }
+  h1 { font-size: 13px; margin: 0 0 8px; padding: 3px 0; text-align: center; color: #fff; background: var(--bar); letter-spacing: .08em; text-transform: uppercase; }
+  .meta { color: #333; margin-bottom: 12px; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #999; padding: 6px 8px; vertical-align: top; text-align: left; }
-  th { background: #eee; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  th, td { border: 1px solid #333; padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: var(--tint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   td.n { text-align: center; white-space: nowrap; }
   td.edp { font-weight: 700; white-space: nowrap; }
   .title, .when { color: #444; font-size: 12px; }
   .none { color: #777; font-style: italic; }
-  tfoot td { font-weight: 700; }
+  tfoot td { font-weight: 700; background: var(--tint); }
   .note { margin-top: 14px; padding: 8px 10px; border: 1px solid #bbb; background: #f7f7f7; }
   .foot { margin-top: 10px; color: #666; font-size: 11px; }
-  @media print { body { margin: 10mm; } }
+  @media print { body { margin: 0; } }
 </style></head><body>
+<div class="head">${brand}<div class="org">${esc(info.college || 'University of Cebu')}${info.program ? `<small>${esc(info.program)}</small>` : ''}</div></div>
 <h1>Enrolment sheet</h1>
 <div class="meta">${esc(who)}${who && prog ? '<br>' : ''}${esc(prog)}</div>
 <table>

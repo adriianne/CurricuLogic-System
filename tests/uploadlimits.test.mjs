@@ -108,6 +108,10 @@ describe('aiProblem', () => {
         assert.match(U.aiProblem(403), /not allowed/);
         assert.match(U.aiProblem(413), /too large/);
     });
+    test('a busy AI service gets its own message', () => {
+        assert.match(U.aiProblem(503), /busy/);
+        assert.match(U.aiProblem('503'), /try again/);
+    });
     test('accepts the status as a string, and stays silent otherwise', () => {
         assert.match(U.aiProblem('413'), /too large/);
         assert.equal(U.aiProblem(500), null);

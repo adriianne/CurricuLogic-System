@@ -91,6 +91,7 @@ function aiProblem(status) {
         case 401: return 'Your session has expired. Sign in again and retry.';
         case 403: return 'This account is not allowed to use this tool.';
         case 413: return 'That file is too large for the reader.';
+        case 503: return 'The AI service is busy right now. Please try again in a few minutes.';
         default:  return null;
     }
 }

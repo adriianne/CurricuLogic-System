@@ -205,3 +205,40 @@ describe('the pre-requisite and remarks columns', () => {
         assert.match(html({ student: { ...student, year_level: 4 } }), /colspan="8" class="none"/);
     });
 });
+
+describe('the adviser note on an approved subject', () => {
+    const student = { first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', year_level: 2 };
+    const page = (over = {}) => Slip.html({
+        student, subjects, rules: [], records: [], term: current, adviser: 'Rhea Lumactod',
+        program: { name: 'BS Information Technology', code: 'BSIT', college: 'College of Computer Studies' },
+        approvedIds: [A.id, B.id], ...over,
+    });
+
+    test('is printed under "Approved" for that subject only', () => {
+        const h = page({ approvalNotes: { [A.id]: 'Take this together with B21' } });
+        assert.match(h, /<strong>Approved<\/strong><span class="note">Take this together with B21<\/span>/);
+        assert.equal((h.match(/class="note"/g) || []).length, 1);
+    });
+
+    test('a subject with no note prints just "Approved"', () => {
+        const h = page({ approvalNotes: {} });
+        assert.doesNotMatch(h, /class="note"/);
+        assert.match(h, /<strong>Approved<\/strong>/);
+    });
+
+    test('a note on a subject that was not approved is not printed', () => {
+        const h = page({ approvedIds: [A.id], approvalNotes: { [B.id]: 'should not show' } });
+        assert.doesNotMatch(h, /should not show/);
+    });
+
+    test('a note with markup cannot break the page', () => {
+        const h = page({ approvalNotes: { [A.id]: '<script>alert(1)</script>' } });
+        assert.ok(!h.includes('<script>alert'));
+        assert.match(h, /&lt;script&gt;/);
+    });
+
+    test('a blank or spaces-only note is no note', () => {
+        const h = page({ approvalNotes: { [A.id]: '   ' } });
+        assert.doesNotMatch(h, /class="note"/);
+    });
+});

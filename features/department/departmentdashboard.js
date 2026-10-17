@@ -1732,13 +1732,21 @@ function renderVersions() {
     const active = VERSIONS.find(v => v.is_active) ?? VERSIONS[0];
     sel.value = active.id;
 
+    // What the one-page print shows above the tables: the programme and the version's effective year.
+    const printInfo = () => {
+        const v = VERSIONS.find(x => String(x.id) === String(sel.value)) ?? active;
+        return {
+            program: window.CurriculogicPrograms?.nameOf(v.program_id ?? PROGRAM?.id, PROGRAM?.name ?? '') ?? '',
+            college: window.CurriculogicPrograms?.collegeOf(v.program_id ?? PROGRAM?.id, PROGRAM?.college ?? '') ?? '',
+            effective: `${v.academic_year}–${Number(v.academic_year) + 1}`,
+        };
+    };
+
     const draw = () => window.ProspectusGrid.render(
-        supabase, Number(sel.value), $('prospectus-grid'));
+        supabase, Number(sel.value), $('prospectus-grid'), null, null, printInfo());
 
     sel.onchange = draw;
     draw();
-
-    window.ProspectusGrid.render(supabase, active.id, $('prospectus-grid'));
 }
 
 $('toggle-new-pros')?.addEventListener('click', () => {

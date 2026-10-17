@@ -99,7 +99,8 @@ function buildFromOffline(offline) {
             // and only starts printing the **/*** standing footnote at 3rd
             // year, where a student could plausibly be behind. Confirmed with
             // Kin 2026-09-28 against the real prospectus (see learnings.md).
-            if (Number(subject.year_level) >= 3) {
+            // An elective-list course (no year) is not part of the normal sequence, so its mark is printed too.
+            if (subject.year_level == null || Number(subject.year_level) >= 3) {
                 rules.get(p.subject_id).push(
                     describeStanding(Number(p.threshold_value) || 0)
                 );
@@ -363,7 +364,34 @@ function jump(code) {
 
 /*  entry point  */
 
-async function render(supabase, prospectusId, mountEl, statuses = null, offline = null) {
+/* Opens the one-page printable curriculum (shared/js/curriculumprint.js) in a new window.
+   `info` is { program, college, effective }; only the pages that pass it get the Print button. */
+/* A degree audit passes the student too: their Grade column is filled from the same statuses the grid shows
+   (the grade where there is one, otherwise "Passed" or "Taking"). Without a student, the Grade column stays blank. */
+function withGrades(info, subjects, status) {
+    if (!info?.student || !status) return info;
+    const grades = {};
+    for (const s of subjects) {
+        const st = status.get(s.id);
+        if (!st) continue;
+        const text = st.grade ?? ({ passed: 'Passed', enrolled: 'Taking' })[st.state];
+        if (text) grades[s.id] = text;
+    }
+    return { ...info, grades };
+}
+
+function printCurriculum(data, info) {
+    const w = window.open('', '_blank', 'width=900,height=1000');
+    if (!w) {
+        alert('The print window was blocked. Allow pop-ups for this site.');
+        return;
+    }
+    w.document.write(window.CurriculumPrint.html(data, info));
+    w.document.close();
+    w.onload = () => { window.CurriculumPrint.fitPaper(w); w.focus(); w.print(); };
+}
+
+async function render(supabase, prospectusId, mountEl, statuses = null, offline = null, print = null) {
     MOUNT = mountEl;
     CUR = 0;
     STATUS = statuses;
@@ -457,7 +485,12 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
         hasFree ? electivePanel('Free Elective Courses', slotNote(frSlots), frEl, rules) : '',
     ].join('');
 
+    const canPrint = !!print && !!window.CurriculumPrint;
+
     MOUNT.innerHTML = `
+        ${canPrint ? `<div class="pg-printbar" style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <button type="button" class="btn-small" data-print-curriculum>${esc(print.label ?? 'Print curriculum (1 page)')}</button>
+        </div>` : ''}
         ${progressLine(subjects)}
         <div class="pg-tabs">${tabs}</div>
         <div class="pg-stage">${stage}</div>
@@ -479,6 +512,10 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
                 </div>
             </div>
         </div>`;
+
+    // Bound to the button itself, not the mount: the mount's own listener below is added on every render.
+    MOUNT.querySelector('[data-print-curriculum]')
+        ?.addEventListener('click', () => printCurriculum({ subjects, rules }, withGrades(print, subjects, statuses)));
 
     MOUNT.addEventListener('click', (e) => {
         const tab = e.target.closest('.pg-tab');
