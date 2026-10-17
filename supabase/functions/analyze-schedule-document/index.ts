@@ -7,6 +7,9 @@
 // GEMINI_API_KEY secret to be set — same one analyze-curriculum-document
 // uses.
 //
+// v8: the call to Gemini retries a busy answer and falls back to another model
+// (geminicall.mjs, shared with analyze-curriculum-document).
+//
 // v7: only an approved department account or an administrator may call it
 // (v6 ran for anyone holding the public anon key), the photo must be a JPEG,
 // PNG or WebP of at most ~5 MB, and the subject list / section / term / year
@@ -14,8 +17,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-
-const GEMINI_MODEL = "gemini-3.1-flash-lite";
+import { BUSY_MESSAGE, callGemini } from "./geminicall.mjs";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -133,33 +135,33 @@ serve(async (req) => {
 
     const prompt = buildPrompt({ section, subjects, term, year });
 
-    const upstream = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType, data: base64 } },
-            ],
-          }],
-          generationConfig: {
-            temperature: 0.05,
-            responseMimeType: "application/json",
-          },
-        }),
+    // One careful call: busy answers are retried, and another model is tried when one is gone or
+    // still busy (v8; v7 made a single attempt, so one 503 from Google ended the read).
+    const call = await callGemini({
+      apiKey,
+      body: {
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType, data: base64 } },
+          ],
+        }],
+        generationConfig: {
+          temperature: 0.05,
+          responseMimeType: "application/json",
+        },
       },
-    );
+    });
 
-    if (!upstream.ok) {
-      const text = await upstream.text();
-      console.error("gemini error:", upstream.status, text.slice(0, 400));
-      return json({ ok: false, error: `Scanner error (${upstream.status}). Try again.` });
+    if (!call.ok) {
+      console.error("gemini failed:", call.status, call.detail, JSON.stringify(call.tried));
+      return json({
+        ok: false,
+        error: call.busy ? BUSY_MESSAGE : `Scanner error (${call.status}). Try again.`,
+      });
     }
 
-    const body = await upstream.json();
+    const body = call.data;
     const raw = body.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!raw) return json({ ok: false, error: "The scanner returned nothing." });
 

@@ -11,6 +11,11 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { BUSY_MESSAGE, callGemini, DEFAULT_MODELS } from "./geminicall.mjs";
+
+// A curriculum is read once per upload, and telling the colours of the titles apart is where the smaller
+// model went wrong, so the stronger model goes first here; the others stay as fallbacks if it is busy.
+const MODELS = ["gemini-flash-latest", ...DEFAULT_MODELS.filter((m) => m !== "gemini-flash-latest")];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -133,6 +138,45 @@ such as "3rd year standing" -- put that text, exactly as printed, in
 "prerequisite_notes" and never in "prerequisites". If there is nothing of that
 kind, "prerequisite_notes" is an empty array.
 
+IMPORTANT -- co-requisites:
+Some prospectuses print a separate "Co requisite" (or "Co-requisite") column beside the "Pre requisite" column.
+Its subject codes belong in the subject's "corequisites" array, exactly as printed, one code per element, and
+NEVER in "prerequisites". A subject that goes with several others lists them all. Read each row's own cells:
+a co-requisite is listed on the row of the subject that needs it, and the subjects it names may themselves list
+the first one back. If the document has no Co requisite column, "corequisites" is an empty array for every subject.
+
+IMPORTANT -- kind of course ("category"):
+Many prospectuses show what kind of course each subject is: the subject titles are printed in different
+colours, and a "Summary of Courses" box totals the units for each kind (for example General Education
+Courses, Core Computing Courses, Professional IT Courses, IT Electives / Free Electives). When the document
+does this, set each subject's "category" to exactly one of:
+  "GE"                 general education (a document that counts PE and NSTP with General Education uses "GE" for them too)
+  "COMMON_COMPUTING"   core / common computing courses
+  "PROFESSIONAL_IT"    professional courses of the programme
+  "ELECTIVE"           the elective slots inside a semester
+  "OTHER"              a kind the summary lists separately that fits none of the above
+Decide from the title colour together with the wording of the summary, so that the unit totals of your
+categories match the summary where the document gives one. If the document gives no way to tell the kinds
+apart (no colours and no summary), set "category" to null for every subject. Never decide a category from the
+subject code alone, and do NOT sort subjects by the prefix of their code: in one document, codes with the same
+prefix are often printed in different colours (for example one CC- course in red and another CC- course in
+blue), and the printed colour is what counts. Look at the actual colour of each subject's title text. When the
+summary box prints its lines in colours (for example green for General Education, red for Core Computing, blue
+for Professional IT, black for electives), a title printed in that colour belongs to that line. Before you
+answer, add up the units of each category and compare with the summary; where they differ, look again at the
+subjects whose colour you were unsure of.
+
+IMPORTANT -- elective course lists:
+Some prospectuses end with boxes such as "IT ELECTIVE COURSES" and "FREE ELECTIVE COURSES": lists of
+elective courses a student may choose from (code, title, units, pre-requisite). They belong to no year or
+semester. Return every course in those lists as its own subject with "year_level": null, "term": null and
+"elective_type": "IT" for the IT / programme elective list or "FREE" for the free elective list, with its
+units, pre-requisites and "category": "ELECTIVE". These boxes usually print a single "units" column with
+one number (for example 3) and no lec / lab split: put that number in "lecture_units" and 0 in
+"laboratory_units", never leave both null. Do NOT list here the placeholder rows that sit inside a
+semester ("IT Elective 1", "Free Elective 2"): those stay ordinary subjects of their year and semester, with
+"elective_type": null. If the document has no such lists, return no such subjects.
+
 Respond with ONLY valid JSON, no other text, in exactly this shape:
 
 {
@@ -153,7 +197,10 @@ Respond with ONLY valid JSON, no other text, in exactly this shape:
       "laboratory_units": number or null,
       "prerequisites": ["array of subject code strings, empty array if none"],
       "prerequisite_notes": ["array of non-code pre-requisite text, empty array if none"],
-      "footnote_marker": "string or null"
+      "corequisites": ["array of subject code strings from the Co requisite column, empty array if none"],
+      "footnote_marker": "string or null",
+      "category": "GE" or "COMMON_COMPUTING" or "PROFESSIONAL_IT" or "ELECTIVE" or "OTHER" or null,
+      "elective_type": "IT" or "FREE" for a course in an elective list that belongs to no year, otherwise null
     }
   ]
 }
@@ -162,81 +209,63 @@ If the document is clearly NOT a curriculum or prospectus (e.g. it is a resume, 
 
 Be conservative: if you are not confident a field's value is correct, use null rather than guessing. Do not invent subjects that are not clearly present in the document.`;
 
-// Gemini fails transiently often enough to matter (429 rate limit, 5xx
-// overload, and occasionally a 200 whose JSON is empty or cut off). The
-// same PDF that fails once usually succeeds on the next call, so a few
-// attempts here spare staff a "try again" click. A status like 400 or
-// 403 is a real problem with the request or key and is not retried.
-const MAX_ATTEMPTS = 3;
-const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+// The call itself (a busy answer retried with waiting, another model tried when one is
+// gone or still busy, the key never logged) lives in geminicall.mjs, shared with
+// analyze-schedule-document. What stays here is the part only this function knows: an
+// answer that arrives but is empty or cut off is worth one more go, because the same PDF
+// that fails once usually succeeds on the next call.
+const MAX_ATTEMPTS = 2;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Attempt =
   | { ok: true; parsed: any }
-  | { ok: false; retry: boolean; detail: string };
+  | { ok: false; retry: boolean; detail: string; busy: boolean };
 
 async function askGemini(
   apiKey: string,
   fileBase64: string,
   mimeType: string,
 ): Promise<Attempt> {
-  // gemini-1.5-flash was retired long before this project started using
-  // it -- Google's own model list (fetched live, Sept 2026) confirms it
-  // 404s. gemini-2.5-flash-lite, the free-tier successor, is *also* on
-  // a shutdown notice for Oct 16 2026. gemini-3.1-flash-lite is named
-  // directly in Google's migration notice as its replacement and is
-  // current as of this writing -- but Gemini's naming has moved fast
-  // enough that this should be re-checked against
-  // https://ai.google.dev/gemini-api/docs/changelog before relying on
-  // it past 2026.
-  let res: Response;
-  try {
-    res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: EXTRACTION_PROMPT },
-                { inline_data: { mime_type: mimeType, data: fileBase64 } },
-              ],
-            },
+  const call = await callGemini({
+    apiKey,
+    models: MODELS,
+    body: {
+      contents: [
+        {
+          parts: [
+            { text: EXTRACTION_PROMPT },
+            { inline_data: { mime_type: mimeType, data: fileBase64 } },
           ],
-          generationConfig: {
-            temperature: 0,
-            responseMimeType: "application/json",
-            // Explicit and generous. A 4-year, multi-semester subject
-            // list is long; leaving this unset risks the response being
-            // cut off mid-array, which silently drops later years. Raised
-            // from 8192 when each subject gained two more fields.
-            maxOutputTokens: 16384,
-          },
-        }),
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: "application/json",
+        // Explicit and generous. A 4-year, multi-semester subject
+        // list is long; leaving this unset risks the response being
+        // cut off mid-array, which silently drops later years. Raised
+        // from 8192 when each subject gained two more fields.
+        maxOutputTokens: 16384,
       },
-    );
-  } catch (netErr) {
-    return { ok: false, retry: true, detail: `network error: ${netErr}` };
-  }
+    },
+  });
 
-  if (!res.ok) {
-    const errText = await res.text();
+  if (!call.ok) {
     return {
       ok: false,
-      retry: RETRY_STATUSES.has(res.status),
-      detail: `HTTP ${res.status}: ${errText.slice(0, 500)}`,
+      retry: false, // geminicall already retried and tried the other models
+      busy: call.busy,
+      detail: `${call.detail} | tried: ${JSON.stringify(call.tried)}`,
     };
   }
 
-  const geminiData = await res.json();
-  const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const rawText = call.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!rawText) {
     return {
       ok: false,
       retry: true,
-      detail: `no usable content: ${JSON.stringify(geminiData).slice(0, 500)}`,
+      busy: false,
+      detail: `no usable content: ${JSON.stringify(call.data).slice(0, 500)}`,
     };
   }
 
@@ -246,6 +275,7 @@ async function askGemini(
     return {
       ok: false,
       retry: true,
+      busy: false,
       detail: `response was not valid JSON (possibly cut off): ${rawText.slice(-200)}`,
     };
   }
@@ -289,6 +319,7 @@ serve(async (req) => {
 
     let parsed: any = null;
     let lastDetail = "";
+    let lastBusy = false;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const result = await askGemini(apiKey, fileBase64, mimeType);
       if (result.ok) {
@@ -297,6 +328,7 @@ serve(async (req) => {
         break;
       }
       lastDetail = result.detail;
+      lastBusy = result.busy;
       console.error(`Gemini attempt ${attempt}/${MAX_ATTEMPTS} failed: ${result.detail}`);
       if (!result.retry || attempt === MAX_ATTEMPTS) break;
       await sleep(1500 * attempt);
@@ -304,9 +336,12 @@ serve(async (req) => {
 
     if (!parsed) {
       console.error("Giving up after retries:", lastDetail);
+      // 503 when Google is busy (the page shows "busy, try again in a few minutes"); 502 otherwise.
       return new Response(
-        JSON.stringify({ error: "The document analysis service failed. Try again." }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({
+          error: lastBusy ? BUSY_MESSAGE : "The document analysis service failed. Try again.",
+        }),
+        { status: lastBusy ? 503 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 

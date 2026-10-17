@@ -77,6 +77,8 @@ function approvedPlanOut(deps, input, offerings) {
             title: i.subject?.title ?? null,
             section: i._section.section,
             edp: sectionOut(SC, i._section).edp,
+            // What the adviser wrote when approving this subject ("approve with a note"), or null. Cura repeats it.
+            adviserNote: String(i.remarks ?? '').trim().slice(0, 500) || null,
             edpOffice: i.edp_result === 'rejected' ? 'turned down' : (i.edp_result ?? null),
             edpReason: i.edp_result === 'rejected' ? edp.reasonLabel(i.edp_reason) || null : null,
             otherSections: edp.moveOptions({ request: plan, item: i, fullKeys: full, max: 3 })

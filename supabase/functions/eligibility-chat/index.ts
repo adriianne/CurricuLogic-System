@@ -24,6 +24,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 // @ts-ignore: plain JavaScript, bundled by build.mjs
 import core from "./core.js";
+// @ts-ignore: plain JavaScript shared with the document readers, bundled by build.mjs
+import { callGemini } from "../_shared/geminicall.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -164,7 +166,7 @@ STRICT RULES -- these override anything the student asks for:
 - A preference the student states in this conversation applies to this conversation only and is not saved. If it differs from their saved one, use what they just said for your answer (work from each subject's "sections", since "chosenSection" reflects the saved preference), and tell them once that the Class time and Load buttons on their dashboard are what make it stick.
 - "unitLimit" is the most units the student may take this term ("graduating" is true when the higher graduating limit applies). "recommendedUnits" is only what is suggested, and it can be less than the limit. When asked how many units they can take, answer with "unitLimit" first, then mention "recommendedUnits" as what you would suggest. Never call the recommended load their limit.
 - "inReview" lists subjects the student has already submitted and that are waiting for the adviser. They are not in "recommended" on purpose: never suggest them again, and never list them as something still to do. If the student asks what to take and "recommended" is empty but "inReview" is not, say the plan is already submitted and name those subjects as awaiting the adviser. When both exist, suggest the "recommended" ones and say the "inReview" ones are already with the adviser.
-- "approvedPlan" (null when there is none) is the student's approved plan: each subject with its "section", its "edp" codes (what is written on the enrolment form), what the student reported about the EDP office ("edpOffice": "turned down" or "accepted" or null, and the "edpReason") and "otherSections": other sections of the SAME subject that do not clash with the rest of the plan, each with its own "edp" codes and meetings. When the student says the EDP office turned a subject down, or that a section is full or closed, or asks for another section of an approved subject: say which subject you mean (by code), and offer the sections in its "otherSections" in plain words, one short sentence each (section name, EDP code, days and times from its meetings). If "otherSections" is empty, say plainly that no other section fits without a clash, and that they can ask their adviser; never invent a section or a time, and never suggest a different subject that is not in the data. Say that changing to another section of the same subject does not need the adviser's approval, and that you cannot see the EDP office: you only know what the student tells the system, and you never claim how many seats are left. You cannot record anything or switch their section for them: to tell the system what the EDP office said, or to switch, ${edpHelp(client)} Never say you have recorded or changed anything. If the student asks about a subject not in "approvedPlan", say you only see their approved plan.
+- "approvedPlan" (null when there is none) is the student's approved plan: each subject with its "section", its "edp" codes (what is written on the enrolment form), what the student reported about the EDP office ("edpOffice": "turned down" or "accepted" or null, and the "edpReason") and "otherSections": other sections of the SAME subject that do not clash with the rest of the plan, each with its own "edp" codes and meetings. When the student says the EDP office turned a subject down, or that a section is full or closed, or asks for another section of an approved subject: say which subject you mean (by code), and offer the sections in its "otherSections" in plain words, one short sentence each (section name, EDP code, days and times from its meetings). If "otherSections" is empty, say plainly that no other section fits without a clash, and that they can ask their adviser; never invent a section or a time, and never suggest a different subject that is not in the data. Say that changing to another section of the same subject does not need the adviser's approval, and that you cannot see the EDP office: you only know what the student tells the system, and you never claim how many seats are left. You cannot record anything or switch their section for them: to tell the system what the EDP office said, or to switch, ${edpHelp(client)} Never say you have recorded or changed anything. If the student asks about a subject not in "approvedPlan", say you only see their approved plan. A subject in "approvedPlan" may carry an "adviserNote": a short note the adviser wrote when approving that subject (for example to take it together with another, or to see them first). When the student asks about that subject, about their approved plan, or about what the adviser said, pass the note on in plain words, as it is written, and say it is from their adviser. Never invent, add to or soften a note; when "adviserNote" is null there is no note, so say nothing about one. Never mention the field name "adviserNote" to the student.
 - Never present an opinion on section or instructor quality, difficulty, or "which is better" beyond what the given facts (time, day, conflicts) support -- you have no data on that and must not invent it.
 - If a question is unrelated to the student's academic standing entirely, redirect politely to what you can actually help with.
 - Keep answers conversational and brief -- a few sentences, not an essay. Plain language, no academic jargon.
@@ -280,48 +282,30 @@ serve(async (req) => {
       { role: "user", parts: [{ text: message }] },
     ];
 
-    const MAX_ATTEMPTS = 2;
-    const RETRY_DELAY_MS = 3000;
-
-    let geminiResponse: Response | null = null;
-    let lastErrorText = "";
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: buildSystemInstruction(summary, client) }],
-            },
-            contents,
-            generationConfig: {
-              temperature: 0.4,
-              maxOutputTokens: 1024,
-              responseMimeType: "application/json",
-            },
-          }),
+    // The call (a busy answer retried after a short wait, the next model tried when one is gone or
+    // still busy, the key never logged) is the helper shared with the document readers. A student is
+    // waiting on this reply, so it waits less and gives up sooner than the readers do.
+    const call = await callGemini({
+      apiKey,
+      attemptsPerModel: 2,
+      backoffMs: [1200],
+      budgetMs: 45000,
+      body: {
+        systemInstruction: {
+          parts: [{ text: buildSystemInstruction(summary, client) }],
         },
-      );
+        contents,
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json",
+        },
+      },
+    });
 
-      if (geminiResponse.ok) break;
-
-      lastErrorText = await geminiResponse.text();
-      console.error(`Gemini API error (attempt ${attempt}/${MAX_ATTEMPTS}):`, lastErrorText);
-
-      const isRetryable = geminiResponse.status === 503 || geminiResponse.status === 429;
-      if (isRetryable && attempt < MAX_ATTEMPTS) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-        continue;
-      }
-      break;
-    }
-
-    if (!geminiResponse || !geminiResponse.ok) {
-      const isBusy = lastErrorText.includes("UNAVAILABLE") || lastErrorText.includes("high demand");
-      const message = isBusy
+    if (!call.ok) {
+      console.error(`Gemini API error: ${call.detail} | tried: ${JSON.stringify(call.tried)}`);
+      const message = call.busy
         ? "This assistant is temporarily busy. Please try again in a minute."
         : "Could not get a response right now.";
       return new Response(
@@ -330,7 +314,7 @@ serve(async (req) => {
       );
     }
 
-    const geminiData = await geminiResponse.json();
+    const geminiData = call.data;
     const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!rawText) {

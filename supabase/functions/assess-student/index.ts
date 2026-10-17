@@ -157,7 +157,7 @@ serve(async (req) => {
         .eq("edp_result", "rejected").eq("edp_reason", "full").not("offering_id", "is", null),
       // The approved plan with what the student reported (for Cura's "the EDP office turned it down" answers). Optional.
       db.from("request")
-        .select("id, status, registrar_status, created_at, request_item(id, subject_id, status, offering_id, edp_result, edp_reason, subject(code, title, units))")
+        .select("id, status, registrar_status, created_at, request_item(id, subject_id, status, offering_id, remarks, edp_result, edp_reason, subject(code, title, units))")
         .eq("student_id", student.id)
         .in("status", ["approved", "partially_approved"])
         .order("created_at", { ascending: false })

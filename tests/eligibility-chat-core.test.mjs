@@ -1,4 +1,5 @@
-import { test } from 'node:test';
+import { test, describe } from 'node:test';
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
@@ -56,4 +57,20 @@ test('the chat function no longer reads a summary from the request body', async 
     assert.equal(/const\s*\{[^}]*\bsummary\b[^}]*\}\s*=\s*await req\.json\(\)/.test(src), false,
         'index.ts takes the summary from the client again');
     assert.match(src, /functions\/v1\/assess-student/);
+});
+
+describe('the adviser note in the system instruction', () => {
+    // index.ts holds the instruction Cura is given; the note is only useful if Cura is told to repeat it faithfully.
+    const source = fs.readFileSync(new URL('../supabase/functions/eligibility-chat/index.ts', import.meta.url), 'utf8');
+
+    test('tells Cura to pass on the adviser note, as written, from the adviser', () => {
+        assert.match(source, /"adviserNote"/);
+        assert.match(source, /pass the note on in plain words, as it is written/);
+        assert.match(source, /Never invent, add to or soften a note/);
+    });
+
+    test('tells Cura to say nothing about a note when there is none, and not to name the field', () => {
+        assert.match(source, /when "adviserNote" is null there is no note/);
+        assert.match(source, /Never mention the field name "adviserNote"/);
+    });
 });

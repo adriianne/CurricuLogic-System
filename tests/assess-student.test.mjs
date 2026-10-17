@@ -230,6 +230,19 @@ describe("Cura's view of the approved plan", () => {
         assert.equal(plan.subjects.find(s => s.code === 'B').edpOffice, null);
     });
 
+    test('carries the adviser note written when a subject was approved, and null where there is none', () => {
+        const plan = run2({ approvedRequests: approved({ remarks: '  Take this together with B  ' }) }).summary.approvedPlan;
+        assert.equal(plan.subjects.find(s => s.code === 'A').adviserNote, 'Take this together with B');
+        assert.equal(plan.subjects.find(s => s.code === 'B').adviserNote, null);
+    });
+
+    test('a blank note is no note, and a long one is cut to the 500 the database allows', () => {
+        const blank = run2({ approvedRequests: approved({ remarks: '   ' }) }).summary.approvedPlan;
+        assert.equal(blank.subjects.find(s => s.code === 'A').adviserNote, null);
+        const long = run2({ approvedRequests: approved({ remarks: 'x'.repeat(900) }) }).summary.approvedPlan;
+        assert.equal(long.subjects.find(s => s.code === 'A').adviserNote.length, 500);
+    });
+
     test('a section the Department closed is not offered, and a plan sent back is ignored', () => {
         const closed = offerings.map(o => o.id === 2 ? { ...o, is_open: false } : o);
         const plan = assessStudent(withEdp, { ...base(), offerings: closed, approvedRequests: approved() }).summary.approvedPlan;
