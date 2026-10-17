@@ -20,8 +20,9 @@ snapshot below as the starting point instead.
 
 | File | What it is |
 |---|---|
-| `023_…` to `078_…` | Numbered migrations, in the order they were written. `071` only records the staff photo storage that already existed. `072` (setup-link accounts: a blank password gets a random one), `073` to `075` (Cura chats, below) are applied. None of `071` to `075` is in the 2026-10-13 snapshot, which stops at `070`. |
-| `schema-snapshot-2026-10-13.sql` | **The current snapshot.** The whole structure of the `public` schema as ordinary SQL: sequences, tables, keys and checks, foreign keys, indexes, row-level security, functions with their grants, triggers, policies, table grants and the daily cleanup job. Generated 2026-10-13 16:23 UTC, after migration 070. Its statement counts were checked against the live catalog (29 tables, 82 policies, 45 functions, 18 triggers, all 29 table names present); it has not been replayed into an empty schema. |
+| `023_…` to `081_…` | Numbered migrations, in the order they were written. `071` only records the staff photo storage that already existed. All are applied; `073` onward are in the 2026-10-17 snapshot, which was taken after `081`. |
+| `schema-snapshot-2026-10-17.sql` | **The current snapshot.** The whole structure of the `public` schema as ordinary SQL: sequences, tables, keys and checks, foreign keys, indexes, row-level security, functions with their grants, triggers, policies, table grants and the daily cleanup job. Generated 2026-10-17 10:02 UTC, after migration 081. Its statement counts were checked against the live catalog (31 tables, 88 policies, 54 functions, 20 triggers); it has not been replayed into an empty schema. |
+| `schema-snapshot-2026-10-13.sql` | Previous snapshot (after migration 070), kept for history. Do not use it to rebuild. |
 | `schema-snapshot-2026-10-04.sql` | The previous snapshot, kept for history. Taken before migration 055 and before 7 unused tables were dropped (36 tables, 97 policies, 40 functions, 6 triggers). That one was replayed into a scratch schema and matched the live catalog at the time. Do not use it to rebuild. |
 | `tools/export-schema.sql` | Regenerates a snapshot from the live database. Run it in the Supabase SQL editor and save the `ddl` column as `schema-snapshot-<date>.sql`. |
 | `tools/e2e-cleanup.sql` | Removes the accounts created by the end-to-end test (`zz.e2e.*@example.com`). Run the preview query first. |
@@ -48,8 +49,8 @@ policies (checked 2026-10-14):
    (`pg_cron`, `pgcrypto`, `uuid-ossp`, …).
 2. Run the newest `schema-snapshot-*.sql`.
 3. Run every migration **newer than the snapshot** that is not already in it, in
-   number order. The snapshot dated 2026-10-13 16:23 UTC was taken *after*
-   migration 070, so nothing in the `public` schema needs applying on top of it.
+   number order. The snapshot dated 2026-10-17 10:02 UTC was taken *after*
+   migration 081, so nothing in the `public` schema needs applying on top of it.
    Then run the storage files: `064`, `068`, `069`, `070` and `071`.
 4. Deploy the edge functions in `../supabase/functions/` and set their secrets
    (AI key, service role) in the Supabase dashboard. Secrets never go in the repo.
@@ -68,10 +69,10 @@ policies (checked 2026-10-14):
 - Anything run by hand in the SQL editor that changes structure should be saved
   here as a numbered file.
 
-## Known state (as of 2026-10-14)
+## Known state (as of 2026-10-17)
 
-- The newest snapshot, `schema-snapshot-2026-10-13.sql`, is the record of the live
-  `public` structure through migration `070`. Storage policies are separate (see
+- The newest snapshot, `schema-snapshot-2026-10-17.sql`, is the record of the live
+  `public` structure through migration `081`. Storage policies are separate (see
   above).
 - `041_adviser_approval_is_final.sql` is **applied**: the live policies
   "department reads approved enrollment requests / items" use its meaning

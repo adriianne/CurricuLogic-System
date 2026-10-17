@@ -55,45 +55,38 @@ change "24 hours" in both.
 
 ### Reset Password (new accounts made by an administrator, and "Forgot password")
 
-Subject: `Choose your CurricuLogic password`
+Subject: `Password reset requested: CurricuLogic`
 
 ```html
-<div style="background:#f6f2e9;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
-  <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:28px;border:1px solid #e7e0d0;">
-    <p style="margin:0 0 4px;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:bold;">
-      <span style="color:#0f8f6a;">C</span><span style="color:#111111;">urricu</span><span style="color:#1e3a8a;">L</span><span style="color:#111111;">ogic</span>
-    </p>
-    <p style="margin:0 0 20px;font-size:13px;color:#6b7280;">University of Cebu · Subject recommendation</p>
-
-    <p style="margin:0 0 12px;font-size:16px;">Hello,</p>
-    <p style="margin:0 0 20px;font-size:15px;line-height:1.5;">
-      An account was set up for this email address, or a new password was requested.
-      Press the button to choose your password.
-    </p>
-
-    <p style="margin:0 0 20px;">
-      <a href="{{ .ConfirmationURL }}"
-         style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;
-                padding:12px 22px;border-radius:8px;font-size:15px;font-weight:bold;">
-        Choose my password
-      </a>
-    </p>
-
-    <p style="margin:0 0 6px;font-size:13px;color:#6b7280;">
-      The link works <strong>once</strong> and lasts <strong>24 hours</strong>. If it has expired,
-      open the Log in page and press <em>Forgot password</em> to get a new one.
-    </p>
-    <p style="margin:0 0 20px;font-size:13px;color:#6b7280;word-break:break-all;">
-      Button not working? Copy this link into your browser:<br>{{ .ConfirmationURL }}
-    </p>
-
-    <p style="margin:0 0 6px;font-size:13px;color:#6b7280;">
-      We never ask for your password by email. If you did not expect this message, ignore it:
-      nothing changes until you open the link.
-    </p>
-    <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">
-      Questions? Write to <a href="mailto:curriculogicph@gmail.com" style="color:#4f46e5;">curriculogicph@gmail.com</a>.
-    </p>
+<div style="background:#f4f4f7;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#111111;">
+  <div style="max-width:520px;margin:0 auto;background:#ffffff;">
+    <div style="padding:24px 28px;border-bottom:1px solid #d4d4d8;">
+      <span style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:bold;letter-spacing:0.5px;"><span style="color:#0f8f6a;">C</span><span style="color:#111111;">urricu</span><span style="color:#1e3a8a;">L</span><span style="color:#111111;">ogic</span></span>
+    </div>
+    <div style="padding:36px 28px 28px;">
+      <h1 style="margin:0 0 28px;font-size:24px;line-height:1.25;font-weight:bold;color:#111111;">Password Reset Requested</h1>
+      <p style="margin:0 0 10px;font-size:14px;">Hey there,</p>
+      <p style="margin:0 0 18px;font-size:13px;line-height:1.5;">We received a request to set a password for this CurricuLogic account. Press the button to choose it.</p>
+      <ul style="margin:0 0 36px;padding-left:22px;font-size:13px;line-height:1.6;color:#333333;">
+        <li style="margin-bottom:8px;">This link works <strong>once</strong> and is only valid for <strong>24 hours</strong>. If it has expired, press <em>Forgot password</em> on the Log in page.</li>
+        <li>If you didn't expect this message, you can ignore it. Nothing changes until you open the link.</li>
+      </ul>
+      <p style="margin:0 0 40px;">
+        <a href="{{ .ConfirmationURL }}"
+           style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;
+                  padding:12px 26px;border-radius:999px;font-size:13px;font-weight:bold;">
+          Choose my password
+        </a>
+      </p>
+      <p style="margin:0 0 20px;font-size:12px;color:#6b7280;word-break:break-all;">
+        Button not working? Copy this link into your browser:<br>{{ .ConfirmationURL }}
+      </p>
+      <div style="border-top:1px solid #d4d4d8;padding-top:20px;font-size:12px;line-height:1.5;color:#6b7280;">
+        We never ask for your password by email. Questions? Write to
+        <a href="mailto:curriculogicph@gmail.com" style="color:#4f46e5;">curriculogicph@gmail.com</a>.<br>
+        CurricuLogic · University of Cebu
+      </div>
+    </div>
   </div>
 </div>
 ```
@@ -103,42 +96,35 @@ Subject: `Choose your CurricuLogic password`
 Subject: `Confirm your CurricuLogic account`
 
 ```html
-<div style="background:#f6f2e9;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
-  <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:28px;border:1px solid #e7e0d0;">
-    <p style="margin:0 0 4px;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:bold;">
-      <span style="color:#0f8f6a;">C</span><span style="color:#111111;">urricu</span><span style="color:#1e3a8a;">L</span><span style="color:#111111;">ogic</span>
-    </p>
-    <p style="margin:0 0 20px;font-size:13px;color:#6b7280;">University of Cebu · Subject recommendation</p>
-
-    <p style="margin:0 0 12px;font-size:16px;">Hello,</p>
-    <p style="margin:0 0 20px;font-size:15px;line-height:1.5;">
-      Thank you for registering with CurricuLogic. Press the button to confirm your email address.
-      After that, the Registrar checks your details before your account can be used.
-    </p>
-
-    <p style="margin:0 0 20px;">
-      <a href="{{ .ConfirmationURL }}"
-         style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;
-                padding:12px 22px;border-radius:8px;font-size:15px;font-weight:bold;">
-        Confirm my email
-      </a>
-    </p>
-
-    <p style="margin:0 0 6px;font-size:13px;color:#6b7280;">
-      The link works <strong>once</strong> and lasts <strong>24 hours</strong>. If it has expired,
-      open the Log in page and press <em>Forgot password</em> to get a new one.
-    </p>
-    <p style="margin:0 0 20px;font-size:13px;color:#6b7280;word-break:break-all;">
-      Button not working? Copy this link into your browser:<br>{{ .ConfirmationURL }}
-    </p>
-
-    <p style="margin:0 0 6px;font-size:13px;color:#6b7280;">
-      We never ask for your password by email. If you did not expect this message, ignore it:
-      nothing changes until you open the link.
-    </p>
-    <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">
-      Questions? Write to <a href="mailto:curriculogicph@gmail.com" style="color:#4f46e5;">curriculogicph@gmail.com</a>.
-    </p>
+<div style="background:#f4f4f7;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#111111;">
+  <div style="max-width:520px;margin:0 auto;background:#ffffff;">
+    <div style="padding:24px 28px;border-bottom:1px solid #d4d4d8;">
+      <span style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:bold;letter-spacing:0.5px;"><span style="color:#0f8f6a;">C</span><span style="color:#111111;">urricu</span><span style="color:#1e3a8a;">L</span><span style="color:#111111;">ogic</span></span>
+    </div>
+    <div style="padding:36px 28px 28px;">
+      <h1 style="margin:0 0 28px;font-size:24px;line-height:1.25;font-weight:bold;color:#111111;">Confirm Your Email</h1>
+      <p style="margin:0 0 10px;font-size:14px;">Hey there,</p>
+      <p style="margin:0 0 18px;font-size:13px;line-height:1.5;">Thank you for registering with CurricuLogic. Press the button to confirm your email address. After that, the Registrar checks your details before your account can be used.</p>
+      <ul style="margin:0 0 36px;padding-left:22px;font-size:13px;line-height:1.6;color:#333333;">
+        <li style="margin-bottom:8px;">This link works <strong>once</strong> and is only valid for <strong>24 hours</strong>. If it has expired, press <em>Forgot password</em> on the Log in page.</li>
+        <li>If you didn't expect this message, you can ignore it. Nothing changes until you open the link.</li>
+      </ul>
+      <p style="margin:0 0 40px;">
+        <a href="{{ .ConfirmationURL }}"
+           style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;
+                  padding:12px 26px;border-radius:999px;font-size:13px;font-weight:bold;">
+          Confirm my email
+        </a>
+      </p>
+      <p style="margin:0 0 20px;font-size:12px;color:#6b7280;word-break:break-all;">
+        Button not working? Copy this link into your browser:<br>{{ .ConfirmationURL }}
+      </p>
+      <div style="border-top:1px solid #d4d4d8;padding-top:20px;font-size:12px;line-height:1.5;color:#6b7280;">
+        We never ask for your password by email. Questions? Write to
+        <a href="mailto:curriculogicph@gmail.com" style="color:#4f46e5;">curriculogicph@gmail.com</a>.<br>
+        CurricuLogic · University of Cebu
+      </div>
+    </div>
   </div>
 </div>
 ```
