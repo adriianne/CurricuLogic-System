@@ -119,7 +119,12 @@ function showView(name, param) {
 
     shell?.classList.remove('nav-open');
 
-    if (name === 'students') openStudentList();
+    if (name === 'students') {
+        // #students/verified or #students/pending opens that tab; anything else is All
+        LIST.filter = (param === 'verified' || param === 'pending') ? param : 'all';
+        LIST.page = 1;
+        openStudentList();
+    }
     if (name === 'student' && param) openStudent(param);
     if (name === 'prospectus') loadProspectusPage();
 
@@ -595,6 +600,9 @@ function renderStudentChips() {
         ['verified', 'Verified records',      COUNTS.verified],
         ['pending',  'Awaiting verification', Math.max(0, COUNTS.total - COUNTS.verified)],
     ];
+    const title = $('students-title');
+    if (title) title.textContent = LIST.filter === 'all' ? 'Student list'
+        : defs.find(([key]) => key === LIST.filter)[1];
     box.innerHTML = defs.map(([key, label, n]) => `
         <button type="button" class="stu-chip${LIST.filter === key ? ' on' : ''}" data-student-filter="${key}"
                 aria-pressed="${LIST.filter === key}">${escapeHtml(label)}<b>${n}</b></button>`).join('');
@@ -771,10 +779,9 @@ $('student-year')?.addEventListener('change', (e) => {
 $('student-chips')?.addEventListener('click', (e) => {
     const b = e.target.closest('[data-student-filter]');
     if (!b) return;
-    LIST.filter = b.dataset.studentFilter;
-    LIST.page = 1;
-    renderStudentChips();
-    loadStudentList();
+    // Keep the link in step with the tab so Back and refresh land on it
+    const key = b.dataset.studentFilter;
+    window.location.hash = key === 'all' ? '#students' : `#students/${key}`;
 });
 $('students-body')?.addEventListener('click', (e) => {
     const pager = e.target.closest('[data-student-page]');

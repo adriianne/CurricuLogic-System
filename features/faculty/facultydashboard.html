@@ -93,6 +93,19 @@
         }
         .act-go:hover { background: var(--indigo-dark); }
         .act-go:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* Dashboard cards that open the matching page */
+        .stat-link { display: block; text-decoration: none; color: inherit; cursor: pointer;
+                     transition: transform 0.15s ease, box-shadow 0.15s ease; }
+        .stat-link:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); }
+        .stat-link:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+        .stat-go { display: block; margin-top: 0.35rem; font-size: 0.75rem; font-weight: 600; color: var(--indigo); }
+        .stat-go i { font-size: 0.65rem; margin-left: 0.15rem; transition: transform 0.15s ease; }
+        .stat-link:hover .stat-go i { transform: translateX(3px); }
+        @media (prefers-reduced-motion: reduce) {
+            .stat-link, .stat-go i { transition: none; }
+            .stat-link:hover { transform: none; }
+        }
     </style>
 </head>
 <body class="theme-paper" data-idle-role="faculty_staff">
@@ -184,26 +197,30 @@
                 <div id="status-notice"></div>
 
                 <div class="stats is-slim">
-                    <div class="stat">
+                    <a class="stat stat-link" href="#students/all">
                         <span class="stat-label">Students</span>
                         <span class="stat-value muted" id="stat-students">—</span>
                         <span class="stat-hint">Enrolled students</span>
-                    </div>
-                    <div class="stat">
+                        <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                    </a>
+                    <a class="stat stat-link" href="#students/verified">
                         <span class="stat-label">Verified records</span>
                         <span class="stat-value muted" id="stat-verified">—</span>
                         <span class="stat-hint">Eligibility computable</span>
-                    </div>
-                    <div class="stat">
+                        <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                    </a>
+                    <a class="stat stat-link" href="#students/pending">
                         <span class="stat-label">Awaiting verification</span>
                         <span class="stat-value muted" id="stat-pending">—</span>
                         <span class="stat-hint">Pending with Registrar</span>
-                    </div>
-                    <div class="stat">
+                        <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                    </a>
+                    <a class="stat stat-link" href="#requests">
                         <span class="stat-label">Open requests</span>
                         <span class="stat-value muted" id="stat-requests">—</span>
                         <span class="stat-hint">Awaiting your review</span>
-                    </div>
+                        <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                    </a>
                 </div>
 
                 <div class="dash-grid is-queue">
@@ -256,7 +273,7 @@
 
                 <section class="card">
                     <div class="card-head">
-                        <span class="card-title">Student list</span>
+                        <span class="card-title" id="students-title">Student list</span>
                         <span class="card-note" id="students-count"></span>
                     </div>
                     <div class="card-body">
