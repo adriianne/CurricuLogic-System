@@ -610,6 +610,32 @@
     background: #4338CA;
 }
 
+/* Make active and Delete draft pop-ups: Cancel is red, Make active is green.
+   By id so the Change password pop-up, which shares .act-cancel / .act-go,
+   keeps its colours, and so the dark theme's rules for those classes do not
+   win. */
+#act-cancel,
+#del-cancel {
+    background: #DC2626;
+    border-color: #DC2626;
+    color: #fff;
+}
+
+#act-cancel:hover,
+#del-cancel:hover {
+    background: #B91C1C;
+    border-color: #B91C1C;
+}
+
+#act-go {
+    background: #0F8A5F;
+    color: #fff;
+}
+
+#act-go:hover {
+    background: #0B6E4B;
+}
+
 @media (max-width: 640px) {
     .del-modal {
         grid-template-columns: 1fr;
@@ -838,6 +864,22 @@
     border-bottom: 0;
     padding-top: 10px;
     padding-bottom: 10px;
+}
+
+.sched-add-row .sched-progress {
+    margin-left: 12px;
+    font-size: 0.85rem;
+    color: var(--slate);
+}
+
+/* A row whose time overlaps another. The reason sits in the row beneath it. */
+.sched-edit-table tr.sched-clash td { background: rgba(220, 38, 38, 0.07); }
+.sched-edit-table tr.sched-clash-note td {
+    padding-top: 2px;
+    padding-bottom: 8px;
+    font-size: 0.85rem;
+    color: #b91c1c;
+    background: rgba(220, 38, 38, 0.07);
 }
 
 .sched-form-actions {

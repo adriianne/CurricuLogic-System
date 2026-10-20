@@ -1,4 +1,4 @@
-// departmentdashboard.js
+git // departmentdashboard.js
 // Department Staff: curriculum authoring.
 //
 // This is where the knowledge base is written. Every subject and rule
@@ -1833,12 +1833,37 @@ async function createVersion() {
 
     await loadProspectusList();
 
-    showMsg('pros-msg',
-        source
-            ? `${year} created from the ${VERSIONS.find(v => v.id === Number(source))?.academic_year ?? 'source'} version. ` +
-            'It is a draft until you make it active.'
-            : `${year} created. Encode its subjects under Curriculum.`,
-        'success');
+    if (source) {
+        return showMsg('pros-msg',
+            `${year} created from the ${VERSIONS.find(v => v.id === Number(source))?.academic_year ?? 'source'} version. ` +
+            'It is a draft until you make it active.',
+            'success');
+    }
+
+    /* An empty version has nothing to look at here, so go straight to
+       building it. Curriculum follows EDITING, which still points at the
+       old version unless it is moved first. */
+    const made = VERSIONS.find(v => v.academic_year === year);
+    if (!made) return showMsg('pros-msg', `${year} created. Open Curriculum to build it.`, 'success');
+
+    EDITING = made;
+    mountCurriculumBuilder();
+    renderEditingSelector();
+    showMsg('pros-msg', '');
+    showMsg('curriculum-msg', `${year} created. Now build its curriculum.`, 'success');
+    window.location.hash = '#curriculum';
+    loadCurriculum();
+
+    /* The builder opens on "Select Year" on purpose, so choose the new year
+       through its own picker, and scroll once Curriculum is on screen. */
+    setTimeout(() => {
+        const pick = $('cb-version-pick');
+        if (pick) {
+            pick.value = String(year);
+            pick.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        $('cb-grid')?.scrollIntoView({ block: 'start' });
+    }, 50);
 }
 
 $('create-pros')?.addEventListener('click', createVersion);
@@ -2535,6 +2560,7 @@ async function loadOfferings() {
 
     OFFERINGS = data ?? [];
     PENDING = OFFERINGS.map(o => ({ ...o }));
+    LAST_SUGGEST = null;
     DIRTY.clear();
     tagPendingKeys();
 
@@ -2573,6 +2599,7 @@ function bindScheduleTableInputs() {
         if (!row) return;
         write(row, field.dataset.field, field.value);
         updateSaveButton();
+        refreshScheduleChecks();
     });
 
     mount.addEventListener('change', (e) => {
@@ -2583,6 +2610,7 @@ function bindScheduleTableInputs() {
         if (!row) return;
         write(row, field.dataset.field, field.value);
         updateSaveButton();
+        refreshScheduleChecks();
 
         // Subject or type changed — the row needs a repaint because the
         // units column and the meeting-type options both depend on them.
@@ -2735,10 +2763,18 @@ function renderOfferings() {
                         ${visible.map(o => rowHtmlFor(o, section, year, term)).join('')}
                         <tr class="sched-add-row">
                             <td colspan="9">
-                                <button class="btn-small" data-add-row>
-                                    <i class="fa-solid fa-plus" aria-hidden="true"></i>
-                                    Add a row
+                                <button class="btn-small" data-add-all>
+                                    <i class="fa-solid fa-list-check" aria-hidden="true"></i>
+                                    Add all subjects
                                 </button>
+                                <button class="btn-small" data-suggest-times
+                                        title="Fills empty rows only. Nothing is saved until you press Save.">
+                                    <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                                    Suggest times
+                                </button>
+                                <button class="btn-small" data-undo-suggest
+                                        ${LAST_SUGGEST?.section === section ? '' : 'hidden'}>Undo suggestions</button>
+                                <span class="sched-progress" id="sched-progress"></span>
                             </td>
                         </tr>
                     </tbody>
@@ -2762,39 +2798,227 @@ function renderOfferings() {
     $('sched-discard')?.addEventListener('click', discardPending);
     body.querySelectorAll('[data-drop]').forEach(b =>
         b.addEventListener('click', () => dropPendingRow(b.dataset.drop)));
-    body.querySelector('[data-add-row]')?.addEventListener('click', () => addPendingRow(section));
+    body.querySelector('[data-add-all]')?.addEventListener('click', () => addAllSubjects(section));
+    body.querySelector('[data-suggest-times]')?.addEventListener('click', () => suggestTimes(section));
+    body.querySelector('[data-undo-suggest]')?.addEventListener('click', () => undoSuggestions(section));
+    refreshScheduleChecks();
 }
 
 let NEXT_KEY = 1;
 const nextKey = () => `r${NEXT_KEY++}`;
 
-function addPendingRow(section) {
+/* The subjects that belong in a section's table: those of its year and the
+   chosen term. Electives are left out, as in the template. */
+function sectionSubjects(section, term) {
     const year = sectionYear(section);
-    const term = schedTerm().term;
+    return SUBJECTS
+        .filter(s => s.is_active !== false && s.year_level === year && s.term === term)
+        .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+}
 
-    // No pre-selected subject. The dropdown shows a "Select subject"
-    // placeholder and the operator must pick one. Auto-picking the
-    // first eligible subject hid the fact that a choice needed to be
-    // made — rows could be saved with a wrong subject if the operator
-    // tabbed through without noticing the pre-filled value.
-    PENDING.push({
-        __key:        nextKey(),
-        id:           null,             // null = not yet in the DB
-        edp_code:     '',
-        subject_id:   null,
-        meeting_type: 'LEC',
-        section,
-        academic_year: year,
-        term,
-        schedule_days: '',
-        start_time:   '',
-        end_time:     '',
-        room:         '',
-        instructor:   '',
-    });
+/* Fills the table with every subject the section should have, a LEC row
+   and, where the subject has a lab, a LAB row. What is already there is
+   left alone, so pressing it again only adds what is missing. The
+   operator then only has the EDP code, days, times and room to enter. */
+function addAllSubjects(section) {
+    const { year, term } = schedTerm();
+    const subjects = sectionSubjects(section, term);
+
+    if (!subjects.length) {
+        return showMsg('sched-msg',
+            `The curriculum has no subjects for year ${sectionYear(section)}, ${termLabel(term)}.`);
+    }
+
+    const have = new Set(PENDING.filter(r => r.section === section)
+        .map(r => `${r.subject_id}|${r.meeting_type}`));
+    let added = 0;
+
+    const add = (s, type) => {
+        if (have.has(`${s.id}|${type}`)) return;
+        PENDING.push({
+            __key:        nextKey(),
+            id:           null,             // null = not yet in the DB
+            edp_code:     '',
+            subject_id:   s.id,
+            meeting_type: type,
+            section,
+            academic_year: year,
+            term,
+            schedule_days: '',
+            start_time:   '',
+            end_time:     '',
+            room:         '',
+            instructor:   '',
+        });
+        added++;
+    };
+
+    for (const s of subjects) {
+        add(s, 'LEC');
+        if (Number(s.lab_units) > 0) add(s, 'LAB');
+    }
+
+    if (!added) return showMsg('sched-msg', 'Every subject is already in the table.', 'success');
 
     DIRTY.add(section);
+    showMsg('sched-msg',
+        `${added} row${added === 1 ? '' : 's'} added. Enter the EDP code, days, times and room for each.`,
+        'success');
     renderOfferings();
+}
+
+const rowLabel = (r) => `${subjectById(r.subject_id)?.code ?? 'A subject'} ${r.meeting_type}`;
+
+/* What the last "Suggest times" wrote, so it can be taken back. */
+let LAST_SUGGEST = null;
+
+const rowIsEmpty = (r) => !r.schedule_days?.trim() && !r.start_time && !r.end_time;
+const rowIsTimed = (r) => !!(r.schedule_days?.trim() && r.start_time && r.end_time);
+
+/* Fills days and times for the section's EMPTY rows, by the rules in
+   schedulesuggest.js. A row that already has any day or time is left exactly
+   as it is, and counts as taken. Nothing is saved: the rows land in the table
+   for review, the clash marks apply, and Save works as always. Rooms and EDP
+   codes are never invented. */
+function suggestTimes(section) {
+    const rows    = PENDING.filter(r => r.section === section);
+    const targets = rows.filter(r => r.subject_id && rowIsEmpty(r));
+
+    if (!rows.length) {
+        return showMsg('sched-msg', 'Add the subjects first with "Add all subjects".');
+    }
+    if (!targets.length) {
+        return showMsg('sched-msg',
+            'No empty rows to fill. Rows that already have days or times are left as they are.', 'success');
+    }
+
+    const { placements, unplaced } = window.CurriculogicScheduleSuggest.plan({
+        rows: targets.map(r => ({ key: r.__key, subject_id: r.subject_id, meeting_type: r.meeting_type })),
+        fixed: rows.filter(rowIsTimed),
+        subjectOf: subjectById,
+        sc: window.ScheduleConflicts,
+    });
+
+    const byKey = new Map(PENDING.map(r => [r.__key, r]));
+    for (const p of placements) {
+        const r = byKey.get(p.key);
+        r.schedule_days = p.days;
+        r.start_time    = p.start;
+        r.end_time      = p.end;
+    }
+
+    LAST_SUGGEST = placements.length ? { section, items: placements } : null;
+    if (placements.length) DIRTY.add(section);
+
+    const partial = rows.filter(r => !rowIsEmpty(r) && !rowIsTimed(r)).length;
+    const left = unplaced.map(u => rowLabel(byKey.get(u.key))).join(', ');
+    showMsg('sched-msg',
+        `${placements.length} row${placements.length === 1 ? '' : 's'} given suggested times. ` +
+        'Check them, add the rooms and EDP codes, then save.' +
+        (unplaced.length ? ` No free time was found for: ${left}.` : '') +
+        (partial ? ` ${partial} partly filled row${partial === 1 ? ' was' : 's were'} left alone.` : ''),
+        placements.length ? 'success' : 'error');
+    renderOfferings();
+}
+
+/* Takes the suggested times back out. A row changed since the suggestion is left alone. */
+function undoSuggestions(section) {
+    if (!LAST_SUGGEST || LAST_SUGGEST.section !== section) return;
+
+    let cleared = 0;
+    for (const p of LAST_SUGGEST.items) {
+        const r = PENDING.find(x => x.__key === p.key);
+        if (r && r.schedule_days === p.days && r.start_time === p.start && r.end_time === p.end) {
+            r.schedule_days = '';
+            r.start_time = '';
+            r.end_time = '';
+            cleared++;
+        }
+    }
+    LAST_SUGGEST = null;
+    showMsg('sched-msg', `Removed the suggested times from ${cleared} row${cleared === 1 ? '' : 's'}.`, 'success');
+    renderOfferings();
+}
+
+/* Which rows of this section clash, and why: a Map of row key to reasons.
+   Two rows of the section that overlap on a shared day, or a row whose room
+   is already in use by another section at the same time. The overlap rule is
+   the one the student plan picker uses (scheduleconflicts.js). */
+function scheduleClashes(section) {
+    const out = new Map();
+    const SCF = window.ScheduleConflicts;
+    if (!SCF) return out;
+
+    const note = (r, text) => {
+        if (!out.has(r.__key)) out.set(r.__key, []);
+        out.get(r.__key).push(text);
+    };
+    const sharedDays = (a, b) => {
+        const theirs = SCF.parseDays(b.schedule_days);
+        return SCF.parseDays(a.schedule_days).filter(d => theirs.includes(d)).join(' ');
+    };
+
+    const mine   = PENDING.filter(r => r.section === section);
+    const others = PENDING.filter(r => r.section !== section);
+
+    for (let i = 0; i < mine.length; i++) {
+        for (let j = i + 1; j < mine.length; j++) {
+            if (!SCF.meetingsClash(mine[i], mine[j])) continue;
+            const days = sharedDays(mine[i], mine[j]);
+            note(mine[i], `Overlaps ${rowLabel(mine[j])} on ${days}.`);
+            note(mine[j], `Overlaps ${rowLabel(mine[i])} on ${days}.`);
+        }
+    }
+
+    const roomKey = (r) => String(r.room ?? '').trim().toLowerCase();
+    for (const r of mine) {
+        if (!roomKey(r)) continue;
+        for (const o of others) {
+            if (roomKey(o) === roomKey(r) && SCF.meetingsClash(r, o)) {
+                note(r, `Room ${r.room.trim()} is in use by ${o.section} (${rowLabel(o)}) at that time.`);
+            }
+        }
+    }
+    return out;
+}
+
+/* How many of the section's subjects have every meeting (LEC, and LAB where
+   there is one) given days and times. */
+function scheduleProgress(section, term) {
+    const rows = PENDING.filter(r => r.section === section);
+    const timed = (r) => r.schedule_days?.trim() && r.start_time && r.end_time;
+    const subjects = sectionSubjects(section, term);
+    let done = 0;
+    for (const s of subjects) {
+        const need = Number(s.lab_units) > 0 ? ['LEC', 'LAB'] : ['LEC'];
+        if (need.every(t => rows.some(r => r.subject_id === s.id && r.meeting_type === t && timed(r)))) done++;
+    }
+    return { done, total: subjects.length };
+}
+
+/* Repaints the clash marks and the progress line without redrawing the table,
+   which would take focus away mid-keystroke. */
+function refreshScheduleChecks() {
+    const section = currentSection();
+    const body = $('offerings-body');
+    if (!section || !body) return;
+
+    const clashes = scheduleClashes(section);
+    body.querySelectorAll('tr[data-row]').forEach((tr) => {
+        const reasons = clashes.get(tr.dataset.row) ?? [];
+        tr.classList.toggle('sched-clash', reasons.length > 0);
+        const noteRow = body.querySelector(`tr[data-clash-for="${tr.dataset.row}"]`);
+        if (noteRow) {
+            noteRow.hidden = reasons.length === 0;
+            noteRow.firstElementChild.textContent = reasons.join(' ');
+        }
+    });
+
+    const progress = $('sched-progress');
+    if (progress) {
+        const { done, total } = scheduleProgress(section, schedTerm().term);
+        progress.textContent = total ? `${done} of ${total} subjects scheduled` : '';
+    }
 }
 
 function dropPendingRow(key) {
@@ -2875,6 +3099,13 @@ async function commitPending() {
         const timeProblem = scheduleTimeProblem(r.start_time, r.end_time);
         if (timeProblem) problems.push(`${r.edp_code}: ${timeProblem}`);
         if (!r.room?.trim())          problems.push('Every row needs a room.');
+    }
+
+    // Times that overlap, or a room already taken, are not saved.
+    const clashes = scheduleClashes(section);
+    for (const r of sectionRows) {
+        const why = clashes.get(r.__key);
+        if (why) { problems.push(`${section}: ${rowLabel(r)} — ${why[0]}`); break; }
     }
 
     if (problems.length) {
@@ -2993,7 +3224,8 @@ function rowHtmlFor(o, section, year, term) {
                 <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
             </button>
         </td>
-    </tr>`;
+    </tr>
+    <tr class="sched-clash-note" data-clash-for="${o.__key}" role="status" hidden><td colspan="9"></td></tr>`;
 }
 
 function subjectOptionsFor(section, term, currentId) {
