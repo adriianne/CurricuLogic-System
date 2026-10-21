@@ -22,6 +22,8 @@ const NOT_READY = {
         'Your academic record has not been verified yet, so Cura cannot discuss your subjects. Please ask the Registrar.',
     no_curriculum:
         'No curriculum has been set up for your programme yet, so Cura has nothing to discuss.',
+    curriculum_not_started:
+        'The curriculum for your programme has not started yet, so Cura has nothing to discuss. Please contact your department.',
 };
 
 const TRY_AGAIN = 'Could not load your record. Try again.';
@@ -39,10 +41,15 @@ function interpretAssessment(status, body) {
     }
 
     if (body.assessed === false) {
+        // For a curriculum that has not started, assess-student sends its own sentence naming the
+        // year it takes effect; use it when it is there.
+        const own = body.reason === 'curriculum_not_started' && typeof body.message === 'string' && body.message.trim()
+            ? body.message.trim()
+            : null;
         return {
             ok: false,
             status: 409,
-            error: NOT_READY[body.reason] ?? 'Your record cannot be discussed yet. Please ask the Registrar.',
+            error: own ?? NOT_READY[body.reason] ?? 'Your record cannot be discussed yet. Please ask the Registrar.',
         };
     }
 
