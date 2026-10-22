@@ -26,7 +26,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const FILES = [
     'features/admin/admindashboard.js',
-    'features/curriculum/curriculum_builder.js',
+    'features/department/curriculum-builder.js',
     'features/department/departmentdashboard.js',
     'features/faculty/facultydashboard.js',
     'features/registrar/registrardashboard.js',
@@ -52,9 +52,9 @@ const ESCAPED_RE   = /\b(?:esc|escapeHtml)\s*\(/;
 const CONSTANT = 'a fixed label written in the code, never typed or uploaded';
 const SAFE = [
     ['features/admin/admindashboard.js',          'capCell(',                'a number and a role limit'],
-    ['features/curriculum/curriculum_builder.js', 'o.label',                 'built from academic-year numbers and fixed words'],
-    ['features/curriculum/curriculum_builder.js', 'hasFile ?',               'a fixed button; the file name is escaped inside it'],
-    ['features/curriculum/curriculum_builder.js', 'scheduled()',             'a count of subjects, a number'],
+    ['features/department/curriculum-builder.js', 'o.label',                 'built from academic-year numbers and fixed words'],
+    ['features/department/curriculum-builder.js', 'hasFile ?',               'a fixed button; the file name is escaped inside it'],
+    ['features/department/curriculum-builder.js', 'scheduled()',             'a count of subjects, a number'],
     ['features/department/departmentdashboard.js', 'visible.map(o => rowHtmlFor(', 'rowHtmlFor escapes its own fields'],
     ['features/department/departmentdashboard.js', 'reading ?',              'a fixed button'],
     ['features/department/departmentdashboard.js', 'LAST_SUGGEST?.section ===', 'a comparison that prints "hidden" or nothing'],

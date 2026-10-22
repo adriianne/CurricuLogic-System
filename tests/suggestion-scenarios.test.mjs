@@ -16,7 +16,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const E = require('../shared/engine/engine.js');
 const P = require('../shared/engine/preferences.js');
-const explain = require('../ai-assist/eligibility-explanation.js');
+const explain = require('../cura/eligibility-explanation.js');
 const SC = require('../shared/js/scheduleconflicts.js');
 const { assessStudent } = require('../supabase/functions/assess-student/core.js');
 

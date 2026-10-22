@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const engine = require('../shared/engine/engine.js');
-const explain = require('../ai-assist/eligibility-explanation.js');
+const explain = require('../cura/eligibility-explanation.js');
 
 let id = 1;
 const subj = (code, o = {}) => ({ id: id++, code, title: `${code} title`, units: o.units ?? '3.00', year_level: o.y ?? 1, term: o.t ?? 1, is_elective: false, elective_type: null });

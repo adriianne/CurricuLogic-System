@@ -3,7 +3,7 @@
 // Deterministic day/time-overlap logic for class sections. Pure
 // functions only -- no DOM, no Supabase -- so the same rules run
 // unchanged in the "Build your plan" schedule picker, in Cura's
-// schedule summary (ai-assist/eligibility-explanation.js), and in
+// schedule summary (cura/eligibility-explanation.js), and in
 // Node tests.
 //
 // Nothing here decides what a student *should* take. It only answers

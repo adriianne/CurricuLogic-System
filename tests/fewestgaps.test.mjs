@@ -189,7 +189,7 @@ describe('fewest gaps on', () => {
 });
 
 describe('what Cura and the phone are told', () => {
-    const explain = require('../ai-assist/eligibility-explanation.js');
+    const explain = require('../cura/eligibility-explanation.js');
     const { assessStudent } = require('../supabase/functions/assess-student/core.js');
     const SCx = require('../shared/js/scheduleconflicts.js');
 

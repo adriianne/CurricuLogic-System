@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const L = require('../ai-assist/chatlist.js');
+const L = require('../cura/chatlist.js');
 
 const NOW = new Date(2026, 9, 14, 15, 0, 0);          // 14 Oct 2026, 3 pm local
 const at = (d, h = 9) => new Date(2026, 9, d, h, 0, 0).toISOString();

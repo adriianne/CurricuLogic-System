@@ -37,7 +37,7 @@ that the rule engine has already decided; it never decides anything itself. Writ
   tested in `tests/chatlist.test.mjs`). Each chat has a "..." menu with Rename and Delete.
 - Rename is in place (Enter saves, Esc cancels). Delete uses a `<dialog>` that names the chat, then a short
   notice. On a phone the list is inside the menu drawer, and a "New chat" button sits in the chat header.
-- Styling is in `ai-assist/css/ai-chat.css`: frosted glass, with dark-mode variants.
+- Styling is in `cura/css/ai-chat.css`: frosted glass, with dark-mode variants.
 - Two things that cost time to find, so they are written down: the page's `rise-in` animation leaves a transform
   on the card, which makes the card the reference box for `position: fixed` (fixed with
   `animation-fill-mode: backwards` on `.ai-chat-card`); and the page's CSS reset removes a modal dialog's automatic

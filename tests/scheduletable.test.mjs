@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const engine = require('../shared/engine/engine.js');
 const P = require('../shared/engine/preferences.js');
-const explain = require('../ai-assist/eligibility-explanation.js');
+const explain = require('../cura/eligibility-explanation.js');
 const T = require('../shared/js/scheduletable.js');
 
 let id = 1;

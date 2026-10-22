@@ -93,7 +93,7 @@ describe('problem', () => {
 });
 
 describe('the curriculum builder uses it', () => {
-    const src = readFileSync(resolve(ROOT, 'features/curriculum/curriculum_builder.js'), 'utf8');
+    const src = readFileSync(resolve(ROOT, 'features/department/curriculum-builder.js'), 'utf8');
 
     test('no code is upper-cased by hand any more', () => {
         const hand = src.split('\n').filter(l => /code/i.test(l) && /toUpperCase\(\)/.test(l));
@@ -103,7 +103,7 @@ describe('the curriculum builder uses it', () => {
     test('the department page loads the helper before the builder', () => {
         const html = readFileSync(resolve(ROOT, 'features/department/departmentdashboard.html'), 'utf8');
         const helper = html.indexOf('shared/js/subjectcode.js');
-        const builder = html.indexOf('curriculum/curriculum_builder.js');
+        const builder = html.indexOf('curriculum-builder.js');
         assert.ok(helper > 0 && builder > helper);
     });
 });

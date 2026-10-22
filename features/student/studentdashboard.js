@@ -1593,7 +1593,7 @@ function renderChatContext(summary) {
 
 /* The questions offered under the chat: four to start with, then up to three
    after every answer, built from this student's own record by
-   ai-assist/chatsuggestions.js. A question already asked is not offered
+   cura/chatsuggestions.js. A question already asked is not offered
    again, and what was just answered shapes what comes next (after a plan
    table: "how do I send it to my adviser?"). They go away when none is left.
    `lastReply` is { table } for the answer just shown, null at the start. */

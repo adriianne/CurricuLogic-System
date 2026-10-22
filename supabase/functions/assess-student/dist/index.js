@@ -1341,9 +1341,9 @@ var require_preferences = __commonJS({
   }
 });
 
-// ai-assist/eligibility-explanation.js
+// cura/eligibility-explanation.js
 var require_eligibility_explanation = __commonJS({
-  "ai-assist/eligibility-explanation.js"(exports, module) {
+  "cura/eligibility-explanation.js"(exports, module) {
     var SC2 = typeof window !== "undefined" && window.ScheduleConflicts ? window.ScheduleConflicts : require_scheduleconflicts();
     function summarizeSections(r) {
       return SC2.groupSections(r.sections).map((g) => ({

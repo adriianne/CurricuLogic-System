@@ -15,7 +15,7 @@ const BS = require('../shared/js/backupsections.js');
 const SC = require('../shared/js/scheduleconflicts.js');
 const E = require('../shared/engine/engine.js');
 const P = require('../shared/engine/preferences.js');
-const explain = require('../ai-assist/eligibility-explanation.js');
+const explain = require('../cura/eligibility-explanation.js');
 const { assessStudent } = require('../supabase/functions/assess-student/core.js');
 const { evaluateSelections } = require('../supabase/functions/submit-advising-request/core.js');
 

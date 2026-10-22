@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const S = require('../ai-assist/chatsuggestions.js');
+const S = require('../cura/chatsuggestions.js');
 
 const rec = (code, extra = {}) => ({ code, title: code, units: 3, retake: false, sections: [{ section: 'A', meetings: [], timeOfDay: 'morning' }], slotOptions: null, ...extra });
 

@@ -63,7 +63,7 @@ through the same consistency and redesign pass.
 
 ### Open
 
-- **`features/prospectus/prospectus.css`** carries duplicate `.photo-*`
+- **`shared/css/prospectus.css`** carries duplicate `.photo-*`
   rules from successive passes; the older ones win. Deduplication
   pending.
 - **`commitGrades()`** is four independent DB writes, not atomic. A

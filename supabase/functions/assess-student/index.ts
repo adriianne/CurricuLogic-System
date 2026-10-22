@@ -28,7 +28,7 @@ import preferences from "../../../shared/engine/preferences.js";
 // @ts-ignore
 import SC from "../../../shared/js/scheduleconflicts.js";
 // @ts-ignore
-import explain from "../../../ai-assist/eligibility-explanation.js";
+import explain from "../../../cura/eligibility-explanation.js";
 // @ts-ignore
 import edp from "../../../shared/js/edpresult.js";
 // @ts-ignore
