@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const P = require('../shared/js/profilephoto.js');
+const P = require('../shared/js/app/profilephoto.js');
 
 describe('problem', () => {
     test('accepts a JPEG, PNG or WebP of reasonable size', () => {

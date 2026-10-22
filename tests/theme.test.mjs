@@ -11,7 +11,7 @@ import { resolve as resolvePath, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const T = require('../shared/js/theme.js');
+const T = require('../shared/js/app/theme.js');
 const ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('resolve', () => {
@@ -41,18 +41,18 @@ describe('other', () => {
 });
 
 describe('the page', () => {
-    // The head script (shared/js/themeinit.js, a file rather than an inline
+    // The head script (shared/js/app/themeinit.js, a file rather than an inline
     // script so the Content-Security-Policy can forbid inline scripts) must use
     // the same key and the same two values as theme.js, and run before the
     // stylesheet loads.
     const html = readFileSync(resolvePath(ROOT, 'features/admin/admindashboard.html'), 'utf8');
-    const init = readFileSync(resolvePath(ROOT, 'shared/js/themeinit.js'), 'utf8');
+    const init = readFileSync(resolvePath(ROOT, 'shared/js/app/themeinit.js'), 'utf8');
 
     test('applies the theme before the page is drawn, with the same key', () => {
         assert.ok(init.includes(`'${T.KEY}'`), 'themeinit.js does not read the saved theme');
         assert.ok(init.includes("'light'") && init.includes("'dark'"), 'themeinit.js lost one of the two values');
 
-        const script = html.indexOf('shared/js/themeinit.js');
+        const script = html.indexOf('shared/js/app/themeinit.js');
         const stylesheet = html.indexOf('shared/css/dashboard.css');
         assert.ok(script > 0 && script < html.indexOf('</head>'), 'themeinit.js is not in the head');
         assert.ok(script < stylesheet, 'themeinit.js must run before the stylesheet loads');
@@ -64,13 +64,13 @@ describe('the page', () => {
         for (const p of ['admin/admindashboard', 'department/departmentdashboard', 'faculty/facultydashboard',
                          'registrar/registrardashboard', 'student/studentdashboard']) {
             const page = readFileSync(resolvePath(ROOT, `features/${p}.html`), 'utf8');
-            assert.ok(page.includes('<script src="../../shared/js/themeinit.js"></script>'), `${p} does not load themeinit.js`);
+            assert.ok(page.includes('<script src="../../shared/js/app/themeinit.js"></script>'), `${p} does not load themeinit.js`);
             assert.equal(page.includes(`'${T.KEY}'`), false, `${p} still has the theme code inline`);
         }
     });
 
     test('has the toggle button and loads theme.js', () => {
         assert.ok(html.includes('id="theme-toggle"'));
-        assert.ok(html.includes('shared/js/theme.js'));
+        assert.ok(html.includes('shared/js/app/theme.js'));
     });
 });

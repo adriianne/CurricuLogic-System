@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function htmlFiles(dir) {
-    const skip = new Set(['node_modules', '.git', 'tests', 'docs', 'db', 'supabase', 'assets', 'progress log']);
+    const skip = new Set(['node_modules', '.git', 'tests', 'docs', 'db', 'supabase', 'assets', 'workspace']);
     const out = [];
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         if (e.isDirectory()) { if (!skip.has(e.name)) out.push(...htmlFiles(path.join(dir, e.name))); }
@@ -110,7 +110,7 @@ test('every outside script and stylesheet is on the policy', () => {
 });
 
 test('the Supabase project is allowed for network calls and photos', () => {
-    const config = fs.readFileSync(path.join(root, 'shared/js/config.js'), 'utf8');
+    const config = fs.readFileSync(path.join(root, 'shared/js/app/config.js'), 'utf8');
     const url = config.match(/SUPABASE_URL:\s*'([^']+)'/)?.[1];
     assert.ok(url, 'SUPABASE_URL not found in config.js');
     const d = directives(policyOf(PAGES[0].html)[0]);

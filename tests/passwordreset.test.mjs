@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const PR = require('../shared/js/passwordreset.js');
+const PR = require('../shared/js/accounts/passwordreset.js');
 
 test('setPasswordUrl follows the site the page was loaded from', () => {
     assert.equal(PR.setPasswordUrl('http://localhost:8123/features/admin/admindashboard.html#accounts'),

@@ -4,7 +4,7 @@
    adding class="theme-paper" to its <body> and loading this file after
    dashboard.css. Remove the class to go back to the original look.
 
-   Dark mode: <html data-theme="dark"> (set by shared/js/theme.js, which also
+   Dark mode: <html data-theme="dark"> (set by shared/js/app/theme.js, which also
    remembers the choice and follows the system setting at first).
 
    Only values change here; no layout does. Colours match
@@ -96,7 +96,7 @@
    the same serif headlines and mono labels, the same indigo and green accents
    (lightened so they read on a dark ground). Cards stay solid with a soft
    shadow, pills stay tinted, the current page keeps its indigo wash.
-   <html data-theme="dark"> is set by shared/js/theme.js. */
+   <html data-theme="dark"> is set by shared/js/app/theme.js. */
 
 html[data-theme="dark"] .theme-paper {
     --canvas:  #050505;     /* plain black */

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const E = require('../shared/js/emailrules.js');
+const E = require('../shared/js/accounts/emailrules.js');
 
 describe('problem', () => {
     test('ordinary addresses pass', () => {

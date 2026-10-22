@@ -275,7 +275,7 @@ function fullName(p) {
 /* profile */
 
 /* Profile photo: stored privately per account (db/064), helpers in
-   shared/js/profilephoto.js. Preview has no storage, so a picture chosen there
+   shared/js/app/profilephoto.js. Preview has no storage, so a picture chosen there
    only lives until the page is closed. */
 let PHOTO_URL = null;
 let PHOTO_INITIALS = '';
@@ -814,7 +814,7 @@ $('print-slip')?.addEventListener('click', () => {
 /* dashboard tiles */
 
 /* One number on the dashboard: set as usual, then counted up from what is
-   shown (or from 0 the first time). See shared/js/motion.js. */
+   shown (or from 0 the first time). See shared/js/app/motion.js. */
 function setStat(id, n, className) {
     const el = $(id);
     if (!el) return;

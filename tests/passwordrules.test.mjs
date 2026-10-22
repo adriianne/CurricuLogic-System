@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const P = require('../shared/js/passwordrules.js');
+const P = require('../shared/js/accounts/passwordrules.js');
 
 describe('problem', () => {
     test('a short password is refused', () => {

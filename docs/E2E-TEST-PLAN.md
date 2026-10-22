@@ -39,7 +39,7 @@ Libraries (shared/js/vendor/xlsx.full.min.js, pinned Supabase/ExcelJS/Font Aweso
 - [ ] Department: download a class list, upload a grade file, check the preview and save. (13 Oct: class list and template download, preview works; not saved.)
 - [ ] Department: schedule template download and upload still work. (13 Oct: download works, pre-filled for BSIT-1A; upload not tried.)
 
-Names (db/060, shared/js/namerules.js) - re-run db/060 first; it was corrected after the first run:
+Names (db/060, shared/js/accounts/namerules.js) - re-run db/060 first; it was corrected after the first run:
 - [ ] Register as a new student with the name `<b>x</b>`: refused with a plain message. (13 Oct: rules module refuses it; the register form itself was not submitted.)
 - [ ] Same with `Al3x`, `=1+1`, `😀 Ann`, `---`, and a name with a backslash. (13 Oct: all refused by the rules module.)
 - [ ] Accepted: `José`, `Dela Cruz`, `O'Brien`, `Smith-Jones`, `田中`. (13 Oct: all accepted by the rules module.)
@@ -48,7 +48,7 @@ Names (db/060, shared/js/namerules.js) - re-run db/060 first; it was corrected a
 Student ID (register page):
 - [ ] `2401187` and `uc-2401187` are accepted; `2024-01187`, 6 and 8 digits show "Student ID is 7 digits". (13 Oct: the same pattern from register.js gives these results; the form was not submitted.)
 
-Passwords (shared/js/passwordrules.js, db/061):
+Passwords (shared/js/accounts/passwordrules.js, db/061):
 - [x] Eight spaces plus `!` is refused ("spaces do not count"). (13 Oct, on the Admin Create account form)
 - [ ] A 25-character Japanese password is refused ("at most 72 bytes"); 23 characters plus `!` is accepted. (13 Oct: confirmed in the rules module only.)
 - [x] Admin-created account and bulk upload apply the same rules. (13 Oct: both refuse the eight-spaces password; the bulk message reads "at least 8 characters" without "spaces do not count".)
@@ -60,7 +60,7 @@ Subject codes (shared/js/curriculum/subjectcode.js, db/062 - run it first):
 - [ ] Save, reload the draft, publish: codes and prerequisites come back unchanged.
 - [x] Grade file with `ENGL101`, `engl-101` and `ENGL 101` for the same subject all match it. (13 Oct, preview only; the full-width spelling matches too.)
 
-Email (shared/js/emailrules.js, db/063 - run it first):
+Email (shared/js/accounts/emailrules.js, db/063 - run it first):
 - [ ] Register with `a@b.c`, `a@@b.com`, `x..y@school.edu`, `a@-b.com` and an address with a space or `<`: each is refused with "That does not look like a valid email address." (13 Oct: confirmed in the rules module; the register form was not submitted.)
 - [ ] `Althea.V@Gmail.com` is accepted and stored as `althea.v@gmail.com`. (13 Oct: the rules module accepts it and cleans it to lower case; nothing was stored.)
 - [x] Admin Create account and a bulk-upload row with a bad email are refused, with the reason. (13 Oct)

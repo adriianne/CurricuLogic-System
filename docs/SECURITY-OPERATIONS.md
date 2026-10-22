@@ -8,7 +8,7 @@ Last reviewed 2026-10-04; the schema-snapshot status in section 4 was updated 20
 
 | Secret | Where it lives | Notes |
 |---|---|---|
-| Supabase **anon** key | `shared/js/config.js` (and the Android app's `local.properties`) | **Public by design.** It is in every visitor's browser. It identifies the project; row-level security is what protects the data. |
+| Supabase **anon** key | `shared/js/app/config.js` (and the Android app's `local.properties`) | **Public by design.** It is in every visitor's browser. It identifies the project; row-level security is what protects the data. |
 | Supabase **service-role** key | Only inside Supabase's edge-function environment (provided automatically) | Bypasses all row-level security. Never in the repo, never in the browser. Used by `sign-in`, and by the role checks in the AI functions. |
 | **Gemini** API key (`GEMINI_API_KEY`) | Supabase → Edge Functions → Secrets | Used by the three AI functions. |
 | Mail-service key (when item 6 is built) | Supabase → Edge Functions → Secrets | Same place; never in the repo. |
@@ -41,13 +41,13 @@ Last reviewed 2026-10-04; the schema-snapshot status in section 4 was updated 20
 - Idle means no mouse, keyboard, scroll or touch activity. Tabs of the same role
   share one clock, so working in one keeps the others signed in. A laptop that
   slept past the limit signs out when it wakes. Implemented in
-  `shared/js/idlesignout.js`; switched on by `data-idle-role` on each dashboard's
+  `shared/js/app/idlesignout.js`; switched on by `data-idle-role` on each dashboard's
   `<body>`; off in the localhost `?preview` mode.
 - **Remember me** now works. Registrar, department and administrator sessions are
   always per tab (gone when the tab closes). Staff login has no "Remember me" box,
   so faculty sessions are per tab too. A student's session is kept on the device
   only if the box is ticked. Where each session is stored: `authOptions()` in
-  `shared/js/config.js`.
+  `shared/js/app/config.js`.
 - **Log out** ends the session on every device (Supabase's default scope).
 - **Not covered:** a stolen session token is not stopped by any of this, and the
   access token itself stays valid until it expires (about an hour). Ending sessions
@@ -137,7 +137,7 @@ select * from audit_log where table_name = 'prospectus' and record_id = '13' ord
    `sign-in`, `assess-student`, `submit-advising-request`, `eligibility-chat`,
    `analyze-curriculum-document`, `analyze-schedule-document`; `explain-eligibility`
    is a retired stub and can be skipped), set their secrets (section 1), and point
-   `shared/js/config.js` at the new project.
+   `shared/js/app/config.js` at the new project.
 5. Verify. As of 2026-10-13 the structure has 29 tables, 82 policies, 45 functions
    and 18 triggers; compare counts against the restored project. Then sign in as
    each role, open each dashboard, and run the test suite.
@@ -174,7 +174,7 @@ It is a `<meta http-equiv="Content-Security-Policy">` tag, the first thing in th
 | `base-uri 'self'`, `form-action 'self'` | | stops injected `<base>` and forms that post elsewhere |
 
 What had to change to make this possible: the theme set-up that sat in an inline `<script>` in five
-dashboards is now `shared/js/themeinit.js` (still a plain blocking script in the head, so there is
+dashboards is now `shared/js/app/themeinit.js` (still a plain blocking script in the head, so there is
 no white flash); the Department avatar upload no longer calls `fetch()` on a `data:` address
 (`CurriculogicPhoto.dataUrlToBlob`). The project's own code has no `eval`, `new Function`,
 inline `onclick=` or `javascript:` links; the test keeps it so.

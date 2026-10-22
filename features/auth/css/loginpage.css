@@ -265,7 +265,7 @@ img { max-width: 100%; }
 }
 
 /* The same graph paper in the logo green, shown only under a soft spotlight that
-   drifts across the panel, or follows the mouse (see shared/js/gridglow.js). */
+   drifts across the panel, or follows the mouse (see shared/js/app/gridglow.js). */
 .auth-main::after {
     content: '';
     position: absolute;

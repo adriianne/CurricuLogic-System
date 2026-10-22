@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const N = require('../shared/js/namerules.js');
+const N = require('../shared/js/accounts/namerules.js');
 
 describe('problem', () => {
     test('ordinary names pass, in any alphabet', () => {

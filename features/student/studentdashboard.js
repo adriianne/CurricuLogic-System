@@ -54,7 +54,7 @@ let ACTIVE_PROSPECTUS_YEAR = null;   // its effective year, for the "not started
 
 /* The term the recommendation is for. These are fallback defaults only
    -- loadCurrentTermYear() below overwrites both from the new
-   system_config table (shared/js/systemconfig.js) before either is
+   system_config table (shared/js/app/systemconfig.js) before either is
    ever read, so the topbar and this file can no longer drift out of
    sync with each other or with the actual scheduled term. */
 let CURRENT_TERM   = 1;
@@ -284,7 +284,7 @@ function renderProfile(student, authEmail) {
 }
 
 /* Profile photo. Stored privately per account (db/064); everything the page
-   needs is in shared/js/profilephoto.js. Preview has no storage, so a picture
+   needs is in shared/js/app/profilephoto.js. Preview has no storage, so a picture
    chosen there is only held in memory until the page is closed. */
 let PHOTO_URL = null;
 let PHOTO_INITIALS = '';

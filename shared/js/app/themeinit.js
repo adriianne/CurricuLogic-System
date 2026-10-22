@@ -1,6 +1,6 @@
 /* themeinit.js: apply the saved (or system) theme before anything is drawn, so
    there is no white flash. Loaded from <head> as a plain blocking script, which is
-   what makes it run before the first paint. See shared/js/theme.js for the toggle.
+   what makes it run before the first paint. See shared/js/app/theme.js for the toggle.
 
    It is a file, not an inline <script>, so the Content-Security-Policy can forbid
    inline scripts altogether. */

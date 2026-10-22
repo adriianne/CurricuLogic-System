@@ -36,7 +36,7 @@ const listed = (...patterns) => execFileSync(
     { cwd: ROOT, encoding: 'utf8' },
 ).split('\n').filter(Boolean);
 
-const HTML = listed('*.html').filter(f => !f.startsWith('progress log/') && !f.startsWith('tests/UI inspo/'));
+const HTML = listed('*.html').filter(f => !f.startsWith('workspace/') && !f.startsWith('tests/fixtures/'));
 const JS   = listed('*.js').filter(f => !f.includes('/dist/') && !f.includes('/vendor/') && !f.startsWith('tests/'));
 
 /* The external <script src> and <link rel=stylesheet href> tags of a page. */

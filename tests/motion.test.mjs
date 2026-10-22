@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const M = require('../shared/js/motion.js');
+const M = require('../shared/js/app/motion.js');
 
 describe('easeOutCubic', () => {
     test('starts at 0 and ends at 1', () => {

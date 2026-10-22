@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const I = require('../shared/js/idlesignout.js');
+const I = require('../shared/js/app/idlesignout.js');
 
 const MIN = 60 * 1000;
 

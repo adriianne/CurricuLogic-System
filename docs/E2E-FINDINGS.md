@@ -72,7 +72,7 @@ Findings (most important first):
     the engine (PE 103 is the prerequisite of PE 104; what moves later, how the units shift).
 
 ## Fix log
-- Finding 7 (temporary password never enforced): FIXED 2026-10-04. db/057 + shared/js/forcepasswordchange.js, hooked
+- Finding 7 (temporary password never enforced): FIXED 2026-10-04. db/057 + shared/js/app/forcepasswordchange.js, hooked
   into all five dashboards. Verified: signed-out callers are refused; a person sees and clears only their own flag;
   the box appears on load and its validation shows; after the student chose a password the flag cleared
   (9900001 false; 9900002-4 still true) and the box did not return on reload. Android sign-in with a temporary

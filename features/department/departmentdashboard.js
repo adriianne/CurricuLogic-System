@@ -302,7 +302,7 @@ function setText(id, value, className) {
 }
 
 /* One number on the dashboard: set as usual, then counted up from what is
-   shown (or from 0 the first time). See shared/js/motion.js. */
+   shown (or from 0 the first time). See shared/js/app/motion.js. */
 function setStat(id, n) {
     const el = $(id);
     if (!el) return;

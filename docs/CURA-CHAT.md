@@ -31,7 +31,7 @@ that the rule engine has already decided; it never decides anything itself. Writ
 
 ## 3. The screens
 
-**Website** (`features/student/studentdashboard.{html,js}`, `ai-assist/`):
+**Website** (`features/student/studentdashboard.{html,js}`, `cura/`):
 - On the Ask AI page the chat list appears **inside the app's left menu**, under the main links
   (`#side-chats`, shown only on that page). It has **New chat**, and the chats grouped by day (`chatlist.js`,
   tested in `tests/chatlist.test.mjs`). Each chat has a "..." menu with Rename and Delete.

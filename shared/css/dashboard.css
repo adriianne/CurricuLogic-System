@@ -3040,7 +3040,7 @@ input[type="password"]::-ms-clear {
 .pager-btns { display: inline-flex; align-items: center; gap: 0.6rem; }
 .pager-btns button:disabled { opacity: 0.45; cursor: default; }
 
-/* Profile photo (shared/js/profilephoto.js). The picture fills the round avatar;
+/* Profile photo (shared/js/app/profilephoto.js). The picture fills the round avatar;
    the camera button sits on its lower-right edge. */
 .avatar, .prof-avatar { overflow: hidden; }
 .avatar img, .prof-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }

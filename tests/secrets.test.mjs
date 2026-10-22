@@ -116,7 +116,7 @@ describe('the repository', () => {
     });
 
     test('the anon key is where it should be, and is the only key there', () => {
-        const text = readFileSync(resolve(ROOT, 'shared/js/config.js'), 'utf8');
+        const text = readFileSync(resolve(ROOT, 'shared/js/app/config.js'), 'utf8');
         const roles = [...text.matchAll(JWT)].map((m) =>
             JSON.parse(Buffer.from(m[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')).role);
         assert.deepEqual(roles, ['anon']);

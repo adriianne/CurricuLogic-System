@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const source = readFileSync(new URL('../shared/js/systemconfig.js', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../shared/js/app/systemconfig.js', import.meta.url), 'utf8');
 
 function boot() {
     const topbar = { textContent: 'static text' };

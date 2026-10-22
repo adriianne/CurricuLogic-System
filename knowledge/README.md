@@ -1,6 +1,11 @@
-# models/
+# knowledge/
 
-The knowledge model for CurricuLogic's expert system.
+The knowledge model for CurricuLogic's expert system, explained.
+
+This folder holds no code and no data. It explains where the knowledge
+lives and how the system keeps knowledge apart from reasoning. The rules
+themselves are in the database and in `data/prospectus/`; the reasoning is
+in `shared/engine/`.
 
 ## What is not here
 
@@ -18,35 +23,31 @@ failed. A statistical approach would trade that explainability away for
 no benefit, because the prerequisite rules are already fully known and
 published.
 
-`models/` here means *domain model* — the structured representation of
+"Model" here means *domain model* — the structured representation of
 curriculum knowledge the inference engine reasons over.
 
 ## The three layers
 
 An expert system separates knowledge from reasoning. CurricuLogic keeps
-them in different directories, deliberately.
+them in different places, deliberately.
 
 | Layer | Location | Contents |
 |---|---|---|
-| Knowledge base | `models/` | Production rules, curriculum facts, the prospectus as data |
+| Knowledge base | Supabase tables `subject` and `prerequisite` (seeded from `data/prospectus/`) | Production rules, curriculum facts, the prospectus as data |
 | Working memory | runtime | Facts about one student, loaded per session |
-| Inference engine | `engine/` | The matcher that fires rules until nothing new derives |
+| Inference engine | `shared/engine/` | The matcher that fires rules until nothing new derives |
 
 Eligibility logic must not live in the UI. If prerequisite checks end up
-inside `JS/studentdashboard.js`, the system is a form with
+inside `features/student/studentdashboard.js`, the system is a form with
 if-statements rather than an expert system, and the architectural claim
-in the manuscript no longer holds.
-
-## Contents
-
-| File | Purpose |
-|---|---|
-| — | To be documented as files are added |
+in the manuscript no longer holds. The same engine file runs in the
+browser and in the server functions (`supabase/functions/assess-student`
+and `submit-advising-request`), so the two cannot disagree.
 
 ## The rule model
 
-Curriculum knowledge is stored in Supabase and mirrored here as the
-canonical definition of rule shape.
+Curriculum knowledge is stored in Supabase. The CSV files in
+`data/prospectus/` are the transcribed source it was seeded from.
 
 **Prerequisite edges** — `subject` requires `required_subject`, typed as
 `prerequisite`, `co_requisite`, or `standing`. Vocabulary is lowercase
@@ -73,18 +74,29 @@ and it is what a panel will ask to see. Any change to the rule model
 that makes a decision harder to explain is a change in the wrong
 direction.
 
-## Scope
+## Where AI is and is not used
 
-OCR and automated prospectus extraction are out of scope and recorded
-under Future Development. Curriculum data is encoded by Department
-Staff, who own the programme. The System Administrator is an IT role and
-holds no curriculum write access — separation of duties.
+The eligibility decision is never made by AI. Two places do use a
+generative model (Gemini), and both only read or narrate:
+
+- **Cura**, the student chat (`cura/` and `supabase/functions/eligibility-chat`),
+  explains facts the rule engine has already computed. It cannot change a
+  decision.
+- **Document readers** (`supabase/functions/analyze-curriculum-document` and
+  `analyze-schedule-document`) read an uploaded curriculum or schedule file
+  and propose rows. Department Staff review every row and save it
+  themselves; nothing is saved automatically.
+
+Curriculum data is owned and encoded by Department Staff, who own the
+programme. The System Administrator is an IT role and holds no curriculum
+write access — separation of duties.
 
 ## Related
 
 | Path | Contents |
 |---|---|
-| `engine/` | Forward-chaining inference engine |
+| `shared/engine/` | Forward-chaining inference engine and student preferences |
+| `cura/` | Browser side of the Cura chat |
 | `db/` | Schema migrations, RLS policies, provisioning functions |
-| `data/` | Prospectus transcription source files |
-| `docs/DECISIONS.md` | Dated architectural decisions |
+| `data/prospectus/` | Prospectus transcription source files (CSV) |
+| `docs/` | Operations notes, test plans, the Cura chat design |

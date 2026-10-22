@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const B = require('../shared/js/bulkaccounts.js');
+const B = require('../shared/js/accounts/bulkaccounts.js');
 
 const PROGRAMS = [
     { code: 'BSCRIM', college: 'College of Criminology' },

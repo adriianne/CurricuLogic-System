@@ -109,6 +109,31 @@ module per dashboard, one shared stylesheet.
 
 ## Layout
 
+| Folder | What is in it |
+|---|---|
+| `features/` | One folder per role (`admin`, `department`, `faculty`, `registrar`, `student`) plus `auth` for the sign-in pages |
+| `shared/` | Code used by more than one page: `css/`, `engine/` (the rule engine) and `js/` (small helpers) |
+| `cura/` | The browser side of the Cura chat |
+| `supabase/functions/` | The server functions (one folder each, `dist/` is the built file that is deployed) |
+| `db/` | Numbered database migrations, schema snapshots and `tools/` |
+| `data/` | Prospectus source files (CSV) |
+| `knowledge/` | Explains the knowledge model and where AI is and is not used |
+| `docs/` | Operations notes, test plans and the Cura chat design |
+| `tests/` | Automated tests; `fixtures/` holds test spreadsheets, PDFs and screenshots |
+| `assets/` | Logos and screenshots used by the pages |
+
+### File names
+
+- Files and folders are lowercase with hyphens: `curriculum-builder.js`,
+  `grade-upload.css`.
+- A test has the name of what it tests plus `.test.mjs`.
+- Inside `docs/`, documents are `UPPER-CASE-WITH-HYPHENS.md`.
+- Kept as they are: migrations (`db/NNN_snake_case.sql`), the Supabase
+  function folder names, and generated or third-party files (`dist/`,
+  `xlsx.full.min.js`).
+- Older files with joined words (`studentdashboard.js`, `accountmatches.js`)
+  are not renamed yet; new files follow the rule above.
+
 ## Security and operations
 
 Where secrets live, how sessions and the audit log work, and how to back up and

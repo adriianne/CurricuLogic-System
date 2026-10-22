@@ -1,5 +1,5 @@
 # Secrets and local configuration: never commit these.
-# (The public anon key in shared/js/config.js is the only key that belongs in the repo.
+# (The public anon key in shared/js/app/config.js is the only key that belongs in the repo.
 #  Everything else lives in Supabase function secrets -- see docs/SECURITY-OPERATIONS.md.)
 .env
 .env.*
@@ -13,9 +13,16 @@
 local.properties
 secrets/
 
+# Test data (spreadsheets, PDFs, screenshots). Real names and grades: never commit.
+tests/fixtures/
+
+# Personal working material: screenshots, design references, the progress log.
+workspace/
+
 # Editors and tools
 .vscode/
 .claude/
+skills-lock.json
 .DS_Store
 Thumbs.db
 

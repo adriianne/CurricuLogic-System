@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-const { findMatches, reasonText } = createRequire(import.meta.url)('../shared/js/accountmatches.js');
+const { findMatches, reasonText } = createRequire(import.meta.url)('../shared/js/accounts/accountmatches.js');
 
 const acct = (id, first, last, email, student_id = null) => ({ id, first_name: first, last_name: last, email, student_id });
 
