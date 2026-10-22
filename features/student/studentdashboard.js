@@ -1657,7 +1657,7 @@ function appendChatMessage(role, text, table, schedule, scheduleLayout) {
     return row;
 }
 
-/* Subject, section and when it meets, from shared/js/scheduletable.js. Everything
+/* Subject, section and when it meets, from shared/js/schedule/scheduletable.js. Everything
    shown comes from the student's real plan; text is escaped. */
 function renderScheduleTable(schedule) {
     if (!schedule || (!schedule.rows?.length && !schedule.notInPlan?.length)) return '';
@@ -1681,7 +1681,7 @@ function renderScheduleTable(schedule) {
             ? ' — ' + (schedule.changes ?? []).map(escapeHtml).join('; ') : ''}.</p>`
         : '';
 
-    // The same plan laid out by day, Monday first (shared/js/scheduletable.js). Both views are
+    // The same plan laid out by day, Monday first (shared/js/schedule/scheduletable.js). Both views are
     // drawn; the toggle only switches which one shows, so nothing is fetched or recomputed.
     const T = window.CurriculogicScheduleTable;
     const grouped = T?.byDay ? T.byDay(schedule.rows ?? []) : null;
@@ -2912,7 +2912,7 @@ document.addEventListener('change', (e) => {
 let REQUESTS_ON_PAGE = [];
 
 /* Builds and prints the Enrolment sheet of one approved request: its subjects with EDP codes, and for each a
-   couple of backup sections that do not clash with the rest of the plan (shared/js/backupsections.js). */
+   couple of backup sections that do not clash with the rest of the plan (shared/js/schedule/backupsections.js). */
 function printEnrollmentSheet(requestId) {
     const request = REQUESTS_ON_PAGE.find(r => String(r.id) === String(requestId));
     if (!request || !window.EnrollmentSheet || !window.BackupSections) return;

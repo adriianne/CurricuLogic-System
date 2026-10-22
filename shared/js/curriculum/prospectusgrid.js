@@ -78,7 +78,7 @@ function describeStanding(pos) {
    join. Used by the offline (preview) path. */
 function buildFromOffline(offline) {
     // An elective type marks a slot even when is_elective was saved false
-    // (see shared/js/electives.js), so the grid and the engine agree.
+    // (see shared/js/curriculum/electives.js), so the grid and the engine agree.
     const subjects = (offline.subjects ?? []).map(s =>
         ({ ...s, is_elective: s.is_elective === true || s.elective_type != null }));
     const byId = new Map(subjects.map(s => [s.id, s]));
@@ -364,7 +364,7 @@ function jump(code) {
 
 /*  entry point  */
 
-/* Opens the one-page printable curriculum (shared/js/curriculumprint.js) in a new window.
+/* Opens the one-page printable curriculum (shared/js/curriculum/curriculumprint.js) in a new window.
    `info` is { program, college, effective }; only the pages that pass it get the Print button. */
 /* A degree audit passes the student too: their Grade column is filled from the same statuses the grid shows
    (the grade where there is one, otherwise "Passed" or "Taking"). Without a student, the Grade column stays blank. */

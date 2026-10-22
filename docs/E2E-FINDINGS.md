@@ -97,7 +97,7 @@ Findings (most important first):
   Still open from this round: 9 (server accepts a clashing plan), 14 (Cura on "skip a subject").
 - Schedule table in Cura (asked 2026-10-04): BUILT and DEPLOYED (db/058 applied; eligibility-chat v13). Cura returns
   `showScheduleTable` for "what's my schedule / when do these meet"; the app draws Code | Section | When (lecture and
-  lab on separate lines) plus "Not in your plan: X (clashes with ...)", from shared/js/scheduletable.js (website) and
+  lab on separate lines) plus "Not in your plan: X (clashes with ...)", from shared/js/schedule/scheduletable.js (website) and
   ChatRepository.scheduleFrom / ChatAdapter (phone). The conversation saves only the flag; the table is rebuilt from the
   current plan when the chat is reopened. Verified live as the Old student: asked "What's my schedule?" and got the table
   (5 rows, the 3 left-out subjects named); after a reload the table was drawn again from history.

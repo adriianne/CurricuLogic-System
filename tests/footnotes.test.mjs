@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const F = require('../shared/js/footnotes.js');
+const F = require('../shared/js/curriculum/footnotes.js');
 
 const BSIT = [
     { marker: '**',  text: 'must finish all 1st year to 2nd year courses', through_year: 2 },

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const SC = require('../shared/js/scheduleconflicts.js');
+const SC = require('../shared/js/schedule/scheduleconflicts.js');
 const S = require('../shared/js/enrollmentsheet.js');
 
 const row = (section, days, start, end, edp, extra = {}) => ({

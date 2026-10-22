@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const E = require('../shared/engine/engine.js');
 const P = require('../shared/engine/preferences.js');
-const SC = require('../shared/js/scheduleconflicts.js');
+const SC = require('../shared/js/schedule/scheduleconflicts.js');
 
 let nextId = 5000;
 const subj = (code) => ({ id: nextId++, code, title: code, units: 3, year_level: 1, term: 1, is_elective: false });
@@ -191,7 +191,7 @@ describe('fewest gaps on', () => {
 describe('what Cura and the phone are told', () => {
     const explain = require('../cura/eligibility-explanation.js');
     const { assessStudent } = require('../supabase/functions/assess-student/core.js');
-    const SCx = require('../shared/js/scheduleconflicts.js');
+    const SCx = require('../shared/js/schedule/scheduleconflicts.js');
 
     test('the Cura summary carries the preference and the free time, and nothing when it is off', () => {
         const { subjects, offerings } = twoSubjects();

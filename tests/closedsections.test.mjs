@@ -11,8 +11,8 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const ER = require('../shared/js/edpresult.js');
-const BS = require('../shared/js/backupsections.js');
-const SC = require('../shared/js/scheduleconflicts.js');
+const BS = require('../shared/js/schedule/backupsections.js');
+const SC = require('../shared/js/schedule/scheduleconflicts.js');
 const E = require('../shared/engine/engine.js');
 const P = require('../shared/engine/preferences.js');
 const explain = require('../cura/eligibility-explanation.js');

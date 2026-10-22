@@ -32,7 +32,7 @@ const TERMS = { 1: 'First Semester', 2: 'Second Semester', 3: 'Summer' };
    cover all of them; anything else is a typo. */
 // The shape rule (starts with a letter; "123123" is a typo) is SC.problem().
 
-/* How a code is cleaned and compared (shared/js/subjectcode.js): kept as typed,
+/* How a code is cleaned and compared (shared/js/curriculum/subjectcode.js): kept as typed,
    but upper case, one kind of dash, single spaces. Two codes are the same
    subject when their letters and digits match (ENGL 101 = ENGL-101). */
 const SC = window.CurriculogicSubjectCode;
@@ -90,7 +90,7 @@ const standingToDb = (p) => p.pos ?? p.standing * 10 + 2;
 
 /* ---- elective slots ----
    Decided from a row's data, not from one programme's naming: see
-   shared/js/electives.js (loaded before this file). */
+   shared/js/curriculum/electives.js (loaded before this file). */
 const { placeholderOf, electiveTypeOf, isElectiveRow } = window.CurriculogicElectives;
 
 let SB    = null;

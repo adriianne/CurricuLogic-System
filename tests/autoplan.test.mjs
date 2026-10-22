@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { buildAutoPlan, summarize } = require('../shared/js/autoplan.js');
-const conflicts = require('../shared/js/scheduleconflicts.js');
+const conflicts = require('../shared/js/schedule/scheduleconflicts.js');
 
 /* A subject with sections. Each section: [name, days, start, end] (one lecture),
    or [name, days, start, end, labDays, labStart, labEnd]. */

@@ -17,7 +17,7 @@ const require = createRequire(import.meta.url);
 const E = require('../shared/engine/engine.js');
 const P = require('../shared/engine/preferences.js');
 const explain = require('../cura/eligibility-explanation.js');
-const SC = require('../shared/js/scheduleconflicts.js');
+const SC = require('../shared/js/schedule/scheduleconflicts.js');
 const { assessStudent } = require('../supabase/functions/assess-student/core.js');
 
 /* ---- fixtures ---- */

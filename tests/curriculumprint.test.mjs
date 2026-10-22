@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const P = require('../shared/js/curriculumprint.js');
+const P = require('../shared/js/curriculum/curriculumprint.js');
 
 const sub = (id, code, title, year, term, lec, lab, extra = {}) =>
     ({ id, code, title, year_level: year, term, lec_units: lec, lab_units: lab, units: lec + lab, ...extra });

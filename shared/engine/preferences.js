@@ -30,7 +30,7 @@
 //   plan.preference    // { timeOfDay, load, ceiling, deferred, notes }
 
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory(require('../js/scheduleconflicts.js'));
+    if (typeof module === 'object' && module.exports) module.exports = factory(require('../js/schedule/scheduleconflicts.js'));
     else root.CurricuLogicPreferences = factory(root.ScheduleConflicts);
 }(typeof self !== 'undefined' ? self : this, function (SC) {
 'use strict';

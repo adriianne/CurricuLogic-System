@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const G = require('../shared/js/subjectgroups.js');
+const G = require('../shared/js/curriculum/subjectgroups.js');
 
 let id = 1;
 const s = (code, year, term, units = 3, o = {}) => ({ id: id++, code, title: code, units, year_level: year, term, is_elective: false, is_active: true, ...o });

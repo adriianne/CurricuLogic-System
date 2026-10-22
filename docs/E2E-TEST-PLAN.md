@@ -53,7 +53,7 @@ Passwords (shared/js/passwordrules.js, db/061):
 - [ ] A 25-character Japanese password is refused ("at most 72 bytes"); 23 characters plus `!` is accepted. (13 Oct: confirmed in the rules module only.)
 - [x] Admin-created account and bulk upload apply the same rules. (13 Oct: both refuse the eight-spaces password; the bulk message reads "at least 8 characters" without "spaces do not count".)
 
-Subject codes (shared/js/subjectcode.js, db/062 - run it first):
+Subject codes (shared/js/curriculum/subjectcode.js, db/062 - run it first):
 - [x] Department > curriculum builder: type `engl 101` in one row and `ENGL-101` in another: the second shows "This code is already used." (13 Oct: the second row is flagged and the counter shows "Fix N issues". The message text was not displayed at first; the builder now shows each row's reasons on a full-width line under it, and this was checked in the browser, including the message clearing when the code is fixed.)
 - [ ] `ＥＮＧＬ １０１` (full-width) is stored as `ENGL 101`; a code with `.` or `/` or emoji is refused with a plain message. (13 Oct: full-width counts as a duplicate of `ENGL 101`, and `.`, `/` and emoji are marked bad; the stored value and the plain message were not checked.)
 - [ ] A prospectus PDF with en dashes in codes (BSN, "HUM – REP 101") still imports as `HUM - REP 101` and its prerequisites still link.

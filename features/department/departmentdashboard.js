@@ -6166,7 +6166,7 @@ async function renderStudentProgress(s, records, seq) {
 /* section demand
    How many students chose each section (db/076_section_demand.sql), so the Department can open
    another section before the enrolment day instead of after students are turned away. The rules
-   (45 by default, a warning five seats before) are in shared/js/sectiondemand.js. */
+   (45 by default, a warning five seats before) are in shared/js/schedule/sectiondemand.js. */
 
 const PREVIEW_DEMAND = [
     { subject_id: 1, subject_code: 'CC-INTCOM11',  subject_title: 'Introduction to Computing',        section: 'BSIT-1A', edp_codes: ['4101', '4102'], capacity: null, is_open: true,  selected: 47, awaiting: 9, approved: 38 },

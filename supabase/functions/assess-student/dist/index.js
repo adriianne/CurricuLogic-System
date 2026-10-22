@@ -837,9 +837,9 @@ var require_engine = __commonJS({
   }
 });
 
-// shared/js/scheduleconflicts.js
+// shared/js/schedule/scheduleconflicts.js
 var require_scheduleconflicts = __commonJS({
-  "shared/js/scheduleconflicts.js"(exports, module) {
+  "shared/js/schedule/scheduleconflicts.js"(exports, module) {
     (function(root, factory) {
       if (typeof module === "object" && module.exports) module.exports = factory();
       else root.ScheduleConflicts = factory();
@@ -1465,9 +1465,9 @@ var require_eligibility_explanation = __commonJS({
   }
 });
 
-// shared/js/backupsections.js
+// shared/js/schedule/backupsections.js
 var require_backupsections = __commonJS({
-  "shared/js/backupsections.js"(exports, module) {
+  "shared/js/schedule/backupsections.js"(exports, module) {
     (function(root, factory) {
       if (typeof module === "object" && module.exports) module.exports = factory(require_scheduleconflicts());
       else root.BackupSections = factory(root.ScheduleConflicts);

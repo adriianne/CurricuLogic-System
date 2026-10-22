@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const SD = require('../shared/js/sectiondemand.js');
+const SD = require('../shared/js/schedule/sectiondemand.js');
 
 const row = (over = {}) => ({
     subject_id: 1, subject_code: 'MATH 101', subject_title: 'Math', section: 'BSIT-1A',

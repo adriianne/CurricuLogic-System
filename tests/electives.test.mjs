@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const EL = require('../shared/js/electives.js');
+const EL = require('../shared/js/curriculum/electives.js');
 const E = require('../shared/engine/engine.js');
 
 describe('placeholderOf', () => {

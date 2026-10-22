@@ -26,7 +26,7 @@ import engine from "../../../shared/engine/engine.js";
 // @ts-ignore
 import preferences from "../../../shared/engine/preferences.js";
 // @ts-ignore
-import SC from "../../../shared/js/scheduleconflicts.js";
+import SC from "../../../shared/js/schedule/scheduleconflicts.js";
 // @ts-ignore
 import explain from "../../../cura/eligibility-explanation.js";
 // @ts-ignore

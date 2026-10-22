@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const ER = require('../shared/js/edpresult.js');
-const SC = require('../shared/js/scheduleconflicts.js');
+const SC = require('../shared/js/schedule/scheduleconflicts.js');
 
 let nextId = 1;
 const offering = (subject_id, section, days, start, end, type = 'LEC', edp = null) =>

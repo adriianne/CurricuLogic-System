@@ -73,7 +73,7 @@ describe('attach', () => {
 
 describe('the grid\'s Grade column', () => {
     const sandbox = { window: {} };
-    vm.runInNewContext(readFileSync(new URL('../shared/js/prospectusgrid.js', import.meta.url), 'utf8'), sandbox);
+    vm.runInNewContext(readFileSync(new URL('../shared/js/curriculum/prospectusgrid.js', import.meta.url), 'utf8'), sandbox);
     const grid = sandbox.window.ProspectusGrid;
 
     const rows = [
@@ -166,7 +166,7 @@ describe('groupByTerm / chipFor', () => {
 
 describe('curriculum-year chips', () => {
     const sandbox = { window: {} };
-    vm.runInNewContext(readFileSync(new URL('../shared/js/prospectusgrid.js', import.meta.url), 'utf8'), sandbox);
+    vm.runInNewContext(readFileSync(new URL('../shared/js/curriculum/prospectusgrid.js', import.meta.url), 'utf8'), sandbox);
     const grid = sandbox.window.ProspectusGrid;
 
     const v = (id, year, active, published = '2024-08-12T00:00:00Z') =>

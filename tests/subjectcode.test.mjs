@@ -11,7 +11,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const SC = require('../shared/js/subjectcode.js');
+const SC = require('../shared/js/curriculum/subjectcode.js');
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('clean', () => {
@@ -102,7 +102,7 @@ describe('the curriculum builder uses it', () => {
 
     test('the department page loads the helper before the builder', () => {
         const html = readFileSync(resolve(ROOT, 'features/department/departmentdashboard.html'), 'utf8');
-        const helper = html.indexOf('shared/js/subjectcode.js');
+        const helper = html.indexOf('shared/js/curriculum/subjectcode.js');
         const builder = html.indexOf('curriculum-builder.js');
         assert.ok(helper > 0 && builder > helper);
     });

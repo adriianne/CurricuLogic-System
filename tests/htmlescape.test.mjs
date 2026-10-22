@@ -32,7 +32,7 @@ const FILES = [
     'features/registrar/registrardashboard.js',
     'features/student/studentdashboard.js',
     'shared/js/advisingslip.js',
-    'shared/js/prospectusgrid.js',
+    'shared/js/curriculum/prospectusgrid.js',
 ];
 
 /* Property names that hold text somebody typed, uploaded or generated. */
@@ -61,11 +61,11 @@ const SAFE = [
     ['features/student/studentdashboard.js',      'label',                   CONSTANT + ' (stat, choice, record filter); the term label escapes its year'],
     ['features/student/studentdashboard.js',      'summary.',                'counts from the rule engine, numbers'],
     ['features/student/studentdashboard.js',      'g.section === chosen',    'a comparison that prints "selected"'],
-    ['shared/js/prospectusgrid.js',               'label',                   CONSTANT + ' (status chip, category names)'],
-    ['shared/js/prospectusgrid.js',               'label(v)',                'academic-year numbers and fixed words'],
-    ['shared/js/prospectusgrid.js',               'slug(',                   'slug() keeps only letters and digits'],
-    ['shared/js/prospectusgrid.js',               'summary(',                'summary() builds its own rows from fixed category names and numbers'],
-    ['shared/js/prospectusgrid.js',               'text',                    'empty() is only ever called with fixed sentences'],
+    ['shared/js/curriculum/prospectusgrid.js',               'label',                   CONSTANT + ' (status chip, category names)'],
+    ['shared/js/curriculum/prospectusgrid.js',               'label(v)',                'academic-year numbers and fixed words'],
+    ['shared/js/curriculum/prospectusgrid.js',               'slug(',                   'slug() keeps only letters and digits'],
+    ['shared/js/curriculum/prospectusgrid.js',               'summary(',                'summary() builds its own rows from fixed category names and numbers'],
+    ['shared/js/curriculum/prospectusgrid.js',               'text',                    'empty() is only ever called with fixed sentences'],
 ];
 const isSafe = (file, expr) => {
     const e = expr.replace(/\s+/g, ' ').trim();

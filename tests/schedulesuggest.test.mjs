@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const sc = require('../shared/js/scheduleconflicts.js');
-const { plan, needFor } = require('../shared/js/schedulesuggest.js');
+const sc = require('../shared/js/schedule/scheduleconflicts.js');
+const { plan, needFor } = require('../shared/js/schedule/schedulesuggest.js');
 
 const SUBJECTS = {
     1: { units: 3, lab_units: 0 }, 2: { units: 3, lab_units: 1 }, 3: { units: 2, lab_units: 0 },

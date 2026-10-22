@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const C = require('../shared/js/corequisites.js');
+const C = require('../shared/js/curriculum/corequisites.js');
 
 const row = (code) => ({ uid: code, code });
 const a = row('NCM 104'), b = row('NCM 105'), c = row('NCM 106');

@@ -36,7 +36,7 @@
 //                     scheduleState, chosenSection?: {section}, alongside?: [{id, code}] }
 //     suggestedIds  Set of subject ids the engine suggests
 //     cap           the most units the student may take now
-//     conflicts     { groupSections, meetingsClash } (shared/js/scheduleconflicts.js)
+//     conflicts     { groupSections, meetingsClash } (shared/js/schedule/scheduleconflicts.js)
 //   -> { picks: [{ subjectId, code, title, units, section, offeringId, scheduled }],
 //        skipped: [{ subjectId, code, title, reason }],
 //        units, cap }

@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const engine = require('../shared/engine/engine.js');
 const P = require('../shared/engine/preferences.js');
 const explain = require('../cura/eligibility-explanation.js');
-const T = require('../shared/js/scheduletable.js');
+const T = require('../shared/js/schedule/scheduletable.js');
 
 let id = 1;
 const subj = (code) => ({ id: id++, code, title: `${code} title`, units: '3.00', year_level: 1, term: 1, is_elective: false, elective_type: null });

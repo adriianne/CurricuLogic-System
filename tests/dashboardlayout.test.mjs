@@ -55,8 +55,8 @@ describe('the three dashboards carry what the new header and list need', () => {
 
     test('the Department page loads the section demand rules before its own script', () => {
         const html = read(path.join(FEATURES, 'department/departmentdashboard.html'));
-        assert.ok(html.indexOf('shared/js/sectiondemand.js') > 0);
-        assert.ok(html.indexOf('shared/js/sectiondemand.js') < html.search(/src="departmentdashboard\.js"/));
+        assert.ok(html.indexOf('shared/js/schedule/sectiondemand.js') > 0);
+        assert.ok(html.indexOf('shared/js/schedule/sectiondemand.js') < html.search(/src="departmentdashboard\.js"/));
     });
 
     test('the student page and the subject page of the Department do not share a subtitle id', () => {

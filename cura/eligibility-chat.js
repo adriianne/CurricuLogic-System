@@ -200,7 +200,7 @@ async function sendChatMessage(supabaseClient, message) {
     // the dashboard already renders -- never from anything Gemini wrote.
     // Gemini only ever supplies the yes/no decision, not the numbers.
     // The schedule table (subject, section, days, times) is built the same way, by
-    // shared/js/scheduletable.js from the summary; Gemini only says whether to show it.
+    // shared/js/schedule/scheduletable.js from the summary; Gemini only says whether to show it.
     return {
         text: data.reply,
         conversationId,
@@ -223,7 +223,7 @@ async function serverMessage(error) {
 }
 
 /* The plan table's rows for a summary: the suggested subjects, each with the section and
-   when it meets once a schedule is published (shared/js/scheduletable.js). */
+   when it meets once a schedule is published (shared/js/schedule/scheduletable.js). */
 function tableFor(summary) {
     const T = (typeof window !== 'undefined') ? window.CurriculogicScheduleTable : null;
     return T ? T.planRows(summary) : (summary?.recommended ?? []);

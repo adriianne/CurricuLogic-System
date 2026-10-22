@@ -9,7 +9,7 @@
 // column that says PASSED, FAILED or RETAKE for what they have already taken. It is
 // the same form for the faculty adviser and the Registrar.
 //
-// It looks like the printed curriculum (shared/js/curriculumprint.js): the UC mark, the year's own colour on the
+// It looks like the printed curriculum (shared/js/curriculum/curriculumprint.js): the UC mark, the year's own colour on the
 // bar and the table headings, ruled cells.
 //
 //   term:     { number: 1|2|3, year: 2023 }   the semester being enrolled
@@ -27,7 +27,7 @@
 //   (blank) not taken yet, or being taken now
 
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory(require('./curriculumprint.js'));
+    if (typeof module === 'object' && module.exports) module.exports = factory(require('./curriculum/curriculumprint.js'));
     else root.AdvisingSlip = factory(root.CurriculumPrint);
 }(typeof self !== 'undefined' ? self : this, function (CP) {
 'use strict';

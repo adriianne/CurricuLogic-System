@@ -21,7 +21,7 @@
 // deterministic overlap check, computed once, here.
 const SC = (typeof window !== 'undefined' && window.ScheduleConflicts)
     ? window.ScheduleConflicts
-    : require('../shared/js/scheduleconflicts.js');
+    : require('../shared/js/schedule/scheduleconflicts.js');
 
 // r.sections is the flat offering rows engine.assess() already attached
 // per recommended subject (shared/engine/engine.js). Grouped into

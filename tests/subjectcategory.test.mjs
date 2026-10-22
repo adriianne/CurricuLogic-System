@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const C = require('../shared/js/subjectcategory.js');
+const C = require('../shared/js/curriculum/subjectcategory.js');
 
 describe('clean', () => {
     test('the five database values pass through', () => {
