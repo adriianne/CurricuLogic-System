@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { buildAutoPlan, summarize } = require('../shared/js/autoplan.js');
+const { buildAutoPlan, summarize } = require('../shared/js/enrolment/autoplan.js');
 const conflicts = require('../shared/js/schedule/scheduleconflicts.js');
 
 /* A subject with sections. Each section: [name, days, start, end] (one lecture),

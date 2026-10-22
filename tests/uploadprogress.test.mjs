@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const UP = require('../shared/js/uploadprogress.js');
+const UP = require('../shared/js/records/uploadprogress.js');
 
 const phases = () => UP.tracker([
     { id: 'read', weight: 10, label: 'Reading' },

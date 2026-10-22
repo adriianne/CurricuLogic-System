@@ -195,7 +195,7 @@ describe('subjects open but not suggested', () => {
 });
 
 describe("Cura's view of the approved plan", () => {
-    const edp = require('../shared/js/edpresult.js');
+    const edp = require('../shared/js/enrolment/edpresult.js');
     const withEdp = { ...deps, edp };
     const row = (oid, s, section, days, start, end, code, open = true) =>
         ({ id: oid, subject_id: s.id, section, meeting_type: 'LEC', schedule_days: days, start_time: start, end_time: end, room: 'R1', edp_code: code, is_open: open });

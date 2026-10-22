@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const RS = require('../shared/js/requeststatus.js');
+const RS = require('../shared/js/enrolment/requeststatus.js');
 
 const req = (status, registrar_status = null) => ({ status, registrar_status });
 

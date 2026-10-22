@@ -46,7 +46,7 @@ describe('the three dashboards carry what the new header and list need', () => {
     test('the Registrar and Faculty pages load the shared summary module before their own script', () => {
         for (const name of ['registrar/registrardashboard.html', 'faculty/facultydashboard.html']) {
             const html = read(path.join(FEATURES, name));
-            const mod = html.indexOf('shared/js/dashboardsummary.js');
+            const mod = html.indexOf('shared/js/records/dashboardsummary.js');
             const own = html.search(/src="(registrar|faculty)dashboard\.js"/);
             assert.ok(mod > 0, name + ' does not load dashboardsummary.js');
             assert.ok(mod < own, name + ' loads it after its own script');

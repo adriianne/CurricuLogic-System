@@ -1720,7 +1720,7 @@ async function ensureMatchPool() {
     renderRequests();
 }
 
-/* Approved plans. The adviser's approval is final (shared/js/requeststatus.js),
+/* Approved plans. The adviser's approval is final (shared/js/enrolment/requeststatus.js),
    so this is not a queue to decide: it lists the plans an adviser approved and
    lets the Registrar look one up and reprint its enrollment form. The
    Registrar's own checks come earlier: confirming who a student is (account

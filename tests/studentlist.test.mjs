@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const L = require('../shared/js/studentlist.js');
+const L = require('../shared/js/records/studentlist.js');
 
 describe('searchTokens', () => {
     test('splits on spaces, drops empty words', () => {

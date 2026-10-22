@@ -31,7 +31,7 @@ const FILES = [
     'features/faculty/facultydashboard.js',
     'features/registrar/registrardashboard.js',
     'features/student/studentdashboard.js',
-    'shared/js/advisingslip.js',
+    'shared/js/enrolment/advisingslip.js',
     'shared/js/curriculum/prospectusgrid.js',
 ];
 

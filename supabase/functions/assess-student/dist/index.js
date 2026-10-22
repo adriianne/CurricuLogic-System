@@ -1515,9 +1515,9 @@ var require_backupsections = __commonJS({
   }
 });
 
-// shared/js/edpresult.js
+// shared/js/enrolment/edpresult.js
 var require_edpresult = __commonJS({
-  "shared/js/edpresult.js"(exports, module) {
+  "shared/js/enrolment/edpresult.js"(exports, module) {
     (function(root, factory) {
       if (typeof module === "object" && module.exports) module.exports = factory(require_scheduleconflicts(), require_backupsections());
       else root.EdpResult = factory(root.ScheduleConflicts, root.BackupSections);

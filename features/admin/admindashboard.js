@@ -1304,7 +1304,7 @@ function downloadBulkTemplate() {
 
 /* ---- the status bar ----
    state: 'working' | 'done' | 'wait' | 'error' | null (hide). The percentage is
-   measured work, not an estimate: see shared/js/uploadprogress.js. */
+   measured work, not an estimate: see shared/js/records/uploadprogress.js. */
 function bulkStatus(state, text, percent = null) {
     const box = $('bulk-status');
     if (!box) return;

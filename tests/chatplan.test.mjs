@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { picksOf, pairUp, summary } = require('../shared/js/chatplan.js');
+const { picksOf, pairUp, summary } = require('../shared/js/enrolment/chatplan.js');
 
 describe('picksOf', () => {
     test('reads the plan table when there is no schedule', () => {

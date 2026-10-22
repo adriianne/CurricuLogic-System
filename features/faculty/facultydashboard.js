@@ -1606,7 +1606,7 @@ async function loadRequestDetail(requestId) {
     bodyEl.innerHTML = renderRequestTable(items);
 
     // The adviser's approval is final, so the adviser prints the enrollment
-    // form once the plan is approved (see shared/js/requeststatus.js). A plan
+    // form once the plan is approved (see shared/js/enrolment/requeststatus.js). A plan
     // the Registrar sent back under the old two-step flow stays closed.
     if (footEl) {
         const RS = window.CurriculogicRequestStatus;

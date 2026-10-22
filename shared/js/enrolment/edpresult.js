@@ -19,7 +19,7 @@
 // Department can do that.
 
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory(require('./schedule/scheduleconflicts.js'), require('./schedule/backupsections.js'));
+    if (typeof module === 'object' && module.exports) module.exports = factory(require('../schedule/scheduleconflicts.js'), require('../schedule/backupsections.js'));
     else root.EdpResult = factory(root.ScheduleConflicts, root.BackupSections);
 }(typeof self !== 'undefined' ? self : this, function (SC, BS) {
 'use strict';

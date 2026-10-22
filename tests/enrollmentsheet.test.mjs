@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const SC = require('../shared/js/schedule/scheduleconflicts.js');
-const S = require('../shared/js/enrollmentsheet.js');
+const S = require('../shared/js/enrolment/enrollmentsheet.js');
 
 const row = (section, days, start, end, edp, extra = {}) => ({
     section, schedule_days: days, start_time: start, end_time: end, edp_code: edp, meeting_type: 'LEC', ...extra,

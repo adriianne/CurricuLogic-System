@@ -30,7 +30,7 @@ import SC from "../../../shared/js/schedule/scheduleconflicts.js";
 // @ts-ignore
 import explain from "../../../cura/eligibility-explanation.js";
 // @ts-ignore
-import edp from "../../../shared/js/edpresult.js";
+import edp from "../../../shared/js/enrolment/edpresult.js";
 // @ts-ignore
 import start from "../../../shared/js/curriculum/curriculumstart.js";
 

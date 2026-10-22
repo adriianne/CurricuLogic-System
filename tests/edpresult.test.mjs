@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const ER = require('../shared/js/edpresult.js');
+const ER = require('../shared/js/enrolment/edpresult.js');
 const SC = require('../shared/js/schedule/scheduleconflicts.js');
 
 let nextId = 1;

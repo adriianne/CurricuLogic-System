@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const ER = require('../shared/js/edpresult.js');
+const ER = require('../shared/js/enrolment/edpresult.js');
 const BS = require('../shared/js/schedule/backupsections.js');
 const SC = require('../shared/js/schedule/scheduleconflicts.js');
 const E = require('../shared/engine/engine.js');

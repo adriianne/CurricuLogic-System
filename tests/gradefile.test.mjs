@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const GF = require('../shared/js/gradefile.js');
+const GF = require('../shared/js/records/gradefile.js');
 
 const HEADER = ['student_id', 'student_name', 'subject_code', 'grade', 'status'];
 const row = (id, name, code, grade = '', status = '') => [id, name, code, grade, status];

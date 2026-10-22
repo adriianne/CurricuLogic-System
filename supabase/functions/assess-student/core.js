@@ -47,7 +47,7 @@ function brief(engine, s) {
 
 /* What Cura knows about the student's APPROVED plan, for "the EDP office turned this down, what else fits?":
    each approved subject with its section and EDP codes, anything the student reported, and other sections of the
-   same subject that do not clash with the rest of the plan (shared/js/edpresult.js, the same rule as the website's
+   same subject that do not clash with the rest of the plan (shared/js/enrolment/edpresult.js, the same rule as the website's
    and the app's "Switch a section"). Only the newest approved plan is used. null when there is none. */
 function approvedPlanOut(deps, input, offerings) {
     const { SC, edp } = deps;
@@ -87,7 +87,7 @@ function approvedPlanOut(deps, input, offerings) {
     };
 }
 
-/* deps:  { engine, preferences, explain, SC, edp? }   edp = shared/js/edpresult.js
+/* deps:  { engine, preferences, explain, SC, edp? }   edp = shared/js/enrolment/edpresult.js
    input: { student, program, records, subjects, rules, offerings, term, year, prefs,
             inRequestIds?, reportedFullOfferingIds? }
    reportedFullOfferingIds: offering ids of the plan items THIS student reported as full at the EDP office;

@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const require = createRequire(import.meta.url);
-const G = require('../shared/js/recordgrades.js');
+const G = require('../shared/js/records/recordgrades.js');
 
 const row = (subject_id, status, o = {}) => ({
     subject_id, status, grade: o.grade ?? null, grade_points: o.gp ?? null,

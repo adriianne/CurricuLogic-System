@@ -942,7 +942,7 @@ function requestChipFor(subjectId) {
     const lock = SUBJECT_LOCKS.locked.get(subjectId);
     if (!lock) return null;
 
-    // The adviser's approval is final (shared/js/requeststatus.js).
+    // The adviser's approval is final (shared/js/enrolment/requeststatus.js).
     if (lock.itemStatus === 'approved') {
         return { chip: 'ok', label: 'Approved for enrollment' };
     }
@@ -2390,7 +2390,7 @@ async function loadRequestPicker() {
 }
 
 /* ---- Auto-select my plan ----
-   shared/js/autoplan.js does the choosing and the checking; this only feeds it
+   shared/js/enrolment/autoplan.js does the choosing and the checking; this only feeds it
    what is on screen and shows the result. The checkboxes and section boxes are
    the same ones the student could have used by hand, so everything stays
    editable, and nothing is sent until Submit for review is pressed. */
@@ -2641,7 +2641,7 @@ async function submitAdvisingRequest() {
 
 /* One-stage status: the adviser reviews per subject, and once every item has a
    decision the whole request is approved, partly approved or rejected. That
-   is final: the Registrar is not a second approval (shared/js/requeststatus.js).
+   is final: the Registrar is not a second approval (shared/js/enrolment/requeststatus.js).
    An old plan the Registrar once sent back keeps a second, red chip. */
 function requestStages(r) {
     return window.CurriculogicRequestStatus.stages(r);
@@ -2665,7 +2665,7 @@ document.addEventListener('click', (e) => {
 
 /* EDP office result
    After the student takes the enrolment form to the EDP office, they tell this page which subjects were
-   turned down and why (db/077_edp_results.sql, shared/js/edpresult.js). It changes only their own plan:
+   turned down and why (db/077_edp_results.sql, shared/js/enrolment/edpresult.js). It changes only their own plan:
    it never closes a section for other students, and the system cannot see what EDP really decided, so
    everything here is the student's own report. For each subject turned down the page says what to do next
    and lists other sections (or other subjects) that do not clash with the rest of the plan. */

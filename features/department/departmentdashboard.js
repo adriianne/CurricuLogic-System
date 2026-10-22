@@ -4488,7 +4488,7 @@ let gradeState = {
 
 /* ---- the status bar ----
    state: 'working' | 'done' | 'wait' | 'error' | null (hide). The percentage is
-   measured, not estimated: see shared/js/uploadprogress.js. */
+   measured, not estimated: see shared/js/records/uploadprogress.js. */
 function gradeStatus(state, text, percent = null) {
     const box = $('grade-status');
     if (!box) return;
@@ -4584,7 +4584,7 @@ function padStudentId(v) {
     return raw.toUpperCase();
 }
 
-/* Spaces, case and dash variants ignored — see shared/js/gradefile.js. */
+/* Spaces, case and dash variants ignored — see shared/js/records/gradefile.js. */
 function normCode(v) {
     return window.GradeFile.normCode(v);
 }
@@ -4689,7 +4689,7 @@ async function readGradeFile(file, options = {}) {
     if (!wb.SheetNames.length) throw new Error('File has no readable sheet.');
 
     // The sheet, the header row and the column names are worked out from
-    // the data (shared/js/gradefile.js), not assumed to be sheet 1 / row 1.
+    // the data (shared/js/records/gradefile.js), not assumed to be sheet 1 / row 1.
     const sheets = wb.SheetNames.map(name => ({
         name,
         aoa: XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '', raw: false, header: 1 }),
@@ -4841,7 +4841,7 @@ async function fetchClassList(subject, year, term) {
         .eq('request.requested_term', term);
     if (error) throw new Error('Could not read the enrollment list. ' + error.message);
     // Approved by the adviser, which is final; an old plan the Registrar once
-    // sent back stays closed (shared/js/requeststatus.js).
+    // sent back stays closed (shared/js/enrolment/requeststatus.js).
     return (data ?? [])
         .filter(row => window.CurriculogicRequestStatus.finalApproved(row.request))
         .map(row => row.request?.student)

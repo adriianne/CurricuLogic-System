@@ -27,7 +27,7 @@
 //   (blank) not taken yet, or being taken now
 
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory(require('./curriculum/curriculumprint.js'));
+    if (typeof module === 'object' && module.exports) module.exports = factory(require('../curriculum/curriculumprint.js'));
     else root.AdvisingSlip = factory(root.CurriculumPrint);
 }(typeof self !== 'undefined' ? self : this, function (CP) {
 'use strict';

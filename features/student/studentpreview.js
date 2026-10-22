@@ -148,7 +148,7 @@ const RECORDS = [
 ];
 
 /* ---- An optional timetable: open the preview as ?preview&schedule ----
-   Built to exercise "Auto-select my plan" (shared/js/autoplan.js):
+   Built to exercise "Auto-select my plan" (shared/js/enrolment/autoplan.js):
      CC-COMPROG12  two sections (the retake: it is placed first)
      CC-TWRITE21   ONE section, which overlaps CC-COMPROG12's first section
      RIZAL 101     one section

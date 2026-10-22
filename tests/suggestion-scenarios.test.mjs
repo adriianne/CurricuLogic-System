@@ -805,7 +805,7 @@ describe('co-requisites through preferences, the phone answer and a request', ()
 /* ---- a section the student reported full at the EDP office ---- */
 
 describe('a section reported full by the student', () => {
-    const edp = require('../shared/js/edpresult.js');
+    const edp = require('../shared/js/enrolment/edpresult.js');
     const A = S('A'), B = S('B');
     const student = { id: 'stu-1', student_id: '1', first_name: 'A', last_name: 'B', year_level: 1 };
     const program = { code: 'X', name: 'X', max_units: 24, max_units_graduating: 27 };

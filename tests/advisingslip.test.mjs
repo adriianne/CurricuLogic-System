@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const Slip = require('../shared/js/advisingslip.js');
+const Slip = require('../shared/js/enrolment/advisingslip.js');
 
 let id = 1;
 const subj = (code, year, term, o = {}) => ({

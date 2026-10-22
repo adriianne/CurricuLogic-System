@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const U = require('../shared/js/uploadlimits.js');
+const U = require('../shared/js/records/uploadlimits.js');
 
 const MB = 1024 * 1024;
 const file = (name, size, type = '') => ({ name, size, type });

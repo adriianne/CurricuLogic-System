@@ -14,7 +14,7 @@
 // A "section" is what ScheduleConflicts.groupSections returns: { section, meetings: [offering rows] }.
 
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) module.exports = factory(require('./schedule/scheduleconflicts.js'), require('./curriculum/curriculumprint.js'));
+    if (typeof module === 'object' && module.exports) module.exports = factory(require('../schedule/scheduleconflicts.js'), require('../curriculum/curriculumprint.js'));
     else root.EnrollmentSheet = factory(root.ScheduleConflicts, root.CurriculumPrint);
 }(typeof self !== 'undefined' ? self : this, function (SC, CP) {
 'use strict';
