@@ -28,6 +28,17 @@ test('no curriculum has its own sentence, and an unknown reason still has one', 
     assert.ok(other.error.length > 10);
 });
 
+test('a curriculum that has not started uses the server sentence, or its own when there is none', () => {
+    const said = core.interpretAssessment(200, { assessed: false, reason: 'curriculum_not_started', message: 'Takes effect in 2050.' });
+    assert.equal(said.status, 409);
+    assert.equal(said.error, 'Takes effect in 2050.');
+    const bare = core.interpretAssessment(200, { assessed: false, reason: 'curriculum_not_started' });
+    assert.match(bare.error, /has not started yet/);
+    assert.match(bare.error, /department/);
+    const blank = core.interpretAssessment(200, { assessed: false, reason: 'curriculum_not_started', message: '  ' });
+    assert.match(blank.error, /has not started yet/);
+});
+
 test('sign-in, approval and missing-student answers are passed on with their own status', () => {
     assert.deepEqual(core.interpretAssessment(401, null), { ok: false, status: 401, error: 'Not signed in.' });
     assert.equal(core.interpretAssessment(403, { error: 'x' }).status, 403);

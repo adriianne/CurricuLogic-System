@@ -468,30 +468,31 @@ function showCustomYearInput() {
     const overlay = document.createElement('div');
     overlay.className = 'cbp-overlay';
     overlay.innerHTML = `
-        <div class="cbp-modal" role="dialog" aria-label="Add custom year">
+        <div class="cbp-modal" role="dialog" aria-label="Create academic year">
             <div class="cbp-bar">
                 <div>
-                    <p class="cbp-title">Add Custom Academic Year</p>
-                    <p class="cbp-sub">Enter a new academic year that isn't already in use.</p>
+                    <p class="cbp-title">Create Academic Year</p>
+                    <p class="cbp-sub">Enter the year it starts. It runs to the next year, for example 2027–2028.</p>
                 </div>
                 <button class="cbp-close" aria-label="Close">&times;</button>
             </div>
             <div class="cbp-body">
                 <div class="field" style="margin-bottom: var(--s3);">
                     <label for="custom-year-input" style="display: block; font-weight: 600; margin-bottom: 0.35rem;">
-                        Academic Year (YYYY)
+                        Starting year (YYYY)
                     </label>
                     <input type="number" id="custom-year-input" 
                            min="2000" max="2100" step="1"
                            placeholder="e.g., 2027"
                            style="width: 100%; padding: 0.7rem; border: 1.5px solid var(--line); border-radius: 8px; font-size: 0.95rem;">
+                    <p id="custom-year-range" aria-live="polite" style="font-weight: 600; margin-top: 0.35rem; min-height: 1.2em;"></p>
                     <p id="custom-year-error" style="color: #dc2626; font-size: 0.85rem; margin-top: 0.35rem; display: none;"></p>
                 </div>
             </div>
             <div class="cb-cf-foot" style="display: flex; gap: var(--s2); justify-content: flex-end; padding-top: var(--s3); border-top: 1px solid var(--line);">
                 <button class="cb-cf-cancel" style="padding: 0.5rem 1.2rem;">Cancel</button>
                 <button class="btn-primary" id="confirm-custom-year" style="padding: 0.5rem 1.2rem;">
-                    <i class="fa-solid fa-plus"></i> Add Year
+                    <i class="fa-solid fa-plus"></i> Create Year
                 </button>
             </div>
         </div>
@@ -512,7 +513,15 @@ function showCustomYearInput() {
     // Focus the input
     const input = overlay.querySelector('#custom-year-input');
     const error = overlay.querySelector('#custom-year-error');
+    const range = overlay.querySelector('#custom-year-range');
     setTimeout(() => input?.focus(), 100);
+
+    // Show the full academic year as the start year is typed
+    input?.addEventListener('input', () => {
+        error.style.display = 'none';
+        const y = Number(input.value);
+        range.textContent = Number.isInteger(y) && y >= 2000 && y <= 2100 ? `${y}–${y + 1}` : '';
+    });
 
     // Close handlers
     overlay.addEventListener('click', (e) => {
@@ -536,7 +545,7 @@ function showCustomYearInput() {
         // Check if year already exists
         const existing = (OPTS.versions ?? []).find(v => v.academic_year === year);
         if (existing) {
-            error.textContent = `Year ${year} already exists as ${existing.is_active ? 'Active' : 'Draft'}.`;
+            error.textContent = `${year}–${year + 1} already exists as ${existing.is_active ? 'Active' : 'Draft'}.`;
             error.style.display = 'block';
             return;
         }
@@ -557,7 +566,7 @@ function showCustomYearInput() {
 
         if (insertError) {
             console.error('Failed to create custom year:', insertError.message);
-            OPTS.onError?.('Could not create the custom year. ' + insertError.message);
+            OPTS.onError?.('Could not create that year. ' + insertError.message);
             return;
         }
 
@@ -591,7 +600,7 @@ function showCustomYearInput() {
             OPTS.onVersionChange(OPTS.prospectusId, year);
         }
 
-        OPTS.onDone?.(`Academic year ${year} created as a draft. Add subjects to get started.`);
+        OPTS.onDone?.(`${year}–${year + 1} created as a draft. Add subjects to get started.`);
             });
 }
 
@@ -627,7 +636,7 @@ function versionHtml() {
         <div style="display: flex; gap: var(--s2); align-items: center;">
             <select id="cb-version-pick" aria-label="Select curriculum year" style="flex: 1;" value="${sel || ''}">
                 ${optionsHtml}
-                ${sel ? '<option value="__custom__">+ Add custom year…</option>' : ''}
+                <option value="__custom__">+ Create Year…</option>
             </select>
         </div>
     </div>`;
@@ -642,8 +651,9 @@ function statsHtml() {
 
     return `<div class="cb-stats">
         <div class="cb-stat"><p class="k">Subjects</p><p class="v">${rows.length}</p></div>
-        <div class="cb-stat ${bad ? '' : 'ok'}"><p class="k">Valid</p><p class="v">${rows.length - bad}</p></div>
-        <div class="cb-stat ${bad ? 'bad' : ''}"><p class="k">Issues</p><p class="v">${bad}</p></div>
+        <div class="cb-stat ${bad ? '' : 'ok'}"><p class="k">Valid</p><p class="v">${rows.length - bad}/${rows.length}</p></div>
+        <div class="cb-stat ${bad ? 'bad cb-jump' : ''}"${bad
+            ? ' role="button" tabindex="0" data-jump-issue title="Go to the first issue"' : ''}><p class="k">Issues</p><p class="v">${bad}</p></div>
         <div class="cb-stat"><p class="k">Units</p><p class="v">${units}</p>
             <p class="u">scheduled only</p></div>
     </div>`;
@@ -1405,6 +1415,7 @@ async function analyzeDocument(file) {
         PENDING_AI_FILE = null;
         validate();
         render();
+        const needFixing = badRows().length;
 
         // showAiStatus re-queries #ai-analyze-status on every call, so it
         // lands on the element inside the freshly-rendered card. The old
@@ -1415,7 +1426,9 @@ async function analyzeDocument(file) {
             `Extracted ${extracted.length} subject${extracted.length === 1 ? '' : 's'}`
             + (gatesAdded ? `, with ${gatesAdded} year-standing gate${gatesAdded === 1 ? '' : 's'} from the document's footnotes` : '')
             + (coreqsAdded ? `, and ${coreqsAdded} goes-with link${coreqsAdded === 1 ? '' : 's'} from its co-requisite column` : '')
-            + '. Review every row below, then press Create to save \u2014 nothing has been saved yet.',
+            + '.'
+            + (needFixing ? ' Check the Issues card for rows to fix.' : '')
+            + ' Review every row below, then press Create to save \u2014 nothing has been saved yet.',
             'success',
             (followUps.length || interpreted.length)
                 ? {
@@ -1650,14 +1663,19 @@ function bind() {
         const total = tr.querySelector('.cb-total');
         if (total) total.textContent = unitsOf(row) || '';
 
-        const stats = MOUNT.querySelector('.cb-stats');
-        if (stats) stats.outerHTML = statsHtml();
+        updateStats();
+    });
 
-        const actions = MOUNT.querySelector('.cb-actions');
-        if (actions) actions.outerHTML = actionsHtml();
+    MOUNT.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-jump-issue]')) {
+            e.preventDefault();
+            jumpToIssue();
+        }
     });
 
     MOUNT.addEventListener('click', (e) => {
+
+        if (e.target.closest('[data-jump-issue]')) return jumpToIssue();
 
         /* AI upload actions. These are buttons, so they fire click --
            putting them in the change handler above meant nothing
@@ -1717,6 +1735,41 @@ function updateStats() {
 
     const actions = MOUNT.querySelector('.cb-actions');
     if (actions) actions.outerHTML = actionsHtml();
+
+    updateTabCounts();
+}
+
+/* The red number on each year tab. render() draws it, but typing does not
+   redraw, so without this it kept showing a problem that was already fixed. */
+function updateTabCounts() {
+    for (const y of [1, 2, 3, 4]) {
+        const btn = MOUNT.querySelector(`.cb-tab[data-tab="${y}"]`);
+        if (!btn) continue;
+        const bad = ROWS.filter(r => r.year === y && r.errors.length).length;
+        let badge = btn.querySelector('.cb-count');
+        if (!bad) { badge?.remove(); continue; }
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'cb-count';
+            btn.append(' ', badge);
+        }
+        badge.textContent = bad;
+    }
+}
+
+/* Go to the first problem in curriculum order: open its year tab, scroll
+   to the row and put the cursor in its code box. */
+function jumpToIssue() {
+    const row = badRows().sort((a, b) => rank(a) - rank(b))[0];
+    if (!row) return;
+
+    closePicker();
+    showTab(row.year ?? (row.electiveType === 'FREE' ? 'free' : 'it'));
+
+    const tr = MOUNT.querySelector(`tr[data-uid="${row.uid}"]`);
+    if (!tr) return;
+    tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    tr.querySelector('input')?.focus({ preventScroll: true });
 }
 
 

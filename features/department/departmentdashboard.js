@@ -1,4 +1,4 @@
-git // departmentdashboard.js
+// departmentdashboard.js
 // Department Staff: curriculum authoring.
 //
 // This is where the knowledge base is written. Every subject and rule

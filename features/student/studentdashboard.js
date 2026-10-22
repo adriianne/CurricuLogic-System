@@ -50,6 +50,7 @@ let PREF_STORAGE = 'browser';   // 'account' once student_preference is reachabl
 
 /* Set students curriculum to default prospectus if not set */
 let ACTIVE_PROSPECTUS_ID = null;
+let ACTIVE_PROSPECTUS_YEAR = null;   // its effective year, for the "not started yet" rule
 
 /* The term the recommendation is for. These are fallback defaults only
    -- loadCurrentTermYear() below overwrites both from the new
@@ -649,6 +650,33 @@ async function runAssessment(student) {
         const pid = effectiveProspectusId(student);
         if (!pid) {
             console.warn('no prospectus available — cannot assess');
+            return null;
+        }
+    }
+
+    // A curriculum that takes effect in a later year is not assessed for a student with no
+    // curriculum of their own or no record yet. The server functions apply the same rule.
+    if (!PREVIEW && supabase) {
+        let curriculumYear = ACTIVE_PROSPECTUS_YEAR;
+        if (student.prospectus_id != null) {
+            const { data } = await supabase.from('prospectus')
+                .select('academic_year').eq('id', student.prospectus_id).maybeSingle();
+            curriculumYear = data?.academic_year ?? null;
+        }
+        if (window.CurriculogicCurriculumStart.notStarted({
+            curriculumYear, currentYear: CURRENT_YEAR,
+            ownProspectus: student.prospectus_id != null,
+            recordCount: RECORDS.length,
+        })) {
+            const box = $('status-notice');
+            if (box) box.innerHTML = `
+                <div class="notice pending">
+                    <i class="fa-solid fa-clock" aria-hidden="true"></i>
+                    <div>
+                        <strong>Your curriculum has not started yet</strong>
+                        ${escapeHtml(window.CurriculogicCurriculumStart.message(curriculumYear))}
+                    </div>
+                </div>`;
             return null;
         }
     }
@@ -3379,12 +3407,13 @@ function render(student, email) {
         // programme is set and there is just one).
         const { data: actives, error: activeError } = await supabase
             .from('prospectus')
-            .select('id, program_id')
+            .select('id, program_id, academic_year')
             .eq('is_active', true);
         if (activeError) console.warn('active prospectus lookup failed:', activeError.message);
 
-        ACTIVE_PROSPECTUS_ID =
-            window.CurriculogicPrograms.fallbackProspectus(student?.program_id, actives)?.id ?? null;
+        const fallback = window.CurriculogicPrograms.fallbackProspectus(student?.program_id, actives);
+        ACTIVE_PROSPECTUS_ID   = fallback?.id ?? null;
+        ACTIVE_PROSPECTUS_YEAR = fallback?.academic_year ?? null;
     }
 
     // The record loads at boot regardless of the active view — the stat

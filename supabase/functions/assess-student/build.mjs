@@ -3,7 +3,7 @@
 //   node supabase/functions/assess-student/build.mjs
 //
 // index.ts imports the website's own engine, preferences step, schedule
-// helper and Cura summary straight from shared/ and ai-assist/. Bundling
+// helper and Cura summary straight from shared/ and cura/. Bundling
 // inlines them, so what runs on the server is byte-for-byte the code the
 // website runs, and there is no second copy to keep in step. Run this again
 // after changing any of those files, then redeploy dist/index.js.
@@ -25,7 +25,6 @@ execFileSync('npx', [
     '--bundle',
     '--format=esm',
     '--target=es2022',
-    '--minify',
     '--external:npm:*',
     '--external:https://*',
     `--outfile=${fn}/dist/index.js`,

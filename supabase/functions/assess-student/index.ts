@@ -6,7 +6,7 @@
 // security applies exactly as it does on the website: a student only ever
 // reads their own record. The rules themselves are NOT reimplemented here.
 // This file loads the data and calls the same shared engine, preferences step
-// and Cura summary the website runs (shared/engine/*, ai-assist/*), through
+// and Cura summary the website runs (shared/engine/*, cura/*), through
 // core.js. build.mjs bundles all of it into dist/index.js, which is what gets
 // deployed, so the deployed copy cannot drift from the website's.
 //
@@ -31,6 +31,8 @@ import SC from "../../../shared/js/scheduleconflicts.js";
 import explain from "../../../ai-assist/eligibility-explanation.js";
 // @ts-ignore
 import edp from "../../../shared/js/edpresult.js";
+// @ts-ignore
+import start from "../../../shared/js/curriculum/curriculumstart.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -166,6 +168,23 @@ serve(async (req) => {
     if (rulesRes.error) return fail("rules", rulesRes.error);
     if (offeringsRes.error) return fail("offerings", offeringsRes.error);
     if (recordsRes.error) return fail("records", recordsRes.error);
+
+    // A curriculum that takes effect in a later year is not assessed for a student with no curriculum
+    // of their own or no record yet (the same rule as submit-advising-request). An unreadable year
+    // refuses nothing.
+    const { data: chosenVersion } = await db.from("prospectus")
+      .select("academic_year").eq("id", prospectusId).maybeSingle();
+    if (start.notStarted({
+      curriculumYear: chosenVersion?.academic_year,
+      currentYear: year,
+      ownProspectus: student.prospectus_id != null,
+      recordCount: (recordsRes.data ?? []).length,
+    })) {
+      return json(200, {
+        assessed: false, reason: "curriculum_not_started", student: who,
+        message: start.message(chosenVersion.academic_year),
+      });
+    }
 
     const idSet = new Set(subjectIds);
     const offerings = (offeringsRes.data ?? []).filter((o: { subject_id: number }) => idSet.has(o.subject_id));

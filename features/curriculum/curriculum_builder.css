@@ -19,6 +19,9 @@
 .cb .cb-stat.ok  { background: #ECFDF5; }
 .cb .cb-stat.ok .k, .cb .cb-stat.ok .v { color: #059669; }
 .cb .cb-stat.bad { background: #FEF2F2; }
+.cb .cb-stat.cb-jump { cursor: pointer; transition: box-shadow .15s ease; }
+.cb .cb-stat.cb-jump:hover { box-shadow: 0 0 0 2px #FCA5A5; }
+.cb .cb-stat.cb-jump:focus-visible { outline: 2px solid #DC2626; outline-offset: 2px; }
 .cb .cb-stat.bad .k, .cb .cb-stat.bad .v { color: #DC2626; }
 
 /* tabs */

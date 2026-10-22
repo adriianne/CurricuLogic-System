@@ -57,6 +57,7 @@ const SAFE = [
     ['features/curriculum/curriculum_builder.js', 'scheduled()',             'a count of subjects, a number'],
     ['features/department/departmentdashboard.js', 'visible.map(o => rowHtmlFor(', 'rowHtmlFor escapes its own fields'],
     ['features/department/departmentdashboard.js', 'reading ?',              'a fixed button'],
+    ['features/department/departmentdashboard.js', 'LAST_SUGGEST?.section ===', 'a comparison that prints "hidden" or nothing'],
     ['features/student/studentdashboard.js',      'label',                   CONSTANT + ' (stat, choice, record filter); the term label escapes its year'],
     ['features/student/studentdashboard.js',      'summary.',                'counts from the rule engine, numbers'],
     ['features/student/studentdashboard.js',      'g.section === chosen',    'a comparison that prints "selected"'],

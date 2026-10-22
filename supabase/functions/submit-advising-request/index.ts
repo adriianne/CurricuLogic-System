@@ -19,6 +19,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import core from "./core.js";
 // @ts-ignore
 import engine from "../../../shared/engine/engine.js";
+// @ts-ignore
+import start from "../../../shared/js/curriculum/curriculumstart.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -130,6 +132,20 @@ serve(async (req) => {
     if (requestsRes.error) {
       console.error("existing request load failed:", requestsRes.error.message);
       return json(500, { error: "Could not verify your existing requests. Please try again." });
+    }
+
+    // A curriculum that takes effect in a later year cannot be chosen from by a
+    // student with no curriculum of their own or no record yet. If the year
+    // cannot be read, nothing is refused on that account.
+    const { data: chosenVersion } = await db.from("prospectus")
+      .select("academic_year").eq("id", prospectusId).maybeSingle();
+    if (start.notStarted({
+      curriculumYear: chosenVersion?.academic_year,
+      currentYear: year,
+      ownProspectus: student.prospectus_id != null,
+      recordCount: (recordsRes.data ?? []).length,
+    })) {
+      return json(403, { error: start.message(chosenVersion.academic_year), reason: "curriculum_not_started" });
     }
 
     // A second tab or a racing click can still send a subject whose request

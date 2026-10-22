@@ -23,7 +23,6 @@ execFileSync('npx', [
     '--bundle',
     '--format=esm',
     '--target=es2022',
-    '--minify',
     '--external:npm:*',
     '--external:https://*',
     `--outfile=${fn}/dist/index.js`,

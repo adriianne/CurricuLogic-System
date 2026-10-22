@@ -469,57 +469,78 @@
 
 .chat-list { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .chat-list-day {
-    margin: 0.8rem 0.5rem 0.3rem;
+    margin: 1.1rem 0.75rem 0.4rem;
     font-size: 0.68rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--slate, #64748b);
 }
 .chat-list-day:first-child { margin-top: 0.2rem; }
 .chat-list-empty { margin: 0.6rem 0.5rem; font-size: 0.82rem; color: var(--slate, #64748b); }
 
+/* Every row is one full-width strip. The "..." button sits over its right end and the title only
+   makes room for it when it shows, so short and long titles line up and a title is cut off only
+   when it has to be. The buttons are named through .chat-item so they beat the paper theme's
+   generic button background (.theme-paper button), which used to paint each one cream. */
 .chat-item {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 0.2rem;
-    border-radius: 8px;
+    margin-bottom: 2px;
+    border-radius: 10px;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 .chat-item:hover { background: var(--bg-soft, #f4f6fb); }
 .chat-item.is-open { background: #eef2ff; box-shadow: inset 3px 0 0 var(--indigo, #4f46e5); }
-.chat-item-open {
+.chat-item .chat-item-open {
     flex: 1 1 auto;
     min-width: 0;
-    padding: 0.5rem 0.6rem;
+    padding: 0.58rem 0.75rem;
     border: 0;
-    background: none;
+    border-radius: 10px;
+    background: transparent;
     color: var(--ink, #0f172a);
     font: inherit;
     font-size: 0.84rem;
+    line-height: 1.25;
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     cursor: pointer;
 }
+.chat-item .chat-item-open:hover { background: transparent; }
+.chat-item:hover .chat-item-open,
+.chat-item:focus-within .chat-item-open,
+.chat-item.is-open .chat-item-open { padding-right: 2.3rem; }
 .chat-item.is-open .chat-item-open { font-weight: 600; color: var(--indigo, #4f46e5); }
-.chat-item-more {
-    flex: 0 0 auto;
-    width: 1.9rem;
-    height: 1.9rem;
-    margin-right: 0.15rem;
+.chat-item .chat-item-more {
+    position: absolute;
+    top: 50%;
+    right: 0.3rem;
+    transform: translateY(-50%);
+    width: 1.8rem;
+    height: 1.8rem;
+    margin: 0;
+    padding: 0;
     border: 0;
-    border-radius: 6px;
-    background: none;
+    border-radius: 7px;
+    background: transparent;
     color: var(--slate, #64748b);
     cursor: pointer;
     opacity: 0;
+    transition: opacity 0.12s ease, background 0.12s ease;
 }
 .chat-item:hover .chat-item-more,
 .chat-item.is-open .chat-item-more,
-.chat-item-more:focus-visible { opacity: 1; }
-@media (hover: none) { .chat-item-more { opacity: 1; } }
-.chat-item-more:hover { color: var(--ink, #0f172a); background: rgba(15, 23, 42, 0.06); }
+.chat-item .chat-item-more:focus-visible { opacity: 1; }
+/* No hover on a touch screen: the "..." button is always shown, so its room is always kept. */
+@media (hover: none) {
+    .chat-item .chat-item-more { opacity: 1; }
+    .chat-item .chat-item-open { padding-right: 2.3rem; }
+}
+.chat-item .chat-item-more:hover { color: var(--ink, #0f172a); background: rgba(15, 23, 42, 0.07); }
 .chat-item-input {
     flex: 1 1 auto;
     min-width: 0;
@@ -662,7 +683,7 @@
     background: rgba(255, 255, 255, 0.75);
     box-shadow: inset 3px 0 0 var(--indigo, #4f46e5), 0 1px 3px rgba(15, 23, 42, 0.06);
 }
-.chat-item-more:hover { background: rgba(255, 255, 255, 0.7); }
+.chat-item .chat-item-more:hover { background: rgba(255, 255, 255, 0.7); }
 
 .chat-menu,
 .chat-confirm {
@@ -691,7 +712,7 @@ html[data-theme="dark"] .chat-item.is-open {
     box-shadow: inset 3px 0 0 var(--indigo, #9d97ff), 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 html[data-theme="dark"] .chat-item.is-open .chat-item-open { color: var(--ink, #e6e8f2); }
-html[data-theme="dark"] .chat-item-more:hover { background: rgba(255, 255, 255, 0.12); }
+html[data-theme="dark"] .chat-item .chat-item-more:hover { background: rgba(255, 255, 255, 0.12); }
 html[data-theme="dark"] .chat-menu,
 html[data-theme="dark"] .chat-confirm {
     background: rgba(28, 32, 48, 0.78);
