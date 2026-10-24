@@ -52,6 +52,9 @@
             <a href="#students" data-view="students">
                 <i class="fa-solid fa-user-graduate" aria-hidden="true"></i> Students
             </a>
+            <a href="#edplist" data-view="edplist">
+                <i class="fa-solid fa-clipboard-list" aria-hidden="true"></i> EDP student list
+            </a>
             <a href="#profile" data-view="profile">
                 <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
             </a>
@@ -628,6 +631,90 @@
 
             </section>
 
+            <!--  EDP STUDENT LIST  -->
+            <section class="view view-wide" id="view-edplist" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">EDP student list</h1>
+                    <p class="page-sub">
+                        The students the EDP office has confirmed. Upload the list EDP sends you; a
+                        student registering on their own is checked against it.
+                    </p>
+                </div>
+
+                <div id="edp-msg" class="msg" role="status"></div>
+
+                <div class="notice info">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <div>
+                        <strong>File format</strong>
+                        <ul class="notice-list">
+                            <li><b>Columns:</b> <span class="mono">student_id, first_name, last_name, program_code, email</span>. All five are required.</li>
+                            <li><b>student_id</b> is 7 digits. <b>program_code</b> is the programme's code (for example BSIT).</li>
+                            <li><b>email</b> is the address EDP has on file. A setup link will be sent there, not to what the student types.</li>
+                            <li>A student ID that is already on the list is updated with the new details. Nobody is removed by an upload.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Upload list</span>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="upload-row">
+                            <input type="file" id="edp-file" accept=".csv,.xlsx,.xls">
+                            <button class="btn-small" id="edp-template">
+                                <i class="fa-solid fa-download" aria-hidden="true"></i>
+                                Template
+                            </button>
+                        </div>
+
+                        <div class="gu-status" id="edp-status" role="status" aria-live="polite" hidden>
+                            <div class="gu-status-row">
+                                <span class="gu-status-text" id="edp-status-text"></span>
+                                <span class="gu-status-pct" id="edp-status-pct"></span>
+                            </div>
+                            <div class="gu-status-track">
+                                <div class="gu-status-fill" id="edp-status-fill" style="width:0%"></div>
+                            </div>
+                        </div>
+
+                        <div id="edp-preview"></div>
+
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Students on the list</span>
+                        <span class="card-note" id="edp-count"></span>
+                    </div>
+                    <div class="card-body">
+
+                        <div class="toolbar">
+                            <div class="search-wrap">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input type="search" id="edp-search"
+                                       placeholder="Search student ID, name, email, or programme"
+                                       autocomplete="off" aria-label="Search the EDP list" maxlength="100">
+                            </div>
+                        </div>
+
+                        <div id="edp-body">
+                            <div class="empty">
+                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                <h3>Loading</h3>
+                                <p>Fetching the list.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+            </section>
+
             <!--  PROFILE -->
             <section class="view view-wide" id="view-profile" hidden>
 
@@ -793,6 +880,7 @@
 <script src="../../shared/js/accounts/passwordrules.js"></script>
 <script src="../../shared/js/accounts/namerules.js"></script>
 <script src="../../shared/js/accounts/emailrules.js"></script>
+<script src="../../shared/js/accounts/expectedstudents.js"></script>
 <script src="../../shared/js/accounts/passwordreset.js"></script>
 <script src="../../shared/js/app/forcepasswordchange.js"></script>
 <script src="../../shared/js/records/uploadlimits.js"></script>

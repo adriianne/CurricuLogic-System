@@ -550,6 +550,27 @@ function afterLoad() {
     renderDashboardSummary();
     renderRequests();
     renderStudentChips();
+    ensureEdpStatus();
+}
+
+/* Is each request on the EDP list (db/086)? The Registrar cannot read the list; the database only says
+   'on_list', 'not_on_list' or 'no_list' per student. Fetched for the requests on screen, then the queue
+   is drawn again with the badges. A failed lookup leaves a request without a badge and never blocks. */
+const EDP_STATUS = {};          // student uuid -> status
+
+async function fetchEdpStatus(ids) {
+    const want = ids.filter(id => !(id in EDP_STATUS));
+    if (PREVIEW || !supabase || want.length === 0) return false;
+    for (let i = 0; i < want.length; i += 500) {
+        const { data, error } = await supabase.rpc('edp_status', { p_ids: want.slice(i, i + 500) });
+        if (error) { console.warn('EDP status lookup failed:', error.message); return false; }
+        for (const row of data ?? []) EDP_STATUS[row.student_uuid] = row.status;
+    }
+    return true;
+}
+
+async function ensureEdpStatus() {
+    if (await fetchEdpStatus(pending().map(s => s.id))) renderRequests();
 }
 
 /* After an approval, a decline or a verification: fresh counts, fresh screens. */
@@ -714,10 +735,12 @@ function renderRequests() {
                     : 'Match the student ID above against the official student list before approving.'}
             </p>
 
+            ${edpHtml(s)}
+
             ${matchesHtml(s)}
 
             <div class="review-actions">
-                <button class="btn-accent" data-approve="${escapeHtml(s.id)}">
+                <button class="btn-accent" data-approve="${escapeHtml(s.id)}" ${CurriculogicExpectedStudents.statusBadge(EDP_STATUS[s.id]).block ? 'disabled title="Not on the EDP list"' : ''}>
                     <i class="fa-solid fa-check" aria-hidden="true"></i>
                     <span>Approve</span>
                 </button>
@@ -732,6 +755,16 @@ function renderRequests() {
         b.addEventListener('click', () => decide(b.dataset.approve, 'approved')));
     body.querySelectorAll('[data-decline]').forEach(b =>
         b.addEventListener('click', () => promptDecline(b.dataset.decline)));
+}
+
+/* The EDP list line of a request card: a badge, and for "not on the list" what to do about it. */
+function edpHtml(request) {
+    const badge = CurriculogicExpectedStudents.statusBadge(EDP_STATUS[request.id]);
+    if (!badge.kind) return '';
+    return '<p class="review-matches ' + (badge.block ? '' : 'none') + '">'
+        + '<span class="pill ' + badge.kind + '">' + escapeHtml(badge.label) + '</span>'
+        + (badge.block ? ' ' + escapeHtml(CurriculogicExpectedStudents.NOT_ON_LIST_NOTE) : '')
+        + '</p>';
 }
 
 /* Other accounts that look like the same person (same ID, e-mail or name). It
@@ -788,6 +821,16 @@ function promptDecline(id) {
 }
 
 async function decide(id, status, note = null) {
+    // The queue's badge can be a moment old, so Approve asks again before saving.
+    if (status === 'approved') {
+        delete EDP_STATUS[id];
+        await fetchEdpStatus([id]);
+        if (CurriculogicExpectedStudents.statusBadge(EDP_STATUS[id]).block) {
+            renderRequests();
+            return showMsg('request-msg', CurriculogicExpectedStudents.NOT_ON_LIST_NOTE);
+        }
+    }
+
     const patch = {
         approval_status: status,
         is_approved:     status === 'approved',

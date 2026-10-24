@@ -78,6 +78,7 @@ const VIEWS = {
     staff:     'Staff management',
     programs:  'Programs',
     students:  'Students',
+    edplist:   'EDP student list',
     profile:   'Profile',
 };
 
@@ -109,6 +110,7 @@ function showView(name) {
     if (name === 'programs') loadPrograms();
     if (name === 'students') loadStudents();
     if (name === 'bulk')     initBulkUpload();
+    if (name === 'edplist')  initEdpList();
 }
 
 function route() {
@@ -892,6 +894,7 @@ function renderStudents() {
                         <th>Programme</th>
                         <th>Email</th>
                         <th>Status</th>
+                        <th>EDP list</th>
                         <th>Requested</th>
                     </tr>
                 </thead>
@@ -910,6 +913,7 @@ function renderStudents() {
                             <td>${escapeHtml(PROGRAMS.find(p => p.id === s.program_id)?.code || '—')}</td>
                             <td class="dim">${escapeHtml(s.email || '—')}</td>
                             <td>${pill}</td>
+                            <td>${edpPill(s)}</td>
                             <td class="dim">${daysAgo(s.created_at)}</td>
                         </tr>`;
                     }).join('')}
@@ -925,7 +929,30 @@ function renderStudents() {
                 <button type="button" class="btn-small" data-student-page="next" ${STUDENT_PAGE === pages ? 'disabled' : ''}>Next</button>
             </span>
         </div>` : ''}`;
+
+    ensureStudentEdpStatus(shown);
 }
+
+/* Is each student on the EDP list (db/086)? Asked only for the page on screen, then the table is drawn
+   again with the badges. Forgotten whenever the list changes. A failed lookup shows no badge. */
+const STUDENT_EDP = {};         // student uuid -> 'on_list' | 'not_on_list' | 'no_list'
+
+const edpPill = (s) => {
+    const b = CurriculogicExpectedStudents.statusBadge(STUDENT_EDP[s.id]);
+    return b.kind ? `<span class="pill ${b.kind}">${escapeHtml(b.label)}</span>` : '<span class="dim">—</span>';
+};
+
+async function ensureStudentEdpStatus(rows) {
+    const want = rows.map(s => s.id).filter(id => !(id in STUDENT_EDP));
+    if (PREVIEW || !supabase || want.length === 0) return;
+    const { data, error } = await supabase.rpc('edp_status', { p_ids: want });
+    if (error) { console.warn('EDP status lookup failed:', error.message); return; }
+    for (const id of want) STUDENT_EDP[id] = null;    // asked once, even if no row comes back
+    for (const row of data ?? []) STUDENT_EDP[row.student_uuid] = row.status;
+    renderStudents();
+}
+
+const forgetStudentEdp = () => { for (const k of Object.keys(STUDENT_EDP)) delete STUDENT_EDP[k]; };
 
 $('student-search')?.addEventListener('input', () => { STUDENT_PAGE = 1; renderStudents(); });
 $('student-filter')?.addEventListener('change', () => { STUDENT_PAGE = 1; renderStudents(); });
@@ -2356,6 +2383,363 @@ $('term-confirm-yes')?.addEventListener('click', async () => {
 });
 
 $('term-confirm-no')?.addEventListener('click', hideTermConfirm);
+
+
+/* ---------- EDP student list (db/084) ---------- */
+
+/* The students the EDP office has confirmed. Self-registration is checked against this later. An upload
+   adds new IDs and updates the ones already there; it never removes anyone. */
+
+const EDP_PAGE_SIZE = 20;
+const EDP_BATCH = 500;
+let EDP = [];                  // rows as stored, each with program_code added
+let EDP_OK = [];               // rows of the file that passed, waiting for "Save"
+let EDP_BAD = [];
+let EDP_FILE = '';
+let EDP_PAGE = 1;
+let EDP_ARMED = null;          // student_id whose Delete button is waiting for its second click
+let edpInitialized = false;
+
+function initEdpList() {
+    if (!edpInitialized) {
+        edpInitialized = true;
+        $('edp-file')?.addEventListener('change', handleEdpFile);
+        $('edp-template')?.addEventListener('click', downloadEdpTemplate);
+        $('edp-search')?.addEventListener('input', () => { EDP_PAGE = 1; EDP_ARMED = null; renderEdpList(); });
+        $('edp-body')?.addEventListener('click', onEdpBodyClick);
+    }
+    loadEdpList();
+}
+
+async function loadEdpList() {
+    if (PREVIEW) { renderEdpList(); return; }
+    if (!supabase) return;
+
+    if (!PROGRAMS_READY) {
+        const prog = await supabase.from('program').select('id, code, name');
+        if (!prog.error) { PROGRAMS = prog.data ?? []; PROGRAMS_READY = true; }
+    }
+
+    // The server returns at most 1000 rows a request, so read the list in pages of that size.
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+            .from('expected_student')
+            .select('student_id, first_name, last_name, program_id, email, updated_at')
+            .order('student_id')
+            .range(from, from + 999);
+        if (error) {
+            console.warn('EDP list load failed:', error.message);
+            showMsg('edp-msg', 'Could not load the list. ' + error.message);
+            return;
+        }
+        rows.push(...data);
+        if (data.length < 1000) break;
+    }
+    EDP = rows.map(r => ({ ...r, program_code: PROGRAMS.find(p => p.id === r.program_id)?.code ?? '' }));
+    renderEdpList();
+}
+
+const edpIds = () => new Set(EDP.map(r => r.student_id));
+const edpRegistered = () => new Set(STUDENTS.map(s => s.student_id).filter(Boolean));
+
+function renderEdpList() {
+    const body  = $('edp-body');
+    const count = $('edp-count');
+    if (!body) return;
+
+    const list = CurriculogicExpectedStudents.search(EDP, $('edp-search')?.value);
+    const pages = Math.max(1, Math.ceil(list.length / EDP_PAGE_SIZE));
+    EDP_PAGE = Math.min(Math.max(1, EDP_PAGE), pages);
+    const from = (EDP_PAGE - 1) * EDP_PAGE_SIZE;
+    const shown = list.slice(from, from + EDP_PAGE_SIZE);
+
+    if (count) count.textContent = EDP.length ? `${list.length} of ${EDP.length}` : '';
+
+    if (EDP.length === 0) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-clipboard-list" aria-hidden="true"></i>
+                <h3>The list is empty</h3>
+                <p>Upload the file EDP sent you and the students will appear here.</p>
+            </div>`;
+        return;
+    }
+    if (list.length === 0) {
+        body.innerHTML = `
+            <div class="empty">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <h3>No matches</h3>
+                <p>No one on the list matches that search.</p>
+            </div>`;
+        return;
+    }
+
+    const registered = edpRegistered();
+    body.innerHTML = `
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Student ID</th>
+                        <th>Name</th>
+                        <th>Programme</th>
+                        <th>Email on file</th>
+                        <th>Account</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${shown.map(s => `
+                    <tr>
+                        <td class="mono">${escapeHtml(s.student_id)}</td>
+                        <td><strong>${escapeHtml(fullName(s))}</strong></td>
+                        <td>${escapeHtml(s.program_code || '—')}</td>
+                        <td class="dim">${escapeHtml(s.email)}</td>
+                        <td>${registered.has(s.student_id) ? '<span class="pill ok">Registered</span>' : '<span class="pill waiting">Not yet</span>'}</td>
+                        <td>
+                            <button type="button" class="btn-small" data-edp-delete="${escapeHtml(s.student_id)}">
+                                ${EDP_ARMED === s.student_id ? 'Click again to remove' : 'Remove'}
+                            </button>
+                        </td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+        ${pages > 1 ? `
+        <div class="pager">
+            <span class="dim">${from + 1}–${from + shown.length} of ${list.length}</span>
+            <span class="pager-btns">
+                <button type="button" class="btn-small" data-edp-page="prev" ${EDP_PAGE === 1 ? 'disabled' : ''}>Previous</button>
+                <span class="pager-now">Page ${EDP_PAGE} of ${pages}</span>
+                <button type="button" class="btn-small" data-edp-page="next" ${EDP_PAGE === pages ? 'disabled' : ''}>Next</button>
+            </span>
+        </div>` : ''}`;
+}
+
+async function onEdpBodyClick(e) {
+    const pageBtn = e.target.closest('[data-edp-page]');
+    if (pageBtn && !pageBtn.disabled) {
+        EDP_PAGE += pageBtn.dataset.edpPage === 'next' ? 1 : -1;
+        EDP_ARMED = null;
+        renderEdpList();
+        return;
+    }
+
+    const del = e.target.closest('[data-edp-delete]');
+    if (!del) return;
+    const id = del.dataset.edpDelete;
+
+    // Removing someone is not undone by an upload, so it takes a second click.
+    if (EDP_ARMED !== id) { EDP_ARMED = id; renderEdpList(); return; }
+    EDP_ARMED = null;
+
+    if (!PREVIEW) {
+        const { error } = await supabase.from('expected_student').delete().eq('student_id', id);
+        if (error) { showMsg('edp-msg', 'Could not remove that student. ' + error.message); renderEdpList(); return; }
+    }
+    EDP = EDP.filter(r => r.student_id !== id);
+    forgetStudentEdp();
+    showMsg('edp-msg', `Student ${id} removed from the list.`, 'success');
+    renderEdpList();
+}
+
+function downloadEdpTemplate() {
+    const code = PROGRAMS[0]?.code ?? '';
+    const rows = [{ student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva', program_code: code, email: 'althea.villanueva@uc.edu.ph' }];
+    const ws = XLSX.utils.json_to_sheet(rows, { header: CurriculogicExpectedStudents.COLUMNS });
+    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 32 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'EDP list');
+    XLSX.writeFile(wb, 'edp-student-list-template.xlsx');
+}
+
+function edpStatus(state, text, percent = null) {
+    const box = $('edp-status');
+    if (!box) return;
+    if (!state) { box.hidden = true; return; }
+    box.hidden = false;
+    box.className = 'gu-status' + (state === 'working' ? '' : ' is-' + state);
+    setText('edp-status-text', text);
+    const pct = percent == null ? null : Math.max(0, Math.min(100, Math.round(percent)));
+    setText('edp-status-pct', pct == null ? '' : pct + '%');
+    const fill = $('edp-status-fill');
+    if (fill) fill.style.width = (pct ?? 0) + '%';
+}
+const edpProgress = (u) => edpStatus('working', u.detail ? `${u.label}: ${u.detail}` : u.label, u.percent);
+
+async function handleEdpFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    showMsg('edp-msg', '');
+    EDP_OK = []; EDP_BAD = [];
+    $('edp-preview').innerHTML = '';
+
+    const t = window.UploadProgress.tracker([
+        { id: 'read',  weight: 70, label: 'Reading the file' },
+        { id: 'check', weight: 30, label: 'Checking the rows' },
+    ]);
+    edpProgress(t.update('read', 0));
+    await yieldToUi();
+
+    try {
+        const rows = await readEdpFile(file);
+        edpProgress(t.update('check', 0, plural(rows.length, 'row')));
+        await yieldToUi();
+        const { ok, bad } = CurriculogicExpectedStudents.checkRows(rows, PROGRAMS, edpIds());
+        EDP_OK = ok; EDP_BAD = bad; EDP_FILE = file.name;
+        renderEdpPreview();
+        edpStatus('done', `${plural(rows.length, 'row')} read and checked${rows.sheetNote ? ' (' + rows.sheetNote + ')' : ''}`, t.finish().percent);
+    } catch (err) {
+        console.error('EDP list parse failed:', err);
+        edpStatus('error', 'Could not read that file.');
+        showMsg('edp-msg', 'Could not read that file. ' + err.message);
+    }
+}
+
+async function readEdpFile(file) {
+    const fileIssue = CurriculogicUploadLimits.fileProblem(file, 'edplist');
+    if (fileIssue) throw new Error(fileIssue);
+    if (!PROGRAMS_READY && !PREVIEW && supabase) {
+        const prog = await supabase.from('program').select('id, code, name');
+        if (!prog.error) { PROGRAMS = prog.data ?? []; PROGRAMS_READY = true; }
+    }
+
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: false, cellDates: false });
+    if (!wb.SheetNames.length) throw new Error('File has no readable sheet.');
+
+    const picked = CurriculogicExpectedStudents.pickSheet(wb.SheetNames.map(name => ({
+        name,
+        aoa: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', raw: false }).slice(0, 1),
+    })));
+    if (!picked) {
+        throw new Error('No sheet in this file has the columns student_id and email. Download the template and fill it in.');
+    }
+
+    // raw:false returns what the cell shows, so a student ID stored as a number keeps its digits.
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[picked.name], { defval: '', raw: false });
+    if (rows.length === 0) throw new Error('File is empty.');
+    const rowsIssue = CurriculogicUploadLimits.rowsProblem(rows.length, 'edplist');
+    if (rowsIssue) throw new Error(rowsIssue);
+
+    const parsed = rows.map((r, i) => {
+        const out = { __line: i + 2 };
+        for (const [k, v] of Object.entries(r)) out[normalizeHeader(k)] = String(v ?? '').trim();
+        return out;
+    });
+    parsed.sheetNote = picked.skipped.length
+        ? `sheet "${picked.name}" used, ${plural(picked.skipped.length, 'other sheet')} skipped`
+        : '';
+    return parsed;
+}
+
+function renderEdpPreview() {
+    const box = $('edp-preview');
+    if (!box) return;
+    const ok = EDP_OK, bad = EDP_BAD;
+    const updates = ok.filter(r => r.isUpdate).length;
+    const adds = ok.length - updates;
+
+    box.innerHTML = `
+        <div class="notice ${bad.length ? 'pending' : 'info'}">
+            <i class="fa-solid ${bad.length ? 'fa-triangle-exclamation' : 'fa-circle-info'}" aria-hidden="true"></i>
+            <div>
+                <strong>${plural(ok.length, 'student')} ready${bad.length ? `, ${bad.length} rejected` : ''}</strong>
+                <span class="dim"> · ${escapeHtml(EDP_FILE)}${ok.length ? ` · ${adds} new, ${updates} updated` : ''}</span>
+            </div>
+        </div>`;
+
+    if (bad.length) {
+        box.innerHTML += `
+            <h3 class="group-head" style="margin-top:var(--s3);">Rejected rows</h3>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Line</th><th>Student ID</th><th>Name</th><th>Reason</th></tr></thead>
+                    <tbody>${bad.slice(0, 10).map(b => `
+                        <tr>
+                            <td class="num">${b.line}</td>
+                            <td class="mono">${escapeHtml(b.studentId || '—')}</td>
+                            <td>${escapeHtml(b.first)} ${escapeHtml(b.last)}</td>
+                            <td>${escapeHtml(b.why)}</td>
+                        </tr>`).join('')}</tbody>
+                </table>
+                ${bad.length > 10 ? `<p class="dim" style="margin-top:var(--s2);">and ${bad.length - 10} more</p>` : ''}
+            </div>`;
+    }
+
+    if (ok.length) {
+        box.innerHTML += `
+            <h3 class="group-head" style="margin-top:var(--s3);">Ready to save (${ok.length})</h3>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Student ID</th><th>Name</th><th>Programme</th><th>Email</th><th></th></tr></thead>
+                    <tbody>${ok.slice(0, 10).map(r => `
+                        <tr>
+                            <td class="mono">${escapeHtml(r.studentId)}</td>
+                            <td>${escapeHtml(r.first)} ${escapeHtml(r.last)}</td>
+                            <td>${escapeHtml(r.programCode)}</td>
+                            <td class="dim">${escapeHtml(r.email)}</td>
+                            <td>${r.isUpdate ? '<span class="pill info">Update</span>' : '<span class="pill ok">New</span>'}</td>
+                        </tr>`).join('')}</tbody>
+                </table>
+                ${ok.length > 10 ? `<p class="dim" style="margin-top:var(--s2);">and ${ok.length - 10} more</p>` : ''}
+            </div>
+            <button class="btn-accent" id="edp-commit" style="margin-top:var(--s3);">
+                <i class="fa-solid fa-check" aria-hidden="true"></i>
+                <span>Save ${plural(ok.length, 'student')} to the list</span>
+            </button>`;
+    }
+
+    $('edp-commit')?.addEventListener('click', commitEdpList);
+}
+
+async function commitEdpList() {
+    if (EDP_OK.length === 0) return;
+    const btn = $('edp-commit');
+    if (btn) btn.disabled = true;
+
+    const total = EDP_OK.length;
+    const t = window.UploadProgress.tracker([{ id: 'save', weight: 100, label: 'Saving the list' }]);
+    edpProgress(t.update('save', 0, `0 of ${total}`));
+
+    const now = new Date().toISOString();
+    const records = EDP_OK.map(r => ({
+        student_id: r.studentId, first_name: r.first, last_name: r.last,
+        program_id: r.programId, email: r.email, updated_at: now,
+    }));
+
+    try {
+        if (!PREVIEW) {
+            for (let i = 0; i < records.length; i += EDP_BATCH) {
+                const { error } = await supabase.from('expected_student').upsert(records.slice(i, i + EDP_BATCH), { onConflict: 'student_id' });
+                if (error) throw new Error(error.message);
+                edpProgress(t.update('save', window.UploadProgress.fraction(Math.min(i + EDP_BATCH, total), total), `${Math.min(i + EDP_BATCH, total)} of ${total}`));
+            }
+        }
+    } catch (err) {
+        console.error('EDP list save failed:', err);
+        edpStatus('error', 'Saving stopped.');
+        showMsg('edp-msg', 'Could not save the list. ' + err.message + ' Rows saved before the error stay saved; upload the file again to finish.');
+        if (btn) btn.disabled = false;
+        await loadEdpList();
+        return;
+    }
+
+    const adds = EDP_OK.filter(r => !r.isUpdate).length;
+    const updates = total - adds;
+    if (PREVIEW) {
+        const byId = new Map(EDP.map(r => [r.student_id, r]));
+        for (const r of records) byId.set(r.student_id, { ...r, program_code: PROGRAMS.find(p => p.id === r.program_id)?.code ?? '' });
+        EDP = [...byId.values()];
+    }
+    EDP_OK = []; EDP_BAD = [];
+    forgetStudentEdp();
+    $('edp-preview').innerHTML = '';
+    $('edp-file').value = '';
+    edpStatus('done', `${plural(total, 'student')} saved`, 100);
+    showMsg('edp-msg', `Saved: ${adds} new, ${updates} updated.`, 'success');
+    if (!PREVIEW) await loadEdpList(); else renderEdpList();
+}
 
 
 /* ---------- boot ---------- */
