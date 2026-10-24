@@ -190,6 +190,36 @@ function signUpFailureMessage(error) {
     return 'We could not submit your request. Please check your details and try again.';
 }
 
+/* Asks the database whether these details are on the EDP list (db/085). It only advises: a student who
+   is not found is warned once and may still submit, and the Registrar checks by hand. Any failure here
+   counts as "no warning", so it can never stop a registration. */
+async function expectedStudentResult() {
+    try {
+        const { data, error } = await supabase.rpc('check_expected_student', {
+            p_student_id: path === 'existing' ? studentIdDigits($('student-id').value) : null,
+            p_first_name: path === 'new' ? CurriculogicNameRules.clean($('first-name').value) : null,
+            p_last_name:  path === 'new' ? CurriculogicNameRules.clean($('last-name').value) : null,
+            p_program_id: Number($('program')?.value) > 0 ? Number($('program').value) : null,
+        });
+        return error ? null : data;
+    } catch {
+        return null;
+    }
+}
+
+// True once the student has seen the "not on the list" warning for what is typed now.
+let warnedNotOnList = false;
+const resetWarning = () => {
+    if (!warnedNotOnList) return;
+    warnedNotOnList = false;
+    const b = $('register-btn');
+    if (b && !b.disabled) b.textContent = 'Submit request';
+};
+document.querySelectorAll('.field input, .field select, .path input').forEach((el) => {
+    el.addEventListener('input', resetWarning);
+    el.addEventListener('change', resetWarning);
+});
+
 async function handleRegister() {
     clearMsg();
 
@@ -199,6 +229,20 @@ async function handleRegister() {
     if (!supabase) return showMsg('Cannot reach the service. Please try again later.');
 
     const btn = $('register-btn');
+
+    if (!warnedNotOnList) {
+        btn.disabled = true;
+        btn.textContent = 'Checking…';
+        const advice = CurriculogicExpectedStudents.registrationAdvice(await expectedStudentResult());
+        btn.disabled = false;
+        if (advice.warn) {
+            warnedNotOnList = true;
+            btn.textContent = 'Submit anyway';
+            return showMsg(advice.message, 'pending');
+        }
+        btn.textContent = 'Submit request';
+    }
+
     btn.disabled = true;
     btn.textContent = 'Submitting…';
 

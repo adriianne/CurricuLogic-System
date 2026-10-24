@@ -25,6 +25,7 @@ const LIMITS = {
     grades:   { noun: 'grade file',   bytes:  5 * MB, rows: 5000, ext: ['.csv', '.xlsx', '.xls'] },
     schedule: { noun: 'schedule file', bytes: 5 * MB, rows: 1000, ext: ['.csv', '.xlsx', '.xls'] },
     accounts: { noun: 'accounts file', bytes: 2 * MB, rows:  500, ext: ['.csv', '.xlsx', '.xls'] },
+    edplist:  { noun: 'student list', bytes: 2 * MB, rows: 5000, ext: ['.csv', '.xlsx', '.xls'] },
 };
 
 function formatBytes(bytes) {
