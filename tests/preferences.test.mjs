@@ -333,7 +333,9 @@ describe('section planner', () => {
         ]);
         const t0 = Date.now();
         const plan = P.apply(E.assess(student(), [], kbOf(dozen, offerings), { maxUnits: 99 }), {});
-        assert.ok(Date.now() - t0 < 2000, 'finishes quickly');
+        // About 0.25 s alone and 0.5 s when the whole suite runs at once; 5 s leaves room for a slow
+        // machine and still catches a search that blows up.
+        assert.ok(Date.now() - t0 < 5000, 'finishes quickly');
         assert.equal(plan.recommended.length, 3, 'three slots, three subjects');
     });
 });
