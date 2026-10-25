@@ -17,7 +17,7 @@
 }(typeof self !== 'undefined' ? self : this, function (NameRules, EmailRules) {
 'use strict';
 
-const COLUMNS = ['student_id', 'first_name', 'last_name', 'program_code', 'email'];
+const COLUMNS = ['student_id', 'first_name', 'last_name', 'program_code', 'email', 'year_level'];
 
 const normHeader = (h) => String(h ?? '').trim().toLowerCase().replace(/\s+/g, '_');
 
@@ -35,6 +35,15 @@ function pickSheet(sheets) {
     });
     if (!best) return null;
     return { ...best, skipped: sheets.map(sh => sh.name).filter((_, i) => i !== best.index) };
+}
+
+/* The year a row says the student is in. Blank is fine (it stays blank). "3", "3rd" and "3rd Year" all mean 3.
+   Returns { value: 1-4 | null } or { error }. */
+function parseYearLevel(raw) {
+    const text = String(raw ?? '').trim();
+    if (!text) return { value: null };
+    const m = /^([1-4])(?:\s*(?:st|nd|rd|th))?(?:\s*year)?$/i.exec(text);
+    return m ? { value: Number(m[1]) } : { error: 'Year level must be 1 to 4, or left blank.' };
 }
 
 /* A student ID is 7 digits, as everywhere else in the system. Spaces and dashes typed in are dropped. */
@@ -82,6 +91,9 @@ function checkRows(rows, programs, existing = new Set()) {
         const prog = matchProgram(programs, r.program_code);
         if (prog.error) { reject(prog.error); continue; }
 
+        const year = parseYearLevel(r.year_level);
+        if (year.error) { reject(year.error); continue; }
+
         if (!email) { reject('Missing email.'); continue; }
         const emailProblem = EmailRules.problem(email);
         if (emailProblem) { reject(emailProblem); continue; }
@@ -93,6 +105,8 @@ function checkRows(rows, programs, existing = new Set()) {
             ...base,
             programCode: prog.program.code,
             programId: prog.program.id,
+            // undefined when the file has no year_level column at all, so saving it leaves saved years alone
+            yearLevel: 'year_level' in r ? year.value : undefined,
             isUpdate: existing.has(studentId),
         });
     }
@@ -137,6 +151,25 @@ const NOT_ON_LIST_NOTE = 'This person is not on the EDP list, so the request can
     'If they are a real student, ask the Admin to add them to the list (or fix a typo in it), then reload this page. ' +
     'Otherwise decline the request.';
 
-return { COLUMNS, pickSheet, cleanStudentId, matchProgram, checkRows, search, registrationAdvice, statusBadge, NOT_ON_LIST_NOTE };
+/* Which listed students the Admin's "Create accounts" button would create, now.
+     list:            rows of the list as stored: { student_id, first_name, last_name, email, year_level, program_code }
+     takenIds:        Set of student IDs that already have an account
+     takenEmails:     Set of lower-case emails that already have an account
+     limit:           the most to create in one go (the email sender has hourly and daily limits)
+   Returns { create: [...rows], skipped: [{ row, why }], later: n } where `later` is how many more are
+   eligible but beyond the limit, so one more click picks them up. */
+function accountCandidates(list, takenIds, takenEmails, limit) {
+    const eligible = [];
+    const skipped = [];
+    for (const row of list ?? []) {
+        if (takenIds.has(row.student_id)) { skipped.push({ row, why: 'Already has an account (student ID).' }); continue; }
+        if (takenEmails.has(String(row.email ?? '').trim().toLowerCase())) { skipped.push({ row, why: 'An account already uses this email.' }); continue; }
+        eligible.push(row);
+    }
+    const cap = Math.max(0, limit ?? eligible.length);
+    return { create: eligible.slice(0, cap), skipped, later: Math.max(0, eligible.length - cap) };
+}
+
+return { COLUMNS, parseYearLevel, accountCandidates, pickSheet, cleanStudentId, matchProgram, checkRows, search, registrationAdvice, statusBadge, NOT_ON_LIST_NOTE };
 
 }));

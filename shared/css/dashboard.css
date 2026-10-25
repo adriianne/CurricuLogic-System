@@ -1047,6 +1047,55 @@ dl:has(> .detail) { container: detail-list / inline-size; }
 
 .review-actions { display: flex; gap: 0.5rem; }
 
+/* Approve checklist: a reminder above the buttons, not saved. */
+.review-check {
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 0.5rem 0.75rem 0.6rem;
+    margin: 0 0 var(--s2);
+}
+.review-check legend { font-size: 0.78rem; font-weight: 600; color: var(--ink); padding: 0 0.35rem; }
+.review-check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.83rem;
+    line-height: 1.5;
+    color: var(--slate);
+    padding: 0.15rem 0;
+    cursor: pointer;
+}
+.review-check-item input { margin-top: 0.25rem; }
+
+/* Decline box, opened inside a request card. */
+.decline-panel {
+    margin-top: var(--s2);
+    padding: var(--s2);
+    border: 1px solid #fecaca;
+    border-radius: 9px;
+    background: #fef2f2;
+}
+.decline-label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--ink); margin-bottom: 0.4rem; }
+.decline-quick { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+.decline-text {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font: inherit;
+    font-size: 0.88rem;
+    resize: vertical;
+    background: #fff;
+    color: var(--ink);
+}
+.decline-text:focus-visible {
+    outline: none;
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+.decline-meta { margin: 0.25rem 0 0.4rem; text-align: right; font-size: 0.75rem; color: var(--slate); }
+.decline-error { margin: 0 0 0.5rem; font-size: 0.82rem; font-weight: 600; color: #b91c1c; }
+
 .review-id-field {
     margin-bottom: var(--s2);
 }

@@ -154,7 +154,7 @@ async function resolveRole(userId) {
 
         if (DEBUG_LOGIN) console.log(`[resolveRole] MATCH in ${role.table}, approved:`, approved);
 
-        return { key, role, approved };
+        return { key, role, approved, row: data };
     }
     return null;
 }
@@ -253,8 +253,11 @@ async function handleLogin() {
 
         if (!resolved.approved) {
             await supabase.auth.signOut();
+            // A stopped account (accountstop.js) says so, instead of "awaiting verification".
             return showMsg(
-                'This account is awaiting verification. You will be notified once it is approved.'
+                window.CurriculogicAccountStop
+                    ? window.CurriculogicAccountStop.notActiveMessage(resolved.key, resolved.row)
+                    : 'This account is awaiting verification. You will be notified once it is approved.'
             );
         }
 

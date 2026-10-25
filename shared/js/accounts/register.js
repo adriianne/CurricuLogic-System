@@ -220,8 +220,23 @@ document.querySelectorAll('.field input, .field select, .path input').forEach((e
     el.addEventListener('change', resetWarning);
 });
 
+const SUBMITTED_MESSAGE =
+    'Request submitted. Check your inbox to confirm your email address, then the Office of the Registrar will verify your details and notify you once your account is ready.';
+
 async function handleRegister() {
     clearMsg();
+
+    // The hidden bot-trap field (honeypot.js) is filled: show the usual success message so the bot
+    // learns nothing, and send nothing. A person never sees this field, so never reaches this.
+    if (CurriculogicHoneypot.tripped($('contact-ref')?.value)) {
+        showMsg(SUBMITTED_MESSAGE, 'success');
+        document.querySelectorAll('.field input, .field select, #consent, .path input')
+            .forEach((el) => { el.disabled = true; });
+        const done = $('register-btn');
+        done.disabled = true;
+        done.textContent = 'Request submitted';
+        return;
+    }
 
     const problem = validate();
     if (problem) return showMsg(problem);
@@ -299,10 +314,7 @@ async function handleRegister() {
             return showMsg('We could not submit your request. Please contact the Registrar for assistance.');
         }
 
-        showMsg(
-            'Request submitted. Check your inbox to confirm your email address, then the Office of the Registrar will verify your details and notify you once your account is ready.',
-            'success'
-        );
+        showMsg(SUBMITTED_MESSAGE, 'success');
 
         document.querySelectorAll('.field input, .field select, #consent, .path input')
             .forEach((el) => { el.disabled = true; });
