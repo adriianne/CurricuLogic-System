@@ -17,6 +17,15 @@
     white-space: nowrap;
 }
 
+/* The bot trap: off-screen rather than display:none, which simple bots skip. */
+.hp-wrap {
+    position: absolute;
+    left: -10000px;
+    top: auto;
+    width: 1px; height: 1px;
+    overflow: hidden;
+}
+
 
 /* ---- Wider form side: the page has the longest form, so it gets more room ---- */
 @media (min-width: 881px) {

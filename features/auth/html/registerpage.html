@@ -198,6 +198,12 @@
                 </div>
             </div>
 
+            <!-- Bot trap (shared/js/accounts/honeypot.js): kept off-screen, so a person never sees or fills it. -->
+            <div class="hp-wrap" aria-hidden="true">
+                <label for="contact-ref">Leave this field empty</label>
+                <input type="text" id="contact-ref" name="contact-ref" tabindex="-1" autocomplete="off" maxlength="100">
+            </div>
+
             <label class="consent">
                 <input type="checkbox" id="consent">
                 <span>
@@ -245,6 +251,7 @@
 <script src="../../../shared/js/accounts/namerules.js"></script>
 <script src="../../../shared/js/accounts/emailrules.js"></script>
 <script src="../../../shared/js/accounts/expectedstudents.js"></script>
+<script src="../../../shared/js/accounts/honeypot.js"></script>
 <script src="../../../shared/js/accounts/register.js"></script>
 <script src="../../../shared/js/app/gridglow.js"></script>
 </body>

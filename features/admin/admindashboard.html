@@ -46,14 +46,14 @@
             <a href="#staff" data-view="staff">
                 <i class="fa-solid fa-users" aria-hidden="true"></i> Staff management
             </a>
-            <a href="#programs" data-view="programs">
-                <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i> Programs
-            </a>
             <a href="#students" data-view="students">
                 <i class="fa-solid fa-user-graduate" aria-hidden="true"></i> Students
             </a>
             <a href="#edplist" data-view="edplist">
                 <i class="fa-solid fa-clipboard-list" aria-hidden="true"></i> EDP student list
+            </a>
+            <a href="#programs" data-view="programs">
+                <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i> Programs
             </a>
             <a href="#profile" data-view="profile">
                 <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
@@ -615,6 +615,7 @@
                                 <option value="approved">Approved</option>
                                 <option value="pending">Pending</option>
                                 <option value="declined">Declined</option>
+                                <option value="stopped">Stopped</option>
                             </select>
                         </div>
 
@@ -649,7 +650,7 @@
                     <div>
                         <strong>File format</strong>
                         <ul class="notice-list">
-                            <li><b>Columns:</b> <span class="mono">student_id, first_name, last_name, program_code, email</span>. All five are required.</li>
+                            <li><b>Columns:</b> <span class="mono">student_id, first_name, last_name, program_code, email</span> are required. <span class="mono">year_level</span> (1 to 4) is optional: give it for students who are not first-years, so the Registrar and Department can see who needs grades uploaded.</li>
                             <li><b>student_id</b> is 7 digits. <b>program_code</b> is the programme's code (for example BSIT).</li>
                             <li><b>email</b> is the address EDP has on file. A setup link will be sent there, not to what the student types.</li>
                             <li>A student ID that is already on the list is updated with the new details. Nobody is removed by an upload.</li>
@@ -683,6 +684,25 @@
 
                         <div id="edp-preview"></div>
 
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title">Create accounts from the list</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="field-hint" style="margin-top:0;">
+                            Creates a pre-approved account for each listed student who does not have one yet, and emails
+                            them a setup link at the address on the list. They choose their own password, and the
+                            Registrar does not need to approve them. Up to <span id="edp-batch-size">50</span> at a time,
+                            because the email sender has hourly limits; run it again for the rest.
+                        </p>
+                        <button class="btn-small" id="edp-find" style="margin-top:var(--s2);">
+                            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                            Check who needs an account
+                        </button>
+                        <div id="edp-create-preview"></div>
                     </div>
                 </section>
 
@@ -881,6 +901,7 @@
 <script src="../../shared/js/accounts/namerules.js"></script>
 <script src="../../shared/js/accounts/emailrules.js"></script>
 <script src="../../shared/js/accounts/expectedstudents.js"></script>
+<script src="../../shared/js/accounts/accountstop.js"></script>
 <script src="../../shared/js/accounts/passwordreset.js"></script>
 <script src="../../shared/js/app/forcepasswordchange.js"></script>
 <script src="../../shared/js/records/uploadlimits.js"></script>

@@ -739,22 +739,136 @@ function renderRequests() {
 
             ${matchesHtml(s)}
 
+            ${checklistHtml(s)}
+
             <div class="review-actions">
                 <button class="btn-accent" data-approve="${escapeHtml(s.id)}" ${CurriculogicExpectedStudents.statusBadge(EDP_STATUS[s.id]).block ? 'disabled title="Not on the EDP list"' : ''}>
                     <i class="fa-solid fa-check" aria-hidden="true"></i>
                     <span>Approve</span>
                 </button>
-                <button class="btn-danger" data-decline="${escapeHtml(s.id)}">
+                <button class="btn-danger" data-decline="${escapeHtml(s.id)}" aria-expanded="${reqUi(s.id).declining}">
                     <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                     <span>Decline</span>
                 </button>
             </div>
+
+            ${declinePanelHtml(s)}
         </article>`).join('');
 
-    body.querySelectorAll('[data-approve]').forEach(b =>
-        b.addEventListener('click', () => decide(b.dataset.approve, 'approved')));
-    body.querySelectorAll('[data-decline]').forEach(b =>
-        b.addEventListener('click', () => promptDecline(b.dataset.decline)));
+    // One handler for the whole queue, replaced on every draw, so redrawing never stacks listeners.
+    body.onclick = onRequestsClick;
+    body.oninput = onRequestsInput;
+}
+
+/* What is open on each request card, kept here so a redraw (the EDP badges arriving, the account matches
+   loading) never closes a decline box or clears what the Registrar was typing or ticking. */
+const REQ_UI = {};
+const reqUi = (id) => (REQ_UI[id] ??= { ticks: [false, false, false], declining: false, reason: '' });
+
+/* Three things to look at before approving. A reminder only: not saved, and Approve does not wait for them. */
+function checklistHtml(request) {
+    const ui = reqUi(request.id);
+    const items = CurriculogicRequestReview.checklist(request.declared_path);
+    return `
+        <fieldset class="review-check">
+            <legend>Before approving <span class="dim">(a reminder, not saved)</span></legend>
+            ${items.map((text, i) => `
+            <label class="review-check-item">
+                <input type="checkbox" data-tick="${escapeHtml(request.id)}" data-i="${i}" ${ui.ticks[i] ? 'checked' : ''}>
+                <span>${escapeHtml(text)}</span>
+            </label>`).join('')}
+        </fieldset>`;
+}
+
+/* The decline box, opened inside the card. The reason is saved and shown to the student. */
+function declinePanelHtml(request) {
+    const ui = reqUi(request.id);
+    if (!ui.declining) return '';
+    const id = escapeHtml(request.id);
+    const max = CurriculogicRequestReview.MAX_REASON;
+    return `
+        <div class="decline-panel">
+            <label for="dr-${id}" class="decline-label">Reason for declining <span class="dim">(the student sees this)</span></label>
+            <div class="decline-quick" role="group" aria-label="Common reasons">
+                ${CurriculogicRequestReview.QUICK_REASONS.map((q, i) =>
+                    `<button type="button" class="btn-small" data-quick="${id}" data-i="${i}">${escapeHtml(q.label)}</button>`).join('')}
+            </div>
+            <textarea id="dr-${id}" class="decline-text" data-reason="${id}" rows="3" maxlength="${max}"
+                      placeholder="Say what the student can do next.">${escapeHtml(ui.reason)}</textarea>
+            <p class="decline-meta"><span class="decline-count" data-count="${id}">${ui.reason.length}/${max}</span></p>
+            <p class="decline-error" data-error="${id}" role="alert" hidden></p>
+            <div class="review-actions">
+                <button class="btn-danger" data-decline-confirm="${id}">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                    <span>Confirm decline</span>
+                </button>
+                <button type="button" class="btn-small" data-decline-cancel="${id}">Cancel</button>
+            </div>
+        </div>`;
+}
+
+function onRequestsClick(e) {
+    const t = e.target;
+    const approve = t.closest('[data-approve]');
+    if (approve) return decide(approve.dataset.approve, 'approved');
+
+    const open = t.closest('[data-decline]');
+    if (open) {
+        const ui = reqUi(open.dataset.decline);
+        ui.declining = !ui.declining;
+        renderRequests();
+        if (ui.declining) $('dr-' + open.dataset.decline)?.focus();
+        return;
+    }
+
+    const quick = t.closest('[data-quick]');
+    if (quick) {
+        const id = quick.dataset.quick;
+        const ui = reqUi(id);
+        ui.reason = CurriculogicRequestReview.QUICK_REASONS[Number(quick.dataset.i)].text;
+        const box = $('dr-' + id);
+        if (box) { box.value = ui.reason; box.focus(); }
+        updateReasonCount(id);
+        return;
+    }
+
+    const cancel = t.closest('[data-decline-cancel]');
+    if (cancel) {
+        reqUi(cancel.dataset.declineCancel).declining = false;
+        return renderRequests();
+    }
+
+    const confirmBtn = t.closest('[data-decline-confirm]');
+    if (confirmBtn) return confirmDecline(confirmBtn.dataset.declineConfirm);
+}
+
+function onRequestsInput(e) {
+    const tick = e.target.closest('[data-tick]');
+    if (tick) { reqUi(tick.dataset.tick).ticks[Number(tick.dataset.i)] = tick.checked; return; }
+
+    const box = e.target.closest('[data-reason]');
+    if (box) { reqUi(box.dataset.reason).reason = box.value; updateReasonCount(box.dataset.reason); }
+}
+
+function updateReasonCount(id) {
+    const count = document.querySelector(`[data-count="${CSS.escape(id)}"]`);
+    if (count) count.textContent = `${reqUi(id).reason.length}/${CurriculogicRequestReview.MAX_REASON}`;
+    const err = document.querySelector(`[data-error="${CSS.escape(id)}"]`);
+    if (err) err.hidden = true;
+}
+
+/* Checked here, before saving, because the box has no way to refuse a reason the database would
+   (db/050); the problem is said inside the card, next to the box. */
+function confirmDecline(id) {
+    const reason = reqUi(id).reason;
+    const problem = CurriculogicRequestReview.reasonProblem(reason);
+    if (problem) {
+        const err = document.querySelector(`[data-error="${CSS.escape(id)}"]`);
+        if (err) { err.textContent = problem; err.hidden = false; }
+        return;
+    }
+    delete REQ_UI[id];
+    decide(id, 'declined', reason.trim());
 }
 
 /* The EDP list line of a request card: a badge, and for "not on the list" what to do about it. */
@@ -799,26 +913,7 @@ function matchesHtml(request) {
    An EXISTING student typed their own ID at registration, and it is approved
    as it stands. */
 
-function promptDecline(id) {
-    const student = STUDENTS.find(s => s.id === id);
-    const note = window.prompt(
-        `Decline the request from ${fullName(student) || 'this student'}?\n\n` +
-        'Give a reason. The student sees this, so make it actionable — ' +
-        'e.g. "Student ID not found in the official list; contact the ' +
-        'Registrar to confirm your number."');
-
-    if (note === null) return;                 // cancelled
-    if (!note.trim()) {
-        return showMsg('request-msg', 'A reason is required when declining.');
-    }
-    // The database refuses a longer reason (db/050); a prompt() box has no
-    // limit of its own, so it is checked here, before saving.
-    if (note.trim().length > 500) {
-        return showMsg('request-msg',
-            `That reason is ${note.trim().length} characters. Please keep it under 500.`);
-    }
-    decide(id, 'declined', note.trim());
-}
+/* Declining is done in the card itself (declinePanelHtml above), not in a browser pop-up. */
 
 async function decide(id, status, note = null) {
     // The queue's badge can be a moment old, so Approve asks again before saving.
@@ -892,6 +987,8 @@ async function decide(id, status, note = null) {
 
 function statusPill(s) {
     const status = s.approval_status ?? 'pending';
+    // Approved on paper but switched off: the Admin stopped this account (db/088).
+    if (status === 'approved' && s.is_approved === false) return '<span class="pill bad">Stopped</span>';
     if (status === 'approved') return '<span class="pill ok">Approved</span>';
     if (status === 'declined') return '<span class="pill bad">Declined</span>';
     return '<span class="pill waiting">Pending</span>';

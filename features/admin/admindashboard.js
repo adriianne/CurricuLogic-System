@@ -594,6 +594,169 @@ function renderSystemStatus() {
 }
 
 
+/* ---------- stop and restore an account (db/088) ----------
+   Stopping is reversible and erases nothing: the person cannot sign in or reach any data until the Admin
+   restores them. It covers students and faculty, registrar and department staff. The rules (what counts as
+   stopped, the reason limit, the wording) are in shared/js/accounts/accountstop.js. */
+
+let STOPPED = new Set();       // 'role:id' of every account the log says is stopped now
+let PREVIEW_STOP_LOG = [];     // preview only: the log kept in memory
+let ACCT_BUSY = false;         // an action is being saved
+// What is open on each row, kept so a redraw never closes the box or clears the typed reason.
+const ACCT_UI = {};            // 'role:id' -> { mode: 'stop' | 'restore' | null, reason: '' }
+const acctKey = (role, id) => `${role}:${id}`;
+const acctUi = (role, id) => (ACCT_UI[acctKey(role, id)] ??= { mode: null, reason: '' });
+
+async function loadStopLog() {
+    if (PREVIEW) { STOPPED = CurriculogicAccountStop.latestStops(PREVIEW_STOP_LOG); return; }
+    if (!supabase) return;
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+            .from('account_stop_log')
+            .select('role, target_id, action, seq')
+            .order('seq', { ascending: true })
+            .range(from, from + 999);
+        if (error) { console.warn('stop log load failed:', error.message); return; }
+        rows.push(...(data ?? []));
+        if ((data ?? []).length < 1000) break;
+    }
+    STOPPED = CurriculogicAccountStop.latestStops(rows);
+}
+
+/* The button at the end of a row: Stop for an active account, Restore for a stopped one, nothing otherwise. */
+function acctActionCell(role, row, state) {
+    const A = CurriculogicAccountStop;
+    const open = acctUi(role, row.id).mode;
+    if (A.canStop(state)) {
+        return `<button type="button" class="btn-small" data-acct="stop" data-role="${role}" data-id="${escapeHtml(row.id)}" aria-expanded="${open === 'stop'}">Stop</button>`;
+    }
+    if (A.canRestore(state)) {
+        return `<button type="button" class="btn-small" data-acct="restore" data-role="${role}" data-id="${escapeHtml(row.id)}" aria-expanded="${open === 'restore'}">Restore</button>`;
+    }
+    return '';
+}
+
+/* The row under an account that opens when Stop or Restore is chosen. */
+function acctPanelRow(role, row, state, colspan) {
+    const ui = acctUi(role, row.id);
+    if (!ui.mode) return '';
+    const A = CurriculogicAccountStop;
+    const id = escapeHtml(row.id);
+    const who = escapeHtml(fullName(row) || 'this account');
+
+    if (ui.mode === 'stop' && A.canStop(state)) {
+        return `
+        <tr class="acct-row"><td colspan="${colspan}">
+            <div class="decline-panel">
+                <label for="as-${id}" class="decline-label">Stop ${who}? <span class="dim">They cannot sign in or reach any data until you restore them. Nothing is deleted.</span></label>
+                <textarea id="as-${id}" class="decline-text" rows="2" maxlength="${A.REASON_MAX}" data-acct-reason="${role}" data-id="${id}"
+                          placeholder="Why is this account being stopped? (kept in its history)">${escapeHtml(ui.reason)}</textarea>
+                <p class="decline-meta"><span data-acct-count="${role}:${id}">${ui.reason.length}/${A.REASON_MAX}</span></p>
+                <p class="decline-error" data-acct-error="${role}:${id}" role="alert" hidden></p>
+                <div class="review-actions">
+                    <button type="button" class="btn-danger" data-acct-confirm="stop" data-role="${role}" data-id="${id}">Stop account</button>
+                    <button type="button" class="btn-small" data-acct-cancel="${role}" data-id="${id}">Cancel</button>
+                </div>
+            </div>
+        </td></tr>`;
+    }
+    if (ui.mode === 'restore' && A.canRestore(state)) {
+        return `
+        <tr class="acct-row"><td colspan="${colspan}">
+            <div class="decline-panel acct-restore">
+                <p class="decline-label">Restore ${who}? <span class="dim">They can sign in again and see everything they had before.</span></p>
+                <div class="review-actions">
+                    <button type="button" class="btn-accent" data-acct-confirm="restore" data-role="${role}" data-id="${id}">Restore account</button>
+                    <button type="button" class="btn-small" data-acct-cancel="${role}" data-id="${id}">Cancel</button>
+                </div>
+            </div>
+        </td></tr>`;
+    }
+    return '';
+}
+
+const acctRedraw = (role) => (role === 'student' ? renderStudents() : renderStaff());
+const acctMsgBox = (role) => (role === 'student' ? 'student-msg' : 'staff-msg');
+
+function onAcctClick(e) {
+    const open = e.target.closest('[data-acct]');
+    if (open) {
+        const { acct: mode, role, id } = open.dataset;
+        const ui = acctUi(role, id);
+        ui.mode = ui.mode === mode ? null : mode;
+        acctRedraw(role);
+        if (ui.mode === 'stop') document.getElementById('as-' + id)?.focus();
+        return;
+    }
+    const cancel = e.target.closest('[data-acct-cancel]');
+    if (cancel) {
+        acctUi(cancel.dataset.acctCancel, cancel.dataset.id).mode = null;
+        return acctRedraw(cancel.dataset.acctCancel);
+    }
+    const confirmBtn = e.target.closest('[data-acct-confirm]');
+    if (confirmBtn) return confirmAcct(confirmBtn.dataset.role, confirmBtn.dataset.id, confirmBtn.dataset.acctConfirm === 'stop');
+}
+
+function onAcctInput(e) {
+    const box = e.target.closest('[data-acct-reason]');
+    if (!box) return;
+    const { acctReason: role, id } = box.dataset;
+    acctUi(role, id).reason = box.value;
+    const count = document.querySelector(`[data-acct-count="${CSS.escape(role + ':' + id)}"]`);
+    if (count) count.textContent = `${box.value.length}/${CurriculogicAccountStop.REASON_MAX}`;
+    const err = document.querySelector(`[data-acct-error="${CSS.escape(role + ':' + id)}"]`);
+    if (err) err.hidden = true;
+}
+
+async function confirmAcct(role, id, stop) {
+    if (ACCT_BUSY) return;
+    const ui = acctUi(role, id);
+    const row = (role === 'student' ? STUDENTS : STAFF).find(r => r.id === id);
+    if (!row) return;
+
+    if (stop) {
+        const problem = CurriculogicAccountStop.reasonProblem(ui.reason);
+        if (problem) {
+            const err = document.querySelector(`[data-acct-error="${CSS.escape(role + ':' + id)}"]`);
+            if (err) { err.textContent = problem; err.hidden = false; }
+            return;
+        }
+    }
+
+    ACCT_BUSY = true;
+    const box = acctMsgBox(role);
+    try {
+        if (PREVIEW) {
+            const seq = PREVIEW_STOP_LOG.length + 1;
+            PREVIEW_STOP_LOG.push({ role, target_id: id, action: stop ? 'stop' : 'restore', seq });
+        } else {
+            const { error } = await supabase.rpc('set_account_stopped', {
+                p_role: role, p_target: id, p_stop: stop, p_reason: stop ? ui.reason.trim() : null,
+            });
+            if (error) { showMsg(box, error.message); return; }
+        }
+        row.is_approved = !stop;
+        delete ACCT_UI[acctKey(role, id)];
+        await loadStopLog();
+        showMsg(box, stop
+            ? `${fullName(row)} is stopped. They cannot sign in until you restore them.`
+            : `${fullName(row)} is restored and can sign in again.`, 'success');
+        acctRedraw(role);
+    } catch (err) {
+        console.error('stop/restore failed:', err);
+        showMsg(box, 'Could not save that. ' + err.message);
+    } finally {
+        ACCT_BUSY = false;
+    }
+}
+
+$('student-body')?.addEventListener('click', onAcctClick);
+$('student-body')?.addEventListener('input', onAcctInput);
+$('staff-body')?.addEventListener('click', onAcctClick);
+$('staff-body')?.addEventListener('input', onAcctInput);
+
+
 /* ---------- staff listing ---------- */
 
 function filteredStaff() {
@@ -678,22 +841,26 @@ function renderStaff() {
                         <th>Programme</th>
                         <th>Status</th>
                         <th>Created</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${shown.map(s => `
+                    ${shown.map(s => {
+                        const state = CurriculogicAccountStop.accountState(s.role, s, STOPPED);
+                        const badge = CurriculogicAccountStop.stateBadge(s.role, state);
+                        return `
                         <tr>
                             <td class="mono">${escapeHtml(s.employee_id || '—')}</td>
                             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
                             <td class="dim">${escapeHtml(s.email || '—')}</td>
                             <td>${ROLE_PILLS[s.role] || '—'}</td>
                             <td>${staffProgramCell(s)}</td>
-                            <td>${s.is_approved
-                                ? '<span class="pill ok">Active</span>'
-                                : '<span class="pill waiting">Pending</span>'}</td>
+                            <td><span class="pill ${badge.kind}">${escapeHtml(badge.label)}</span></td>
                             <td class="dim">${daysAgo(s.created_at)}</td>
+                            <td>${acctActionCell(s.role, s, state)}</td>
                         </tr>
-                    `).join('')}
+                        ${acctPanelRow(s.role, s, state, 8)}`;
+                    }).join('')}
                 </tbody>
             </table>
         </div>
@@ -834,7 +1001,9 @@ function filteredStudents() {
     const filter = $('student-filter')?.value || 'all';
 
     return STUDENTS.filter((s) => {
-        const status = s.approval_status || (s.is_approved ? 'approved' : 'pending');
+        // 'approved' now means active: a stopped student is approved on paper but has no access.
+        const state = CurriculogicAccountStop.accountState('student', s, STOPPED);
+        const status = state === 'active' ? 'approved' : state;
         if (filter !== 'all' && status !== filter) return false;
         if (!term) return true;
         return [s.first_name, s.last_name, s.student_id, s.email]
@@ -896,26 +1065,25 @@ function renderStudents() {
                         <th>Status</th>
                         <th>EDP list</th>
                         <th>Requested</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     ${shown.map(s => {
-                        const status = s.approval_status || (s.is_approved ? 'approved' : 'pending');
-                        const pill = status === 'approved'
-                            ? '<span class="pill ok">Approved</span>'
-                            : status === 'declined'
-                                ? '<span class="pill bad">Declined</span>'
-                                : '<span class="pill waiting">Pending</span>';
+                        const state = CurriculogicAccountStop.accountState('student', s, STOPPED);
+                        const badge = CurriculogicAccountStop.stateBadge('student', state);
                         return `
                         <tr>
                             <td class="mono">${escapeHtml(s.student_id || '—')}</td>
                             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
                             <td>${escapeHtml(PROGRAMS.find(p => p.id === s.program_id)?.code || '—')}</td>
                             <td class="dim">${escapeHtml(s.email || '—')}</td>
-                            <td>${pill}</td>
+                            <td><span class="pill ${badge.kind}">${escapeHtml(badge.label)}</span></td>
                             <td>${edpPill(s)}</td>
                             <td class="dim">${daysAgo(s.created_at)}</td>
-                        </tr>`;
+                            <td>${acctActionCell('student', s, state)}</td>
+                        </tr>
+                        ${acctPanelRow('student', s, state, 8)}`;
                     }).join('')}
                 </tbody>
             </table>
@@ -2407,6 +2575,9 @@ function initEdpList() {
         $('edp-template')?.addEventListener('click', downloadEdpTemplate);
         $('edp-search')?.addEventListener('input', () => { EDP_PAGE = 1; EDP_ARMED = null; renderEdpList(); });
         $('edp-body')?.addEventListener('click', onEdpBodyClick);
+        $('edp-find')?.addEventListener('click', findEdpAccountsToCreate);
+        $('edp-create-preview')?.addEventListener('click', onEdpCreateClick);
+        setText('edp-batch-size', String(EDP_CREATE_BATCH));
     }
     loadEdpList();
 }
@@ -2425,7 +2596,7 @@ async function loadEdpList() {
     for (let from = 0; ; from += 1000) {
         const { data, error } = await supabase
             .from('expected_student')
-            .select('student_id, first_name, last_name, program_id, email, updated_at')
+            .select('student_id, first_name, last_name, program_id, email, year_level, updated_at')
             .order('student_id')
             .range(from, from + 999);
         if (error) {
@@ -2484,6 +2655,7 @@ function renderEdpList() {
                         <th>Student ID</th>
                         <th>Name</th>
                         <th>Programme</th>
+                        <th>Year</th>
                         <th>Email on file</th>
                         <th>Account</th>
                         <th></th>
@@ -2495,6 +2667,7 @@ function renderEdpList() {
                         <td class="mono">${escapeHtml(s.student_id)}</td>
                         <td><strong>${escapeHtml(fullName(s))}</strong></td>
                         <td>${escapeHtml(s.program_code || '—')}</td>
+                        <td>${s.year_level ? escapeHtml(String(s.year_level)) : '<span class="dim">—</span>'}</td>
                         <td class="dim">${escapeHtml(s.email)}</td>
                         <td>${registered.has(s.student_id) ? '<span class="pill ok">Registered</span>' : '<span class="pill waiting">Not yet</span>'}</td>
                         <td>
@@ -2546,9 +2719,9 @@ async function onEdpBodyClick(e) {
 
 function downloadEdpTemplate() {
     const code = PROGRAMS[0]?.code ?? '';
-    const rows = [{ student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva', program_code: code, email: 'althea.villanueva@uc.edu.ph' }];
+    const rows = [{ student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva', program_code: code, email: 'althea.villanueva@uc.edu.ph', year_level: '2' }];
     const ws = XLSX.utils.json_to_sheet(rows, { header: CurriculogicExpectedStudents.COLUMNS });
-    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 32 }];
+    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 32 }, { wch: 12 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'EDP list');
     XLSX.writeFile(wb, 'edp-student-list-template.xlsx');
@@ -2705,7 +2878,7 @@ async function commitEdpList() {
     const now = new Date().toISOString();
     const records = EDP_OK.map(r => ({
         student_id: r.studentId, first_name: r.first, last_name: r.last,
-        program_id: r.programId, email: r.email, updated_at: now,
+        program_id: r.programId, email: r.email, year_level: r.yearLevel, updated_at: now,
     }));
 
     try {
@@ -2742,6 +2915,198 @@ async function commitEdpList() {
 }
 
 
+/* ---- create accounts from the list ----
+   A listed student gets a pre-approved account (create_user_account, the same path as the bulk upload) and
+   a setup link at the address EDP has on file. Opening that link and choosing a password is what proves
+   the person is the student, so the Registrar's approval is not needed for them. Self-registration stays,
+   for everyone who is not on the list. At most EDP_CREATE_BATCH accounts a go: the email sender has hourly
+   and daily limits, and a second click picks up the rest. */
+
+const EDP_CREATE_BATCH = 50;
+let EDP_TODO = null;           // { create, skipped, later } from the last check
+let EDP_CREATE_ARMED = false;  // the create button is waiting for its second click
+
+/* Which of these students already have an account, by student ID or by email. Asked of the database, not
+   of the Students list on screen, which may not hold everyone. */
+async function findTakenAccounts(rows) {
+    const ids = new Set(), emails = new Set();
+    if (PREVIEW) {
+        STUDENTS.forEach(s => { if (s.student_id) ids.add(s.student_id); if (s.email) emails.add(s.email.toLowerCase()); });
+        return { ids, emails };
+    }
+    for (let i = 0; i < rows.length; i += 200) {
+        const chunk = rows.slice(i, i + 200);
+        const [byId, byEmail] = await Promise.all([
+            supabase.from('university_student').select('student_id').in('student_id', chunk.map(r => r.student_id)),
+            supabase.from('university_student').select('email').in('email', chunk.map(r => r.email.toLowerCase())),
+        ]);
+        if (byId.error) throw new Error(byId.error.message);
+        if (byEmail.error) throw new Error(byEmail.error.message);
+        byId.data.forEach(r => ids.add(r.student_id));
+        byEmail.data.forEach(r => emails.add(String(r.email).toLowerCase()));
+    }
+    return { ids, emails };
+}
+
+async function findEdpAccountsToCreate() {
+    const box = $('edp-create-preview');
+    if (!box) return;
+    EDP_CREATE_ARMED = false;
+    showMsg('edp-msg', '');
+    if (EDP.length === 0) { box.innerHTML = ''; return showMsg('edp-msg', 'The list is empty. Upload the EDP file first.'); }
+
+    box.innerHTML = '<p class="dim" style="margin-top:var(--s2);">Checking…</p>';
+    try {
+        const taken = await findTakenAccounts(EDP);
+        EDP_TODO = CurriculogicExpectedStudents.accountCandidates(EDP, taken.ids, taken.emails, EDP_CREATE_BATCH);
+    } catch (err) {
+        console.error('EDP account check failed:', err);
+        box.innerHTML = '';
+        return showMsg('edp-msg', 'Could not check the existing accounts. ' + err.message);
+    }
+    renderEdpCreatePreview();
+}
+
+function renderEdpCreatePreview() {
+    const box = $('edp-create-preview');
+    if (!box || !EDP_TODO) return;
+    const { create, skipped, later } = EDP_TODO;
+
+    let html = `
+        <div class="notice ${create.length ? 'info' : 'pending'}" style="margin-top:var(--s2);">
+            <i class="fa-solid ${create.length ? 'fa-circle-info' : 'fa-circle-check'}" aria-hidden="true"></i>
+            <div>
+                <strong>${create.length
+                    ? `${plural(create.length, 'account')} can be created now`
+                    : 'Nobody on the list needs an account'}</strong>
+                <span class="dim">${skipped.length ? ` · ${skipped.length} skipped (already have one)` : ''}${later ? ` · ${later} more after this batch` : ''}</span>
+            </div>
+        </div>`;
+
+    if (create.length) {
+        html += `
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Student ID</th><th>Name</th><th>Programme</th><th>Year</th><th>Setup link goes to</th></tr></thead>
+                    <tbody>${create.slice(0, 10).map(r => `
+                        <tr>
+                            <td class="mono">${escapeHtml(r.student_id)}</td>
+                            <td>${escapeHtml(fullName(r))}</td>
+                            <td>${escapeHtml(r.program_code || '—')}</td>
+                            <td>${r.year_level ? escapeHtml(String(r.year_level)) : '<span class="dim">—</span>'}</td>
+                            <td class="dim">${escapeHtml(r.email)}</td>
+                        </tr>`).join('')}</tbody>
+                </table>
+                ${create.length > 10 ? `<p class="dim" style="margin-top:var(--s2);">and ${create.length - 10} more</p>` : ''}
+            </div>
+            <button class="btn-accent" id="edp-create" style="margin-top:var(--s3);">
+                <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
+                <span>${EDP_CREATE_ARMED
+                    ? `Click again to create ${plural(create.length, 'account')} and send ${plural(create.length, 'email')}`
+                    : `Create ${plural(create.length, 'account')} and email the setup links`}</span>
+            </button>`;
+    }
+    box.innerHTML = html;
+}
+
+async function onEdpCreateClick(e) {
+    if (!e.target.closest('#edp-create')) return;
+    // Creating accounts and sending email cannot be taken back, so it takes a second click.
+    if (!EDP_CREATE_ARMED) { EDP_CREATE_ARMED = true; return renderEdpCreatePreview(); }
+    EDP_CREATE_ARMED = false;
+    await createEdpAccounts();
+}
+
+async function createEdpAccounts() {
+    const todo = EDP_TODO?.create ?? [];
+    if (todo.length === 0) return;
+    const btn = $('edp-create');
+    if (btn) btn.disabled = true;
+
+    const dep = resolveDepartment('student', '');
+    const total = todo.length;
+    const t = window.UploadProgress.tracker([
+        { id: 'create', weight: 55, label: 'Creating accounts' },
+        { id: 'email',  weight: 40, label: 'Emailing setup links' },
+        { id: 'history', weight: 5, label: 'Saving the history' },
+    ]);
+    edpProgress(t.update('create', 0, `0 of ${total}`));
+    await yieldToUi();
+
+    const success = [], failed = [];
+    for (const [i, row] of todo.entries()) {
+        edpProgress(t.update('create', window.UploadProgress.fraction(i, total), `${i} of ${total}`));
+        if (PREVIEW) { await new Promise(r => setTimeout(r, 80)); success.push(row); continue; }
+        try {
+            const { error } = await supabase.rpc('create_user_account', {
+                p_first_name: row.first_name,
+                p_last_name: row.last_name,
+                p_email: row.email,
+                p_password: null,                       // a random one nobody sees; they choose their own
+                p_role: 'student',
+                p_student_id: row.student_id,
+                p_department: dep.value ?? '',
+                p_year_level: row.year_level ? String(row.year_level) : null,
+                p_program_code: row.program_code,
+                p_declared_path: 'existing',
+            });
+            if (error) failed.push({ ...row, why: error.message }); else success.push(row);
+        } catch (err) {
+            failed.push({ ...row, why: err.message });
+        }
+    }
+    edpProgress(t.update('create', 1, `${total} of ${total}`));
+
+    // One setup link per account. A failed email never undoes an account: the person can ask for the link
+    // again with "Forgot password". When the sender says its limit is reached the rest are marked and skipped.
+    const redirectTo = CurriculogicPasswordReset.setPasswordUrl(window.location.href);
+    let stopped = null;
+    for (const [i, row] of success.entries()) {
+        edpProgress(t.update('email', window.UploadProgress.fraction(i, success.length), `${i} of ${success.length}`));
+        if (stopped) { row.mail = { ok: false, message: stopped }; continue; }
+        row.mail = PREVIEW ? { ok: true } : await CurriculogicPasswordReset.sendSetupLink(supabase, row.email, redirectTo);
+        if (!row.mail.ok && /Too many emails|check the email settings/.test(row.mail.message)) stopped = row.mail.message;
+        if (!PREVIEW) await new Promise(r => setTimeout(r, 700));
+    }
+    edpProgress(t.update('email', 1, `${success.length} of ${success.length}`));
+    const mailed = success.filter(r => r.mail?.ok).length;
+    const notMailed = success.length - mailed;
+
+    edpProgress(t.update('history', 0));
+    await saveBulkHistory('EDP list: create accounts', success.length, failed.length);
+
+    edpStatus(failed.length ? 'wait' : 'done',
+        failed.length ? `Created ${success.length} of ${total}, ${failed.length} failed` : `Created ${plural(success.length, 'account')}`,
+        t.finish().percent);
+
+    // What happened, and what to do about anything that did not work.
+    const box = $('edp-create-preview');
+    if (box) {
+        box.innerHTML = `
+            <div class="notice ${failed.length || notMailed ? 'pending' : 'success'}" style="margin-top:var(--s2);">
+                <i class="fa-solid ${failed.length || notMailed ? 'fa-triangle-exclamation' : 'fa-circle-check'}" aria-hidden="true"></i>
+                <div>
+                    <strong>${plural(success.length, 'account')} created, ${mailed} emailed${failed.length ? `, ${failed.length} failed` : ''}</strong>
+                    ${notMailed ? `<div>${plural(notMailed, 'person')} did not get the email${stopped ? ` (${escapeHtml(stopped)})` : ''}. They can use "Forgot password" on the sign-in page to get a link.</div>` : ''}
+                </div>
+            </div>
+            ${failed.length ? `
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Student ID</th><th>Name</th><th>Reason</th></tr></thead>
+                    <tbody>${failed.slice(0, 10).map(f => `
+                        <tr><td class="mono">${escapeHtml(f.student_id)}</td><td>${escapeHtml(fullName(f))}</td><td>${escapeHtml(f.why)}</td></tr>`).join('')}</tbody>
+                </table>
+                ${failed.length > 10 ? `<p class="dim" style="margin-top:var(--s2);">and ${failed.length - 10} more</p>` : ''}
+            </div>` : ''}`;
+    }
+    EDP_TODO = null;
+    forgetStudentEdp();
+    showMsg('edp-msg', `${plural(success.length, 'account')} created from the list.`, 'success');
+    if (!PREVIEW) { await loadStudents(); renderEdpList(); } else renderEdpList();
+}
+
+
 /* ---------- boot ---------- */
 
 (async function init() {
@@ -2755,6 +3120,8 @@ async function commitEdpList() {
         await loadStaff();
         await loadStudents();
         await loadTermConfig();
+        await loadStopLog();
+        renderStudents(); renderStaff();
         renderSystemStatus();
         initBulkUpload();
         route();
@@ -2800,6 +3167,8 @@ async function commitEdpList() {
     await loadStaff();
     await loadStudents();
     await loadTermConfig();
+    await loadStopLog();
+    renderStudents(); renderStaff();
     renderSystemStatus();
     initBulkUpload();
 
