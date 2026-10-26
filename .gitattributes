@@ -1,0 +1,4 @@
+# The spreadsheet library is checked by hash (tests/externalscripts.test.mjs, and the integrity rules in the
+# pages). On Windows, core.autocrlf=true would turn its line endings into CRLF on a fresh clone and change
+# the hash, so git must never touch the bytes of the vendored files.
+shared/js/vendor/* -text
