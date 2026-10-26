@@ -2943,6 +2943,7 @@ function printEnrollmentSheet(requestId) {
         college: window.CurriculogicPrograms?.collegeOf(STUDENT?.program_id, '') ?? '',
         yearLevel: Number(STUDENT?.year_level) || null,
         term: { number: request.requested_term, year: request.requested_year },
+        ref: window.CurriculogicRequestRef?.format(request.id, request.created_at) ?? '',
     }));
     w.document.close();
     w.onload = () => { w.focus(); w.print(); };
@@ -3119,10 +3120,11 @@ async function loadRequestHistory() {
         }).join('');
 
         const meta = [
+            window.CurriculogicRequestRef?.format(r.id, r.created_at) || null,
             `Submitted ${longDate(r.created_at)}`,
             `${kept.length} subject${kept.length === 1 ? '' : 's'}`,
             `${units} unit${units === 1 ? '' : 's'}`,
-        ].join(' \u00b7 ');
+        ].filter(Boolean).join(' \u00b7 ');
 
         return `
         <details class="req-card" data-req-id="${r.id}" ${index === 0 ? 'open' : ''}>

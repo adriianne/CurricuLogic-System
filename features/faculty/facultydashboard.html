@@ -399,11 +399,20 @@
                             <span class="card-title">Pending review</span>
                             <span class="card-note" id="req-queue-count"></span>
                         </div>
-                        <div class="card-body" id="req-queue">
-                            <div class="empty">
-                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                                <h3>Loading</h3>
-                                <p>Fetching requests.</p>
+                        <div class="card-body">
+                            <div class="toolbar" id="req-toolbar" hidden>
+                                <div class="search-wrap">
+                                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                    <input type="search" id="req-search" placeholder="Search name, student ID or reference"
+                                           autocomplete="off" aria-label="Search advising requests" maxlength="100">
+                                </div>
+                            </div>
+                            <div id="req-queue">
+                                <div class="empty">
+                                    <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                    <h3>Loading</h3>
+                                    <p>Fetching requests.</p>
+                                </div>
                             </div>
                         </div>
                     </section>
@@ -592,6 +601,7 @@
 <script src="../../shared/js/records/studentlist.js"></script>
 <script src="../../shared/js/curriculum/prospectusgrid.js"></script>
 <script src="../../shared/js/curriculum/curriculumprint.js"></script>
+<script src="../../shared/js/enrolment/requestref.js"></script>
 <script src="../../shared/js/enrolment/advisingslip.js"></script>
 <script src="../../shared/js/accounts/passwordrules.js"></script>
 <script src="../../shared/js/app/forcepasswordchange.js"></script>

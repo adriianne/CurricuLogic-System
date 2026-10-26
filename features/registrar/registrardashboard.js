@@ -1889,11 +1889,14 @@ function filteredPlans() {
     const q = ($('adv-search')?.value || '').trim().toLowerCase();
     const termSel = $('adv-term')?.value || 'all';
     const statusSel = $('adv-status')?.value || 'all';
+    // Text like "CL-2026-000021" finds that plan; a bare number stays a student-ID search.
+    const refId = CurriculogicRequestRef.fromSearch(q);
 
     const list = ADV_PLANS.filter((r) => {
         if (termSel !== 'all' && planTermKey(r) !== termSel) return false;
         if (statusSel === 'approved' && r.status !== 'approved') return false;
         if (statusSel === 'partial' && r.status !== 'partially_approved') return false;
+        if (refId !== null) return Number(r.id) === refId;
         if (q && !`${fullName(r.student)} ${r.student?.student_id ?? ''}`.toLowerCase().includes(q)) return false;
         return true;
     });
@@ -1901,6 +1904,7 @@ function filteredPlans() {
     const dir = ADV_SORT.dir === 'asc' ? 1 : -1;
     const val = {
         id:    (r) => String(r.student?.student_id ?? ''),
+        ref:   (r) => Number(r.id),
         name:  (r) => fullName(r.student).toLowerCase(),
         term:  (r) => `${r.requested_year ?? 0}-${r.requested_term ?? 0}`,
         units: (r) => planFacts(r).units,
@@ -1974,7 +1978,7 @@ function renderAdvisingList() {
             <table class="data-table">
                 <thead>
                     <tr>
-                        ${th('id', 'Student ID')}${th('name', 'Name')}${th('term', 'Term')}
+                        ${th('id', 'Student ID')}${th('ref', 'Reference')}${th('name', 'Name')}${th('term', 'Term')}
                         <th class="num">Subjects</th>${th('units', 'Units', 'num')}
                         <th>Status</th>${th('date', 'Submitted')}
                         <th></th>
@@ -1986,6 +1990,7 @@ function renderAdvisingList() {
                     return `
                     <tr class="row-link" data-view-plan="${escapeHtml(r.id)}" tabindex="0" role="link">
                         <td class="mono">${escapeHtml(r.student?.student_id || '—')}</td>
+                        <td class="mono">${escapeHtml(CurriculogicRequestRef.format(r.id, r.created_at) || '—')}</td>
                         <td><strong>${escapeHtml(fullName(r.student) || '—')}</strong></td>
                         <td>${escapeHtml(termLbl)}</td>
                         <td class="num">${f.approved} of ${f.total}</td>
@@ -2141,6 +2146,7 @@ async function loadAdvisingDetail(requestId) {
 
     const subParts = [
         req.student?.student_id || 'No ID',
+        CurriculogicRequestRef.format(req.id, req.created_at) || null,
         ordinal(req.student?.year_level) || 'Year not set',
         [termLabel(req.requested_term), req.requested_year].filter(Boolean).join(' ') || null,
         `submitted ${new Date(req.created_at).toLocaleDateString()}`,
