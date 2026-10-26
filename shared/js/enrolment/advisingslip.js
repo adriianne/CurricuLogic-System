@@ -125,7 +125,7 @@ function semesterRows({ subjects, rules, records, yearLevel, term, approvedIds, 
 }
 
 function slipHtml(data) {
-    const { student, subjects, rules, records, term, adviser, program, approvedIds, approvalNotes } = data;
+    const { student, subjects, rules, records, term, adviser, program, approvedIds, approvalNotes, ref } = data;
     const name = [student.first_name, student.last_name].filter(Boolean).join(' ');
     const year = Number(student.year_level) || null;
 
@@ -228,7 +228,8 @@ function slipHtml(data) {
   </div>
   <div class="doc">
     <h1>Enrolment Advising Slip</h1>
-    <p>${esc(termLabel)}</p>
+    <p>${esc(termLabel)}</p>${ref ? `
+    <p>Ref. <strong>${esc(ref)}</strong></p>` : ''}
   </div>
 </div>
 
@@ -292,7 +293,7 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
     const { data: req, error } = await supabase
         .from('request')
         .select(`
-            id, status, registrar_status, requested_term, requested_year,
+            id, status, registrar_status, requested_term, requested_year, created_at,
             student:student_id (id, first_name, last_name, student_id, year_level, program_id, prospectus_id),
             request_item (status, subject_id, remarks)
         `)
@@ -359,6 +360,7 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
         approvedIds,
         approvalNotes,
         term: { number: req.requested_term, year: req.requested_year },
+        ref: window.CurriculogicRequestRef?.format(req.id, req.created_at) ?? '',
         adviser: review?.faculty ? name(review.faculty) : 'Faculty adviser',
         program: {
             name: helpers.programName ? helpers.programName(req.student) : (programs?.nameOf(req.student.program_id, '') ?? ''),

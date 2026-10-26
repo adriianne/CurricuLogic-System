@@ -8,7 +8,7 @@
 // Pure functions: building the rows, plain text for sharing, and a full HTML page for printing.
 //
 //   const sheet = EnrollmentSheet.build({ items: [{ code, title, units, section, backups }] });
-//   EnrollmentSheet.html(sheet, { student, program, college, yearLevel, term })      // a printable page, in the look of the printed curriculum
+//   EnrollmentSheet.html(sheet, { student, program, college, yearLevel, term, ref })      // a printable page, in the look of the printed curriculum (ref = the request reference, optional)
 //   EnrollmentSheet.text(sheet, { student, program, term })      // for a share sheet or a message
 //
 // A "section" is what ScheduleConflicts.groupSections returns: { section, meetings: [offering rows] }.
@@ -136,6 +136,7 @@ function html(sheet, info = {}) {
   .head { display: flex; align-items: flex-end; gap: 12px; border-bottom: 2px solid var(--bar); padding-bottom: 8px; margin-bottom: 10px; }
   .head .org { font-size: 15px; font-weight: 700; line-height: 1.2; }
   .head .org small { display: block; font-size: 11px; font-weight: 400; color: #444; }
+  .head .ref { margin-left: auto; font-size: 11px; color: #444; white-space: nowrap; }
   h1 { font-size: 13px; margin: 0 0 8px; padding: 3px 0; text-align: center; color: #fff; background: var(--bar); letter-spacing: .08em; text-transform: uppercase; }
   .meta { color: #333; margin-bottom: 12px; }
   table { border-collapse: collapse; width: 100%; }
@@ -150,7 +151,7 @@ function html(sheet, info = {}) {
   .foot { margin-top: 10px; color: #666; font-size: 11px; }
   @media print { body { margin: 0; } }
 </style></head><body>
-<div class="head">${brand}<div class="org">${esc(info.college || 'University of Cebu')}${info.program ? `<small>${esc(info.program)}</small>` : ''}</div></div>
+<div class="head">${brand}<div class="org">${esc(info.college || 'University of Cebu')}${info.program ? `<small>${esc(info.program)}</small>` : ''}</div>${info.ref ? `<div class="ref">Ref. <strong>${esc(info.ref)}</strong></div>` : ''}</div>
 <h1>Enrolment sheet</h1>
 <div class="meta">${esc(who)}${who && prog ? '<br>' : ''}${esc(prog)}</div>
 <table>

@@ -242,3 +242,17 @@ describe('the adviser note on an approved subject', () => {
         assert.doesNotMatch(h, /class="note"/);
     });
 });
+
+describe('the request reference on the printed slip', () => {
+    const base = {
+        student: { first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', year_level: 2 },
+        subjects, rules: [], records: [], term: current, adviser: 'Rhea Lumactod',
+        program: { name: 'BS Information Technology', code: 'BSIT', college: 'College of Computer Studies' },
+    };
+    test('is printed under the term when given', () => {
+        assert.match(Slip.html({ ...base, ref: 'CL-2026-000021' }), /Ref\. <strong>CL-2026-000021<\/strong>/);
+    });
+    test('is left out when there is none', () => {
+        assert.ok(!Slip.html(base).includes('Ref.'));
+    });
+});

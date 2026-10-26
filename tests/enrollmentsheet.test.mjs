@@ -95,3 +95,15 @@ describe('text and html', () => {
         assert.ok(!h.includes('<script>alert'));
     });
 });
+
+describe('the request reference on the printed sheet', () => {
+    const sheet = S.build({ items: [] });
+    test('is printed in the header when given, escaped', () => {
+        const h = S.html(sheet, { ref: 'CL-2026-000021' });
+        assert.match(h, /Ref\. <strong>CL-2026-000021<\/strong>/);
+        assert.ok(!S.html(sheet, { ref: '<b>x</b>' }).includes('<b>x</b>'));
+    });
+    test('is left out when there is none', () => {
+        assert.ok(!S.html(sheet, {}).includes('Ref.'));
+    });
+});
