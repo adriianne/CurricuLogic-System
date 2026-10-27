@@ -60,4 +60,112 @@ function interpretAssessment(status, body) {
     return { ok: true, summary: body.summary };
 }
 
-module.exports = { interpretAssessment, NOT_READY, TRY_AGAIN };
+// WISHES
+// A student can tell Cura what they want from a plan ("mornings only, no Friday, light load, keep MATH 101").
+// Cura only WRITES the wish down as the fields below; it never picks subjects or sections. The model's
+// answer is not trusted: cleanWishes() keeps only what is well formed, clamps units to the student's own
+// limit, and accepts only subject codes that really are in this student's summary. Whatever it drops is
+// returned in "ignored" with a plain reason, so nothing disappears silently.
+//
+//   cleanWishes(raw, summary)
+//     raw      the "wishes" object the model returned (anything at all, including null)
+//     summary  the server-built summary (recommended, leftOutForClash, unitLimit)
+//   -> { wishes, ignored }
+//      wishes   null when nothing usable was asked, else
+//               { earliestStart: 'HH:MM'|null, latestEnd: 'HH:MM'|null, avoidDays: ['MON'..'SUN'],
+//                 maxUnits: integer|null, keepSubjects: [exact codes from the summary] }
+//      ignored  [{ field, value, why }]
+
+const DAYS = {
+    MON: 'MON', MONDAY: 'MON', TUE: 'TUE', TUES: 'TUE', TUESDAY: 'TUE',
+    WED: 'WED', WEDNESDAY: 'WED', THU: 'THU', THUR: 'THU', THURS: 'THU', THURSDAY: 'THU',
+    FRI: 'FRI', FRIDAY: 'FRI', SAT: 'SAT', SATURDAY: 'SAT', SUN: 'SUN', SUNDAY: 'SUN',
+};
+
+const MAX_KEEP = 12;
+
+function cleanTime(value) {
+    if (typeof value !== 'string') return null;
+    const m = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (h > 23 || min > 59) return null;
+    return `${String(h).padStart(2, '0')}:${m[2]}`;
+}
+
+// "MATH 101", "math-101" and "MATH101" are the same subject.
+const looseCode = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+function cleanWishes(raw, summary) {
+    const ignored = [];
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { wishes: null, ignored };
+
+    let earliestStart = null;
+    let latestEnd = null;
+    if (raw.earliestStart != null) {
+        earliestStart = cleanTime(raw.earliestStart);
+        if (!earliestStart) ignored.push({ field: 'earliestStart', value: raw.earliestStart, why: 'That is not a time of day.' });
+    }
+    if (raw.latestEnd != null) {
+        latestEnd = cleanTime(raw.latestEnd);
+        if (!latestEnd) ignored.push({ field: 'latestEnd', value: raw.latestEnd, why: 'That is not a time of day.' });
+    }
+    if (earliestStart && latestEnd && earliestStart >= latestEnd) {
+        ignored.push({ field: 'earliestStart', value: earliestStart, why: 'The earliest start is not before the latest end.' });
+        ignored.push({ field: 'latestEnd', value: latestEnd, why: 'The earliest start is not before the latest end.' });
+        earliestStart = null;
+        latestEnd = null;
+    }
+
+    const avoidDays = [];
+    for (const d of Array.isArray(raw.avoidDays) ? raw.avoidDays : []) {
+        const day = typeof d === 'string' ? DAYS[d.trim().toUpperCase()] : undefined;
+        if (!day) ignored.push({ field: 'avoidDays', value: d, why: 'That is not a day of the week.' });
+        else if (!avoidDays.includes(day)) avoidDays.push(day);
+    }
+
+    // Avoiding every school day leaves no day to hold a class: that is not a wish a plan can follow.
+    if (['MON', 'TUE', 'WED', 'THU', 'FRI'].every(d => avoidDays.includes(d))) {
+        for (const d of avoidDays) ignored.push({ field: 'avoidDays', value: d, why: 'Avoiding every weekday leaves no day for classes.' });
+        avoidDays.length = 0;
+    }
+
+    let maxUnits = null;
+    if (raw.maxUnits != null) {
+        const n = Number(raw.maxUnits);
+        const limit = Number(summary?.unitLimit);
+        if (!Number.isFinite(n) || n < 1) {
+            ignored.push({ field: 'maxUnits', value: raw.maxUnits, why: 'That is not a number of units.' });
+        } else {
+            maxUnits = Math.floor(n);
+            if (Number.isFinite(limit) && limit > 0 && maxUnits > limit) {
+                ignored.push({ field: 'maxUnits', value: raw.maxUnits, why: `Your limit this term is ${limit} units, so ${limit} is used.` });
+                maxUnits = limit;
+            }
+        }
+    }
+
+    // Only subjects this student can actually take (suggested, or eligible but left out for a clash).
+    const known = new Map();
+    for (const s of [...(summary?.recommended ?? []), ...(summary?.leftOutForClash ?? [])]) {
+        if (s && typeof s.code === 'string') known.set(looseCode(s.code), s.code);
+    }
+    const keepSubjects = [];
+    for (const c of Array.isArray(raw.keepSubjects) ? raw.keepSubjects : []) {
+        const exact = typeof c === 'string' ? known.get(looseCode(c)) : undefined;
+        if (!exact) ignored.push({ field: 'keepSubjects', value: c, why: 'That is not one of the subjects you can take this term.' });
+        else if (!keepSubjects.includes(exact)) {
+            if (keepSubjects.length >= MAX_KEEP) ignored.push({ field: 'keepSubjects', value: c, why: `At most ${MAX_KEEP} subjects can be kept.` });
+            else keepSubjects.push(exact);
+        }
+    }
+
+    const any = earliestStart || latestEnd || avoidDays.length || maxUnits !== null || keepSubjects.length;
+    return {
+        wishes: any ? { earliestStart, latestEnd, avoidDays, maxUnits, keepSubjects } : null,
+        ignored,
+    };
+}
+
+module.exports = { interpretAssessment, cleanWishes, NOT_READY, TRY_AGAIN };
