@@ -762,6 +762,8 @@ async function enrichStudentRows(rows, seq) {
     }
 }
 
+$('req-search')?.addEventListener('input', () => renderRequestQueue());
+
 let searchTimer = null;
 $('student-search')?.addEventListener('input', (e) => {
     clearTimeout(searchTimer);
@@ -1456,15 +1458,43 @@ async function loadRequestQueue() {
         return;
     }
 
-    const list = requests ?? [];
-    if (countEl) countEl.textContent = list.length ? `${list.length} pending` : '';
+    REQ_PENDING = requests ?? [];
+    renderRequestQueue();
+}
+
+/* The pending requests, narrowed by the search box. Text like "CL-2026-000021" finds that request; a bare
+   number stays a student-ID search. */
+let REQ_PENDING = [];
+function renderRequestQueue() {
+    const queue   = $('req-queue');
+    const countEl = $('req-queue-count');
+    if (!queue) return;
+
+    const q = ($('req-search')?.value || '').trim().toLowerCase();
+    const refId = window.CurriculogicRequestRef?.fromSearch(q) ?? null;
+    const list = REQ_PENDING.filter(req => {
+        if (refId !== null) return Number(req.id) === refId;
+        return !q || `${fullName(req.student)} ${req.student?.student_id ?? ''}`.toLowerCase().includes(q);
+    });
+    if (countEl) {
+        countEl.textContent = !REQ_PENDING.length ? ''
+            : list.length === REQ_PENDING.length ? `${list.length} pending`
+            : `${list.length} of ${REQ_PENDING.length} pending`;
+    }
+    const bar = $('req-toolbar');
+    if (bar) bar.hidden = REQ_PENDING.length === 0;
 
     if (!list.length) {
-        queue.innerHTML = `
-            <div class="empty">
+        queue.innerHTML = REQ_PENDING.length === 0
+            ? `<div class="empty">
                 <i class="fa-solid fa-inbox" aria-hidden="true"></i>
                 <h3>Nothing pending</h3>
                 <p>No submitted requests from your advisees right now.</p>
+            </div>`
+            : `<div class="empty">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <h3>No matches</h3>
+                <p>No pending request matches that search.</p>
             </div>`;
         return;
     }
@@ -1484,6 +1514,7 @@ async function loadRequestQueue() {
                 <div class="req-summary-name">
                     <strong>${escapeHtml(fullName(req.student))}</strong>
                     <span class="mono">${escapeHtml(req.student?.student_id ?? '')}</span>
+                    <span class="mono dim">${escapeHtml(window.CurriculogicRequestRef?.format(req.id, req.created_at) ?? '')}</span>
                 </div>
                 <p class="req-summary-meta">
                     ${items.length} subject${items.length === 1 ? '' : 's'}
@@ -1575,6 +1606,7 @@ async function loadRequestDetail(requestId) {
     // exist for a given request.
     const subParts = [
         req.student?.student_id || 'No ID',
+        window.CurriculogicRequestRef?.format(req.id, req.created_at) || null,
         ordinal(req.student?.year_level) || 'Year not set',
         [termLabel(req.requested_term), req.requested_year].filter(Boolean).join(' ') || null,
         `submitted ${new Date(req.created_at).toLocaleDateString()}`,
