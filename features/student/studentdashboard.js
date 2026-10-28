@@ -1615,7 +1615,7 @@ function showChatFollowUps(lastReply) {
     box.hidden = questions.length === 0;
 }
 
-function appendChatMessage(role, text, table, schedule, scheduleLayout) {
+function appendChatMessage(role, text, table, schedule, scheduleLayout, wishes = null, wishesIgnored = []) {
     const log = $('chat-log');
     if (!log) return null;
 
@@ -1638,6 +1638,22 @@ function appendChatMessage(role, text, table, schedule, scheduleLayout) {
                 <div class="chat-send">
                     <button type="button" class="chat-send-btn" data-chat-send>Send this plan to my adviser</button>
                     <div class="chat-send-confirm" data-chat-send-box hidden></div>
+                </div>`);
+        }
+
+        // What the student asked of a plan, as the function checked it. The button only opens
+        // Build your plan and fills it by the usual rules; nothing is sent from here.
+        const phrases = role === 'model' ? (window.CurriculogicAutoPlan?.describeWishes(wishes) ?? []) : [];
+        if (phrases.length) {
+            bubble._chatWishes = wishes;
+            // Items refused for the same reason are listed once: "MON, TUE, WED: reason".
+            const byWhy = new Map();
+            for (const i of wishesIgnored ?? []) byWhy.set(i.why, [...(byWhy.get(i.why) ?? []), i.value]);
+            const notUsed = [...byWhy].map(([why, values]) => `${values.join(', ')}: ${why}`);
+            bubble.insertAdjacentHTML('beforeend', `
+                <div class="chat-send">
+                    <p class="dim">Noted: ${escapeHtml(phrases.join(' · '))}.${notUsed.length ? ` Not used: ${escapeHtml(notUsed.join(' '))}` : ''}</p>
+                    <button type="button" class="chat-send-btn" data-chat-apply>Apply to my plan</button>
                 </div>`);
         }
     }
@@ -1716,6 +1732,22 @@ function renderScheduleTable(schedule) {
             <div class="chat-sched-day">${noTime}</div>
         </div>${left}`;
 }
+
+/* ---- Apply to my plan (from a Cura answer) ----
+   Opens Build your plan and runs Auto-select there with the wishes the student gave Cura. It only
+   fills the boxes the student already knows, by the same rules; the student reads it, changes it
+   if they like, and presses Submit themselves. */
+let PENDING_WISHES = null;
+
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-chat-apply]');
+    if (!btn) return;
+    const wishes = btn.closest('.chat-msg')?._chatWishes;
+    if (!wishes) return;
+    PENDING_WISHES = wishes;
+    if (window.location.hash === '#plan') loadRequestPicker();
+    else window.location.hash = '#plan';
+});
 
 /* ---- Send this plan to my adviser (from a Cura answer) ----
    The table the student is looking at is loaded into the same selection that
@@ -1865,7 +1897,7 @@ $('chat-form')?.addEventListener('submit', async (e) => {
     try {
         const result = await window.EligibilityChat.sendChatMessage(supabase, text);
         pending?.remove();
-        appendChatMessage('model', result.text, result.table, result.schedule, result.scheduleLayout);
+        appendChatMessage('model', result.text, result.table, result.schedule, result.scheduleLayout, result.wishes, result.wishesIgnored);
         showChatFollowUps({ table: !!result.table?.length });
         refreshChatList();
     } catch (err) {
@@ -2237,6 +2269,11 @@ async function loadRequestPicker() {
 
     if ($('auto-plan')) $('auto-plan').hidden = true;      // shown below, once there is something to select
 
+    // Wishes from Cura are used once, on this load. They are dropped on the early exits below,
+    // where the page already says why there is nothing to pick.
+    const wishes = PENDING_WISHES;
+    PENDING_WISHES = null;
+
     if (!RESULT) {
         picker.innerHTML = '<p class="dim">Your eligibility has not loaded yet.</p>';
         return;
@@ -2376,17 +2413,20 @@ async function loadRequestPicker() {
         });
 
         $('req-submit')?.addEventListener('click', submitAdvisingRequest);
-        $('auto-plan-btn')?.addEventListener('click', runAutoPlan);
+        $('auto-plan-btn')?.addEventListener('click', () => runAutoPlan());
         requestsInitialized = true;
     }
 
-    // The button is offered only when the engine suggests something to select.
+    // The button is offered only when the engine suggests something to select (or the student
+    // asked Cura for a plan, which can name subjects the engine did not suggest).
     if ($('auto-plan')) {
-        $('auto-plan').hidden = suggested.length === 0;
+        $('auto-plan').hidden = suggested.length === 0 && !wishes;
         if ($('auto-plan-result')) $('auto-plan-result').hidden = true;
     }
 
     updateRequestCount();
+
+    if (wishes) runAutoPlan(wishes);
 }
 
 /* ---- Auto-select my plan ----
@@ -2396,7 +2436,7 @@ async function loadRequestPicker() {
    editable, and nothing is sent until Submit for review is pressed. */
 let autoPlanBusy = false;
 
-async function runAutoPlan() {
+async function runAutoPlan(wishes = null) {
     if (!window.CurriculogicAutoPlan || !window.ScheduleConflicts) return;
     if (autoPlanBusy) return;
     autoPlanBusy = true;
@@ -2424,6 +2464,7 @@ async function runAutoPlan() {
         suggestedIds,
         cap,
         conflicts: window.ScheduleConflicts,
+        wishes,
     });
 
     // The plan replaces whatever was picked before.
@@ -2458,7 +2499,9 @@ function renderAutoPlanResult(plan) {
             `<li><strong>${escapeHtml(s.code)}</strong> ${escapeHtml(s.reason)}</li>`).join('')}</ul>` : '';
 
     box.className = 'auto-plan-result ' + (plan.picks.length ? 'is-ok' : 'is-none');
-    box.innerHTML = `<p>${escapeHtml(window.CurriculogicAutoPlan.summarize(plan))}</p>${left}`;
+    const asked = window.CurriculogicAutoPlan.describeWishes(plan.wishes);
+    const using = asked.length ? `<p class="dim">Using what you asked Cura for: ${escapeHtml(asked.join(' · '))}.</p>` : '';
+    box.innerHTML = `${using}<p>${escapeHtml(window.CurriculogicAutoPlan.summarize(plan))}</p>${left}`;
     box.hidden = false;
 }
 

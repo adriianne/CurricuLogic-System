@@ -207,6 +207,10 @@ async function sendChatMessage(supabaseClient, message) {
         table: data.showRecommendedTable ? tableFor(SUMMARY) : null,
         schedule: data.showScheduleTable ? scheduleFor(SUMMARY, data.scheduleOption ?? null) : null,
         scheduleLayout: data.scheduleLayout === 'byDay' ? 'byDay' : 'bySubject',
+        // What the student asked of a plan, already checked by the function (null when nothing),
+        // and what it could not use, with the reason.
+        wishes: data.wishes ?? null,
+        wishesIgnored: Array.isArray(data.wishesIgnored) ? data.wishesIgnored : [],
     };
 }
 

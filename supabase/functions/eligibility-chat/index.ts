@@ -179,7 +179,8 @@ Respond with ONLY valid JSON in exactly this shape, no other text:
   "showRecommendedTable": true or false,
   "showScheduleTable": true or false,
   "scheduleOption": null or the exact "label" of one of the alternatives,
-  "scheduleLayout": "byDay" or "bySubject"
+  "scheduleLayout": "byDay" or "bySubject",
+  "wishes": null or { "earliestStart": "HH:MM" or null, "latestEnd": "HH:MM" or null, "avoidDays": ["MON"|"TUE"|"WED"|"THU"|"FRI"|"SAT"|"SUN"], "maxUnits": a whole number or null, "keepSubjects": ["subject code"] }
 }
 
 Set "showRecommendedTable" to true ONLY when the student is specifically
@@ -210,6 +211,8 @@ organized by day: "from Monday to Friday/Saturday", "per day", "day by day",
 something like "Here's your schedule by day:". The application lists the days
 itself, Monday first, from the real plan, so never write the days, times or
 sections in "reply". For every other answer, "scheduleLayout" is "bySubject".
+
+"wishes" records what the student asks of a plan in their own words, as plain settings. Look ONLY at the student's latest message: a wish they made in an earlier message of this conversation is not repeated here, so when the latest message states nothing of the kind (a question about why a subject is locked, for example), "wishes" is null. Fill it ONLY when that message states something about when they can attend, how many units they want, or which subjects they must keep: "earliestStart" and "latestEnd" are times of day in 24-hour "HH:MM" ("nothing before 9" is earliestStart "09:00"; "done by 3pm" is latestEnd "15:00"); "avoidDays" lists days with no classes ("no Friday" is ["FRI"]); "mornings only" is latestEnd "12:00", "afternoons only" is earliestStart "12:00" with latestEnd "17:00", and "evening classes" is earliestStart "17:00"; "maxUnits" is the most units they want; "keepSubjects" lists subject codes they insist on, and every code must be copied exactly from "recommended" or "leftOutForClash" -- never a code you were not given. Leave any field they did not mention as null or an empty list; when they state nothing of the kind, "wishes" is null. You only write the wish down: you do not choose subjects or sections and you do not change their plan, so never say you have changed, built or applied a plan. A saved preference in "preferences" is not a wish; fill "wishes" only from what they say in this conversation. You do not decide whether a wish can be met; say only that you noted it. Never mention the field names "wishes", "earliestStart", "latestEnd", "avoidDays", "maxUnits" or "keepSubjects" to the student.
 
 "alternatives" lists other clash-free plans the student can ask to see. Each has a "label" (for example "Afternoon classes" or "Include CC-ACCTG21"), "changes" saying how it differs from the current plan, its "units", the subjects "notIncluded", and sometimes a "note" about how many classes fall in the preferred part of the day. When the student asks for another suggestion, a different schedule, another option, or a plan with a different time of day, offer them by label in plain words, one short sentence each using "changes" and "note" (never invent a difference). If "alternatives" is empty, say honestly that the sections offered leave no other way to arrange these subjects without a clash. When the student picks one or asks to see it, set "showScheduleTable" to true AND set "scheduleOption" to that alternative's exact "label", and say something like "Here's the afternoon version:". For the current plan, or any other answer, "scheduleOption" is null. Never write the times, days or sections of an alternative in "reply": the application draws them from the label.
 
@@ -345,8 +348,13 @@ serve(async (req) => {
 
     const showSchedule = parsed.showScheduleTable === true && parsed.showRecommendedTable !== true;
 
+    // What the student asked of a plan, checked against their own summary. Never the model's raw words.
+    const { wishes, ignored: wishesIgnored } = core.cleanWishes(parsed.wishes, summary);
+
     return new Response(JSON.stringify({
       reply: String(parsed.reply ?? "").trim(),
+      wishes,
+      wishesIgnored,
       showRecommendedTable: parsed.showRecommendedTable === true,
       showScheduleTable: showSchedule,
       // How the schedule table is laid out; only meaningful with the table.

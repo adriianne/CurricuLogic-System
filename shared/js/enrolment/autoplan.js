@@ -26,20 +26,36 @@
 //   5. taken together     a subject that must be taken in the same term as another
 //                         (entry.alongside) goes in with it, or not at all
 //
+// WISHES (optional). The student can say, in their own words to Cura, what they want:
+//   { earliestStart:'HH:MM'|null, latestEnd:'HH:MM'|null, avoidDays:['MON'..'SUN'],
+//     maxUnits:int|null, keepSubjects:[subject codes] }   (checked by cleanWishes in
+//   supabase/functions/eligibility-chat/core.js before it gets here)
+// They only steer a choice that already passed every rule above; they never add a subject
+// the student cannot take or a section that is not posted:
+//   - a section that starts too early, ends too late or meets on an avoided day is only used when
+//     nothing else fits, and the pick says so ("misses"), so the student sees the closest real option
+//   - the units wish lowers the limit for this plan (never raises it)
+//   - kept subjects are placed first, so they win a clash, and are added even when the engine did
+//     not suggest them. One that cannot fit is reported, never silently dropped.
+//   - a subject with no section posted yet has no times, so time and day wishes cannot be checked on it.
+//
 // Every subject that is left out is reported with a plain reason.
 // Subjects locked by a pending or approved request never arrive here: the page
 // removes them from the candidates before this runs.
 //
-//   buildAutoPlan({ entries, suggestedIds, cap, conflicts })
+//   buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes })
 //     entries       the picker's candidates, best first:
 //                   { subject: {id, code, title, units}, sections: [flat meeting rows],
 //                     scheduleState, chosenSection?: {section}, alongside?: [{id, code}] }
 //     suggestedIds  Set of subject ids the engine suggests
 //     cap           the most units the student may take now
 //     conflicts     { groupSections, meetingsClash } (shared/js/schedule/scheduleconflicts.js)
-//   -> { picks: [{ subjectId, code, title, units, section, offeringId, scheduled }],
-//        skipped: [{ subjectId, code, title, reason }],
-//        units, cap }
+//   -> { picks: [{ subjectId, code, title, units, section, offeringId, scheduled, misses }],
+//        skipped: [{ subjectId, code, title, reason, kept }],
+//        units, cap, wishes }
+//      misses  plain phrases for each wish the chosen section does not meet ([] when it meets all)
+//      cap     the limit used: the student's own, or the lower units wish
+//      wishes  the wishes that were applied, or null
 
 (function (root, factory) {
     if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -52,19 +68,59 @@
    timetable. Running out never produces an overlap: the subject is just left out. */
 const SEARCH_LIMIT = 50000;
 
-const NO_SECTION = Object.freeze({ section: null, meetings: [], offeringId: null });
+const NO_SECTION = Object.freeze({ section: null, meetings: [], offeringId: null, misses: [] });
 
 const sectionsClash = (a, b, meetingsClash) =>
     a.meetings.some(m1 => b.meetings.some(m2 => meetingsClash(m1, m2)));
 
-/* The groups of a subject, the engine's own section first. A subject with no
-   section posted has one empty choice, which overlaps nothing. */
-function choicesOf(entry, groupSections) {
+const AVOID_DAY = { MON: 'M', TUE: 'T', WED: 'W', THU: 'TH', FRI: 'F', SAT: 'S', SUN: 'SU' };
+const DAY_NAME = { MON: 'Monday', TUE: 'Tuesday', WED: 'Wednesday', THU: 'Thursday', FRI: 'Friday', SAT: 'Saturday', SUN: 'Sunday' };
+
+const clock = (hhmm) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
+/* Which of the wishes a section does not meet, as short phrases. A meeting without a time
+   or day cannot break a wish about it. */
+function missesOf(group, wishes, conflicts) {
+    if (!wishes) return [];
+    const { parseDays, minutesOf } = conflicts;
+    const out = [];
+    const early = wishes.earliestStart ? minutesOf(wishes.earliestStart) : null;
+    const late = wishes.latestEnd ? minutesOf(wishes.latestEnd) : null;
+    const avoid = new Map((wishes.avoidDays ?? []).filter(d => AVOID_DAY[d]).map(d => [AVOID_DAY[d], d]));
+
+    if (early !== null && group.meetings.some(m => { const t = minutesOf(m.start_time); return t !== null && t < early; })) {
+        out.push(`starts before ${clock(wishes.earliestStart)}`);
+    }
+    if (late !== null && group.meetings.some(m => { const t = minutesOf(m.end_time); return t !== null && t > late; })) {
+        out.push(`ends after ${clock(wishes.latestEnd)}`);
+    }
+    const hit = new Set();
+    for (const m of group.meetings) for (const d of parseDays(m.schedule_days)) if (avoid.has(d)) hit.add(avoid.get(d));
+    for (const d of hit) out.push(`meets on ${DAY_NAME[d]}`);
+    return out;
+}
+
+/* The groups of a subject. Sections that meet every wish come first, and within those the
+   engine's own section. A subject with no section posted has one empty choice, which
+   overlaps nothing and breaks no wish (it has no times to break one with). */
+function choicesOf(entry, groupSections, wishes, conflicts) {
     const groups = groupSections(entry.sections);
     if (!groups.length) return [NO_SECTION];
     const preferred = entry.chosenSection?.section;
-    return [...groups].sort((a, b) => (b.section === preferred) - (a.section === preferred));
+    return groups
+        .map(g => ({ ...g, misses: missesOf(g, wishes, conflicts) }))
+        .sort((a, b) =>
+            ((a.misses.length > 0) - (b.misses.length > 0)) || ((b.section === preferred) - (a.section === preferred)));
 }
+
+/* The same items, each limited to the sections that meet every wish, where it has any. */
+const fittingOnly = (items) => items.map(it => {
+    const ok = it.choices.filter(c => c.misses.length === 0);
+    return ok.length ? { ...it, choices: ok } : it;
+});
 
 /* One section for each of the items, none overlapping another, or null.
    Depth-first, items in order, each item's choices in order: the first answer
@@ -91,9 +147,17 @@ function assignSections(items, meetingsClash) {
     return place(0) ? chosen : null;
 }
 
-function buildAutoPlan({ entries, suggestedIds, cap, conflicts }) {
+const looseCode = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null }) {
     const { groupSections, meetingsClash } = conflicts;
-    const limit = Number.isFinite(Number(cap)) ? Number(cap) : 0;
+    const studentCap = Number.isFinite(Number(cap)) ? Number(cap) : 0;
+    // A units wish can only lower the limit.
+    const wishUnits = Number.isFinite(Number(wishes?.maxUnits)) && Number(wishes.maxUnits) > 0 ? Number(wishes.maxUnits) : null;
+    const limit = wishUnits !== null ? Math.min(studentCap, wishUnits) : studentCap;
+
+    const keep = new Set((wishes?.keepSubjects ?? []).map(looseCode));
+    const isKept = (entry) => keep.has(looseCode(entry.subject.code));
 
     const skipped = [];
     const taken = new Set();        // subject ids already in the plan
@@ -102,8 +166,18 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts }) {
     let units = 0;
 
     const leave = (entry, reason) => skipped.push({
-        subjectId: entry.subject.id, code: entry.subject.code, title: entry.subject.title, reason,
+        subjectId: entry.subject.id, code: entry.subject.code, title: entry.subject.title,
+        reason: isKept(entry) ? `You asked to keep it, but: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}` : reason,
+        kept: isKept(entry),
     });
+
+    // A subject the student insisted on that is not among the candidates at all.
+    const have = new Set((entries ?? []).map(e => looseCode(e.subject.code)));
+    for (const code of wishes?.keepSubjects ?? []) {
+        if (!have.has(looseCode(code))) {
+            skipped.push({ subjectId: null, code, title: '', reason: 'You asked to keep it, but it is not available to add to a plan right now.', kept: true });
+        }
+    }
 
     const byId = new Map((entries ?? []).map(e => [e.subject.id, e]));
     const bundled = new Set();      // taken into the plan as someone's partner
@@ -128,8 +202,11 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts }) {
         return { entries: [...group.values()] };
     };
 
-    for (const entry of entries ?? []) {
-        if (!suggestedIds?.has(entry.subject.id)) continue;
+    // Kept subjects go first so they win a clash; otherwise the engine's order stands.
+    const ordered = [...(entries ?? [])].sort((a, b) => isKept(b) - isKept(a));
+
+    for (const entry of ordered) {
+        if (!suggestedIds?.has(entry.subject.id) && !isKept(entry)) continue;
 
         const id = entry.subject.id;
 
@@ -154,16 +231,20 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts }) {
 
         // 4. unit limit (checked first: no point searching if it cannot fit)
         if (units + u > limit) {
+            // Name the units wish, not the student's limit, when the wish is what stopped it.
+            const what = wishUnits !== null && units + u <= studentCap ? `your ${limit}-unit wish` : `your ${limit}-unit limit`;
             leave(entry, group.length > 1
-                ? `It and ${group.filter(e => e !== entry).map(e => e.subject.code).join(', ')}, which go with it, would take the plan past your ${limit}-unit limit.`
-                : `It would take the plan past your ${limit}-unit limit.`);
+                ? `It and ${group.filter(e => e !== entry).map(e => e.subject.code).join(', ')}, which go with it, would take the plan past ${what}.`
+                : `It would take the plan past ${what}.`);
             continue;
         }
 
         // 3. time conflicts: is there ANY arrangement that holds everyone?
-        const newItems = group.map(e => ({ entry: e, units: Number(e.subject.units) || 0, choices: choicesOf(e, groupSections) }));
+        const newItems = group.map(e => ({ entry: e, units: Number(e.subject.units) || 0, choices: choicesOf(e, groupSections, wishes, conflicts) }));
         const item = newItems[0];
-        const trial = assignSections([...items, ...newItems], meetingsClash);
+        // First try to keep every wish; only when that leaves no arrangement, let a section that breaks one in.
+        const all = [...items, ...newItems];
+        const trial = assignSections(fittingOnly(all), meetingsClash) ?? assignSections(all, meetingsClash);
 
         if (!trial) {
             // Say what is really in the way: any subject already in the plan
@@ -197,10 +278,12 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts }) {
             section: assignment[i].section,
             offeringId: assignment[i].offeringId ?? null,
             scheduled: assignment[i] !== NO_SECTION,
+            misses: assignment[i].misses ?? [],
         })),
         skipped,
         units,
         cap: limit,
+        wishes: wishes ?? null,
     };
 }
 
@@ -222,10 +305,32 @@ function summarize(plan) {
         timing = `${unscheduled} ${unscheduled === 1 ? 'has' : 'have'} no section posted yet, so ${unscheduled === 1 ? 'it was' : 'they were'} added without a time check. The others do not overlap in time.`;
     }
 
-    return `Selected ${subjects}, ${plan.units} of ${plan.cap} units. ${timing} `
+    // Wishes a posted section could not meet: say which, so the plan is not mistaken for a perfect fit.
+    const missed = plan.picks.filter(p => p.misses?.length);
+    const timeWish = plan.wishes && (plan.wishes.earliestStart || plan.wishes.latestEnd || plan.wishes.avoidDays?.length);
+    const wishNote = (missed.length
+        ? ` Closest real sections, not a full match: ${missed.map(p => `${p.code} ${p.misses.join(' and ')}`).join('; ')}.`
+        : '')
+        + (timeWish && unscheduled ? ' Your time and day wishes could not be checked on the subjects with no section yet.' : '');
+
+    return `Selected ${subjects}, ${plan.units} of ${plan.cap} units. ${timing}${wishNote} `
         + 'Each is open to you this term. Check the list, then press Submit for review.';
 }
 
-return { buildAutoPlan, summarize };
+/* The wishes in plain words, one phrase each, for showing the student what was understood.
+   Built from the checked wishes only, never from what the model wrote. */
+function describeWishes(wishes) {
+    if (!wishes) return [];
+    const out = [];
+    if (wishes.earliestStart) out.push(`no classes before ${clock(wishes.earliestStart)}`);
+    if (wishes.latestEnd) out.push(`classes done by ${clock(wishes.latestEnd)}`);
+    const days = (wishes.avoidDays ?? []).filter(d => DAY_NAME[d]).map(d => DAY_NAME[d]);
+    if (days.length) out.push(`no classes on ${days.join(', ')}`);
+    if (wishes.maxUnits) out.push(`up to ${wishes.maxUnits} units`);
+    if ((wishes.keepSubjects ?? []).length) out.push(`keep ${wishes.keepSubjects.join(', ')}`);
+    return out;
+}
+
+return { buildAutoPlan, summarize, describeWishes };
 
 }));
