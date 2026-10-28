@@ -149,7 +149,7 @@ function assignSections(items, meetingsClash) {
 
 const looseCode = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null }) {
+function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null, fillCap = null }) {
     const { groupSections, meetingsClash } = conflicts;
     const studentCap = Number.isFinite(Number(cap)) ? Number(cap) : 0;
     // A units wish can only lower the limit.
@@ -159,13 +159,20 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null })
     const keep = new Set((wishes?.keepSubjects ?? []).map(looseCode));
     const isKept = (entry) => keep.has(looseCode(entry.subject.code));
 
+    // With wishes, the other eligible subjects may fill what is left, up to the student's load size.
+    const fillLimit = fillCap !== null && Number.isFinite(Number(fillCap)) ? Math.min(limit, Number(fillCap)) : limit;
+    const isExtra = (entry) => !!wishes && !suggestedIds?.has(entry.subject.id) && !isKept(entry);
+    const extraIds = new Set();     // subject ids that came from the other eligible subjects
+    let quiet = false;              // an extra that does not fit was never asked for, so it is not reported
+
     const skipped = [];
     const taken = new Set();        // subject ids already in the plan
     const items = [];               // what is in the plan so far, in order
     let assignment = [];            // one chosen section per item
     let units = 0;
 
-    const leave = (entry, reason) => skipped.push({
+    let extrasLeft = 0;             // optional subjects that could not be added (counted, not listed)
+    const leave = (entry, reason) => quiet ? void extrasLeft++ : skipped.push({
         subjectId: entry.subject.id, code: entry.subject.code, title: entry.subject.title,
         reason: isKept(entry) ? `You asked to keep it, but: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}` : reason,
         kept: isKept(entry),
@@ -202,13 +209,17 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null })
         return { entries: [...group.values()] };
     };
 
-    // Kept subjects go first so they win a clash; otherwise the engine's order stands.
-    const ordered = [...(entries ?? [])].sort((a, b) => isKept(b) - isKept(a));
+    // Kept subjects go first so they win a clash, then the engine's suggestions, then (with wishes) the other
+    // eligible subjects; within each group the engine's order stands.
+    const rank = (e) => isKept(e) ? 0 : suggestedIds?.has(e.subject.id) ? 1 : 2;
+    const ordered = [...(entries ?? [])].sort((a, b) => rank(a) - rank(b));
 
     for (const entry of ordered) {
-        if (!suggestedIds?.has(entry.subject.id) && !isKept(entry)) continue;
+        if (!suggestedIds?.has(entry.subject.id) && !isKept(entry) && !wishes) continue;
 
         const id = entry.subject.id;
+        const extra = isExtra(entry);
+        quiet = extra;
 
         // 1. subject conflicts (a partner added with an earlier subject is not a conflict)
         if (bundled.has(id)) continue;
@@ -216,7 +227,7 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null })
 
         // 2. can it be taken this term?
         if (entry.scheduleState === 'not-run') {
-            leave(entry, 'The department is not running it this term.');
+            if (!extra) leave(entry, 'The department is not running it this term.');   // an optional one is simply not a candidate
             continue;
         }
 
@@ -230,7 +241,8 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null })
         const u = group.reduce((t, e) => t + (Number(e.subject.units) || 0), 0);
 
         // 4. unit limit (checked first: no point searching if it cannot fit)
-        if (units + u > limit) {
+        if (units + u > (extra ? fillLimit : limit)) {
+            if (extra) { extrasLeft++; continue; }
             // Name the units wish, not the student's limit, when the wish is what stopped it.
             const what = wishUnits !== null && units + u <= studentCap ? `your ${limit}-unit wish` : `your ${limit}-unit limit`;
             leave(entry, group.length > 1
@@ -244,7 +256,10 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null })
         const item = newItems[0];
         // First try to keep every wish; only when that leaves no arrangement, let a section that breaks one in.
         const all = [...items, ...newItems];
-        const trial = assignSections(fittingOnly(all), meetingsClash) ?? assignSections(all, meetingsClash);
+        let trial = assignSections(fittingOnly(all), meetingsClash) ?? (extra ? null : assignSections(all, meetingsClash));
+        // An optional subject never costs a wish: it only joins in a section that meets every wish.
+        if (trial && extra && trial.slice(items.length).some(c => (c.misses ?? []).length)) trial = null;
+        if (!trial && extra) { extrasLeft++; continue; }
 
         if (!trial) {
             // Say what is really in the way: any subject already in the plan
@@ -261,6 +276,7 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null })
         }
 
         for (const it of newItems) {
+            if (extra) extraIds.add(it.entry.subject.id);
             taken.add(it.entry.subject.id);
             if (it.entry !== entry) bundled.add(it.entry.subject.id);
             items.push(it);
@@ -279,11 +295,13 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null })
             offeringId: assignment[i].offeringId ?? null,
             scheduled: assignment[i] !== NO_SECTION,
             misses: assignment[i].misses ?? [],
+            extra: extraIds.has(it.entry.subject.id),
         })),
         skipped,
         units,
         cap: limit,
         wishes: wishes ?? null,
+        extrasLeft,
     };
 }
 
@@ -291,6 +309,11 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null })
 function summarize(plan) {
     const n = plan.picks.length;
     if (!n) {
+        // With wishes, say why: there were subjects, but none has a section that fits what was asked.
+        if (plan.wishes && (plan.extrasLeft || plan.skipped.length)) {
+            return 'None of your eligible subjects has a section that fits what you asked for. '
+                + 'Try a different time or day with Cura, or choose subjects yourself below.';
+        }
         return 'Nothing could be selected automatically. You can still choose subjects yourself below.';
     }
     const subjects = `${n} subject${n === 1 ? '' : 's'}`;
@@ -308,7 +331,14 @@ function summarize(plan) {
     // Wishes a posted section could not meet: say which, so the plan is not mistaken for a perfect fit.
     const missed = plan.picks.filter(p => p.misses?.length);
     const timeWish = plan.wishes && (plan.wishes.earliestStart || plan.wishes.latestEnd || plan.wishes.avoidDays?.length);
-    const wishNote = (missed.length
+    const extras = plan.picks.filter(p => p.extra).length;
+    const extraNote = extras
+        ? ` ${extras} came from your other eligible subjects, added to fill your load.`
+        : '';
+    const extraLeft = plan.extrasLeft
+        ? ` ${plan.extrasLeft} other eligible subject${plan.extrasLeft === 1 ? ' was' : 's were'} not added: ${plan.extrasLeft === 1 ? 'it' : 'they'} would not fit your wishes, your load or the rest of your plan.`
+        : '';
+    const wishNote = extraNote + extraLeft + (missed.length
         ? ` Closest real sections, not a full match: ${missed.map(p => `${p.code} ${p.misses.join(' and ')}`).join('; ')}.`
         : '')
         + (timeWish && unscheduled ? ' Your time and day wishes could not be checked on the subjects with no section yet.' : '');

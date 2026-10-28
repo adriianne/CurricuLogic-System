@@ -2459,12 +2459,20 @@ async function runAutoPlan(wishes = null) {
     const suggestedIds = new Set((personalised()?.recommended ?? []).map(r => r.subject.id));
     const cap = RESULT?.availableUnits ?? unitLimits(STUDENT).maxUnits;
 
+    // With wishes, other eligible subjects may fill what is left, but only up to the load size the
+    // student saved (light / regular / full); no saved size means the plain limit.
+    const ceiling = personalised()?.preference?.ceiling;
+    const fillCap = Number.isFinite(Number(ceiling)) && ceiling !== null
+        ? Math.max(0, Number(ceiling) - (Number(RESULT?.enrolledUnits) || 0))
+        : null;
+
     const plan = window.CurriculogicAutoPlan.buildAutoPlan({
         entries: pickerCandidates(),
         suggestedIds,
         cap,
         conflicts: window.ScheduleConflicts,
         wishes,
+        fillCap,
     });
 
     // The plan replaces whatever was picked before.
