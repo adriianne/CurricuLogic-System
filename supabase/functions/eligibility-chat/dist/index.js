@@ -150,7 +150,24 @@ var require_core = __commonJS({
         ignored
       };
     }
-    module.exports = { interpretAssessment, cleanWishes, NOT_READY, TRY_AGAIN };
+    var MAX_LOGGED_MS = 10 * 60 * 1e3;
+    function usageRow({ userId, client, ms, httpStatus, busy, model, attempts, hadWishes }) {
+      if (typeof userId !== "string" || userId === "") return null;
+      const code = Number.isInteger(httpStatus) ? httpStatus : 500;
+      const status = code === 200 ? "ok" : busy === true ? "busy" : code >= 500 ? "error" : "bad_request";
+      const took = Number(ms);
+      return {
+        user_id: userId,
+        client: client === "web" || client === "app" ? client : null,
+        status,
+        http_status: code,
+        duration_ms: Number.isFinite(took) ? Math.min(MAX_LOGGED_MS, Math.max(0, Math.round(took))) : 0,
+        model: typeof model === "string" && model !== "" ? model.slice(0, 60) : null,
+        attempts: Number.isInteger(attempts) && attempts >= 0 ? attempts : null,
+        had_wishes: hadWishes === true
+      };
+    }
+    module.exports = { interpretAssessment, cleanWishes, usageRow, NOT_READY, TRY_AGAIN };
   }
 });
 
@@ -245,7 +262,7 @@ var ROLE_TABLE = {
   department: "department_staff",
   admin: "system_administrator"
 };
-async function rejectCaller(req, roles) {
+async function rejectCaller(req, roles, who) {
   const url = Deno.env.get("SUPABASE_URL");
   const anon = Deno.env.get("SUPABASE_ANON_KEY");
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -263,7 +280,10 @@ async function rejectCaller(req, roles) {
   const admin = createClient(url, service, noSession);
   for (const role of roles) {
     const { data: row } = await admin.from(ROLE_TABLE[role]).select("id").eq("user_id", data.user.id).eq("is_approved", true).maybeSingle();
-    if (row) return null;
+    if (row) {
+      if (who) who.userId = data.user.id;
+      return null;
+    }
   }
   return reply(403, { error: "Not allowed." });
 }
@@ -388,17 +408,47 @@ sections in "reply". For every other answer, "scheduleLayout" is "bySubject".
 The student's current data, as already computed by the rule engine:
 ${JSON.stringify(summary, null, 2)}`;
 }
+function recordUsage(row) {
+  if (!row) return;
+  const url = Deno.env.get("SUPABASE_URL");
+  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !service) return;
+  const task = createClient(url, service, { auth: { persistSession: false, autoRefreshToken: false } }).from("cura_usage").insert(row).then(
+    ({ error }) => {
+      if (error) console.warn("eligibility-chat: usage not logged:", error.message);
+    },
+    (err) => console.warn("eligibility-chat: usage not logged:", err)
+  );
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(task);
+}
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  const started = Date.now();
+  const usage = {};
+  const res = await handle(req, usage);
+  recordUsage(import_core.default.usageRow({
+    userId: usage.userId,
+    client: usage.client,
+    ms: Date.now() - started,
+    httpStatus: res.status,
+    busy: usage.busy,
+    model: usage.model,
+    attempts: usage.attempts,
+    hadWishes: usage.hadWishes
+  }));
+  return res;
+});
+async function handle(req, usage) {
   try {
-    const denied = await rejectCaller(req, ["student"]);
+    const denied = await rejectCaller(req, ["student"], usage);
     if (denied) return denied;
     if (Number(req.headers.get("content-length") ?? "0") > MAX_REQUEST_BYTES) {
       return reply(413, { error: "That request is too large." });
     }
     const { history, message, client } = await req.json();
+    usage.client = client;
     if (!message || typeof message !== "string") {
       return new Response(
         JSON.stringify({ error: "Missing message." }),
@@ -448,7 +498,10 @@ serve(async (req) => {
         }
       }
     });
+    usage.attempts = call.attempts;
+    usage.model = call.ok ? call.model : call.tried?.[call.tried.length - 1]?.model;
     if (!call.ok) {
+      usage.busy = call.busy === true;
       console.error(`Gemini API error: ${call.detail} | tried: ${JSON.stringify(call.tried)}`);
       const message2 = call.busy ? "This assistant is temporarily busy. Please try again in a minute." : "Could not get a response right now.";
       return new Response(
@@ -483,6 +536,7 @@ serve(async (req) => {
     }
     const showSchedule = parsed.showScheduleTable === true && parsed.showRecommendedTable !== true;
     const { wishes, ignored: wishesIgnored } = import_core.default.cleanWishes(parsed.wishes, summary);
+    usage.hadWishes = wishes !== null;
     return new Response(JSON.stringify({
       reply: String(parsed.reply ?? "").trim(),
       wishes,
@@ -505,4 +559,4 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+}

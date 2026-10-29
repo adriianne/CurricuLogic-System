@@ -53,7 +53,12 @@ const ROLE_TABLE: Record<CallerRole, string> = {
   admin: "system_administrator",
 };
 
-async function rejectCaller(req: Request, roles: CallerRole[]): Promise<Response | null> {
+async function rejectCaller(
+  req: Request,
+  roles: CallerRole[],
+  // Filled in with the caller's sign-in id once they are accepted, for the usage log.
+  who?: { userId?: string },
+): Promise<Response | null> {
   const url = Deno.env.get("SUPABASE_URL");
   const anon = Deno.env.get("SUPABASE_ANON_KEY");
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -78,7 +83,10 @@ async function rejectCaller(req: Request, roles: CallerRole[]): Promise<Response
       .eq("user_id", data.user.id)
       .eq("is_approved", true)
       .maybeSingle();
-    if (row) return null;
+    if (row) {
+      if (who) who.userId = data.user.id;
+      return null;
+    }
   }
   return reply(403, { error: "Not allowed." });
 }
@@ -220,13 +228,53 @@ The student's current data, as already computed by the rule engine:
 ${JSON.stringify(summary, null, 2)}`;
 }
 
+// What one request tells the usage log (db/089_cura_usage.sql): how it ended, never what was said.
+type Usage = { userId?: string; client?: unknown; model?: string; attempts?: number; busy?: boolean; hadWishes?: boolean };
+
+// Best effort and out of the student's way: a failure to log is never shown and never changes the answer.
+function recordUsage(row: Record<string, unknown> | null) {
+  if (!row) return;
+  const url = Deno.env.get("SUPABASE_URL");
+  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !service) return;
+  const task = createClient(url, service, { auth: { persistSession: false, autoRefreshToken: false } })
+    .from("cura_usage")
+    .insert(row)
+    .then(
+      ({ error }: { error: { message: string } | null }) => {
+        if (error) console.warn("eligibility-chat: usage not logged:", error.message);
+      },
+      (err: unknown) => console.warn("eligibility-chat: usage not logged:", err),
+    );
+  // @ts-ignore: EdgeRuntime exists on Supabase's edge runtime; it keeps the insert alive after the answer is sent.
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(task);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const started = Date.now();
+  const usage: Usage = {};
+  const res = await handle(req, usage);
+  // Only a signed-in, approved student gets a row (usage.userId is set only then).
+  recordUsage(core.usageRow({
+    userId: usage.userId,
+    client: usage.client,
+    ms: Date.now() - started,
+    httpStatus: res.status,
+    busy: usage.busy,
+    model: usage.model,
+    attempts: usage.attempts,
+    hadWishes: usage.hadWishes,
+  }));
+  return res;
+});
+
+async function handle(req: Request, usage: Usage): Promise<Response> {
   try {
-    const denied = await rejectCaller(req, ["student"]);
+    const denied = await rejectCaller(req, ["student"], usage);
     if (denied) return denied;
 
     if (Number(req.headers.get("content-length") ?? "0") > MAX_REQUEST_BYTES) {
@@ -235,6 +283,7 @@ serve(async (req) => {
 
     // A "summary" field, if an older client still sends one, is ignored on purpose.
     const { history, message, client } = await req.json();
+    usage.client = client;
 
     if (!message || typeof message !== "string") {
       return new Response(
@@ -306,7 +355,10 @@ serve(async (req) => {
       },
     });
 
+    usage.attempts = call.attempts;
+    usage.model = call.ok ? call.model : call.tried?.[call.tried.length - 1]?.model;
     if (!call.ok) {
+      usage.busy = call.busy === true;
       console.error(`Gemini API error: ${call.detail} | tried: ${JSON.stringify(call.tried)}`);
       const message = call.busy
         ? "This assistant is temporarily busy. Please try again in a minute."
@@ -350,6 +402,7 @@ serve(async (req) => {
 
     // What the student asked of a plan, checked against their own summary. Never the model's raw words.
     const { wishes, ignored: wishesIgnored } = core.cleanWishes(parsed.wishes, summary);
+    usage.hadWishes = wishes !== null;
 
     return new Response(JSON.stringify({
       reply: String(parsed.reply ?? "").trim(),
@@ -376,4 +429,4 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
-});
+}

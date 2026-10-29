@@ -168,4 +168,36 @@ function cleanWishes(raw, summary) {
     };
 }
 
-module.exports = { interpretAssessment, cleanWishes, NOT_READY, TRY_AGAIN };
+// USAGE LOG
+// One row per request from a signed-in student, so speed, failures and cost can be watched (db/089_cura_usage.sql).
+// It holds how the request ended, never what was said: no message, no reply, no summary.
+//
+//   usageRow({ userId, client, ms, httpStatus, busy, model, attempts, hadWishes })
+//   -> the row to insert, or null when there is nobody to count (a signed-out caller never gets a row, so the
+//      table cannot be filled from outside).
+
+const MAX_LOGGED_MS = 10 * 60 * 1000;
+
+function usageRow({ userId, client, ms, httpStatus, busy, model, attempts, hadWishes }) {
+    if (typeof userId !== 'string' || userId === '') return null;
+
+    const code = Number.isInteger(httpStatus) ? httpStatus : 500;
+    const status = code === 200 ? 'ok'
+        : busy === true ? 'busy'
+        : code >= 500 ? 'error'
+        : 'bad_request';
+
+    const took = Number(ms);
+    return {
+        user_id: userId,
+        client: client === 'web' || client === 'app' ? client : null,
+        status,
+        http_status: code,
+        duration_ms: Number.isFinite(took) ? Math.min(MAX_LOGGED_MS, Math.max(0, Math.round(took))) : 0,
+        model: typeof model === 'string' && model !== '' ? model.slice(0, 60) : null,
+        attempts: Number.isInteger(attempts) && attempts >= 0 ? attempts : null,
+        had_wishes: hadWishes === true,
+    };
+}
+
+module.exports = { interpretAssessment, cleanWishes, usageRow, NOT_READY, TRY_AGAIN };
