@@ -224,3 +224,24 @@ Cura answers from a summary of the student's standing. Until v17 the browser bui
 - Logic lives in `supabase/functions/eligibility-chat/core.js` (tested in `tests/eligibility-chat-core.test.mjs`). The deployable file is built by `node supabase/functions/eligibility-chat/build.mjs` into `dist/index.js`.
 - The web page still keeps its own summary, only to draw the plan and schedule tables and the suggested questions.
 - The Android app still sends a summary; it is ignored.
+- From v27/v28 the reply may also carry `wishes` (what the student asked of a plan: times, days to avoid, a units limit, subjects to keep). The model only writes them down; `cleanWishes` in `core.js` checks every part before it is used (valid times, known days, units cut to the student's own limit, subject codes only from that student's own summary) and returns what it dropped with a reason. The wishes steer the existing Auto-select rules and never add a subject or a section.
+
+## 8. Supabase advisor review (28 Oct 2026)
+
+Run with the project's security and performance advisors, then each flagged function's definition was read. Nothing was changed by the review. Re-run it before launch and after any migration that adds a function or a policy.
+
+**Security**
+
+| Finding | What was found | Decision |
+|---|---|---|
+| Leaked-password protection disabled | An Auth setting (rejects passwords known from public breaches). | **Open.** Turn it on in the dashboard if the plan allows it; otherwise list it as a known limit. |
+| Signed-out users can run `_fresh_student_account` | Deliberate: `db/046` and `db/052` name it as the one exception, because the sign-up trigger runs as the visitor and calls it. It only answers true or false for an exact user id and email pair created in the last 15 minutes, and false for any staff account. | Accepted. |
+| Signed-out users can run `check_expected_student` | Deliberate: the Register page uses it for the "not on the EDP list" warning. It returns a status word, not a list. | Accepted. |
+| 42 `SECURITY DEFINER` functions that signed-in users can run | Every one is a role helper (`current_*`, `can_*`, `is_*`, `my_*`) or checks the caller itself. `create_staff_account` and `create_user_account` have no check of their own because they only call `_provision_account`, whose first statement is `if not is_system_admin() then raise exception`. | Accepted. |
+| `_norm_name` has no fixed `search_path` | A pure text helper that neither signed-out nor signed-in users can run. | Accepted; may be fixed with a one-line migration. |
+| `student_id_counter` has RLS and no policy | Means nobody can read or write it, which is intended. | Accepted. |
+
+**Performance** (none urgent at this scale)
+
+- 24 row-level-security policies call `auth.uid()` per row. The usual fix is `(select auth.uid())`. Left alone for now: rewriting 24 policies can break access, so do it only together with a retest of every role.
+- 23 tables have several permissive policies for one role and action, 34 foreign keys have no index, 3 indexes are unused and 2 staging tables (`stg_subject`, `stg_prerequisite`) have no primary key. Low priority.
