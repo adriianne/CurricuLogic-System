@@ -33,7 +33,6 @@ let AUTH_UID = null;
 let FACULTY  = null;
 let STUDENTS = [];
 let PREVIEW  = false;
-let CURRENT_SLIP = null;
 
 
 /* preview mode (development only) */
@@ -804,15 +803,6 @@ $('students-body')?.addEventListener('keydown', (e) => {
     }
 });
 
-$('print-slip')?.addEventListener('click', () => {
-    if (!CURRENT_SLIP) return;
-    if (typeof window.AdvisingSlip === 'undefined') {
-        console.error('advisingslip.js not loaded — check script order');
-        return;
-    }
-    window.AdvisingSlip.print(CURRENT_SLIP);
-});
-
 /* dashboard tiles */
 
 /* One number on the dashboard: set as usual, then counted up from what is
@@ -1165,13 +1155,6 @@ async function openStudent(studentRowId) {
     const userId = studentRowId;   // university_student.id, not user_id
     const seq = ++DETAIL_SEQ;
 
-    // Clear the slip action from any previous student before the
-    // new one is evaluated. Any branch that actually computes a
-    // result will set these back below.
-    CURRENT_SLIP = null;
-    const slipBtnReset = $('print-slip');
-    if (slipBtnReset) slipBtnReset.hidden = true;
-
     const student = STUDENTS.find(s => s.id === userId) ?? await fetchStudentById(userId);
     if (seq !== DETAIL_SEQ) return;
 
@@ -1290,27 +1273,6 @@ async function openStudent(studentRowId) {
 
     await window.ProspectusGrid.render(
         supabase, student.prospectus_id, eligBody, statuses);
-
-    // The slip prints one semester block of this student's curriculum: their
-    // year level, in the term being enrolled (the system's current term).
-    const cfg = await window.CurriculogicTerm?.load();
-    CURRENT_SLIP = {
-        student,
-        subjects: kb.subjects,
-        rules: kb.rules,
-        records,
-        term: cfg
-            ? { number: cfg.term, year: cfg.year }
-            : { label: document.querySelector('.topbar-term')?.textContent?.trim() ?? '' },
-        adviser: fullName(FACULTY) || 'Faculty adviser',
-        program: {
-            name: programName(student),
-            code: window.CurriculogicPrograms?.codeOf(student.program_id, '') ?? '',
-            college: window.CurriculogicPrograms?.collegeOf(student.program_id, '') ?? '',
-        },
-    };
-    const slipBtn = $('print-slip');
-    if (slipBtn) slipBtn.hidden = false;
 }
 
 
@@ -1647,24 +1609,20 @@ async function loadRequestDetail(requestId) {
                 <p class="dim">
                     <i class="fa-solid fa-check" aria-hidden="true"></i>
                     Approved for enrollment. Print the enrollment form for the student to sign.
+                    <small class="print-history" data-print-history></small>
                 </p>
-                <button class="btn-small" id="print-enrollment-form" data-print-request="${req.id}">
-                    <i class="fa-solid fa-print" aria-hidden="true"></i>
-                    Print advising slip
-                </button>
                 <button class="btn-small" id="print-uc-form" data-print-uc-form="${req.id}">
-                    <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
-                    Print UC enrollment form
+                    <i class="fa-solid fa-print" aria-hidden="true"></i>
+                    Print enrollment form
                 </button>`;
             const programName = (s) => window.CurriculogicPrograms?.nameOf(s?.program_id, '') ?? '';
-            footEl.querySelector('[data-print-request]')?.addEventListener('click', async () => {
-                const result = await window.AdvisingSlip.printApprovedRequest(supabase, req.id, { programName });
-                if (!result.ok) showMsg('req-detail-msg', result.error);
-            });
+            const historyEl = footEl.querySelector('[data-print-history]');
+            window.EnrollmentForm?.showHistory(supabase, req.id, historyEl);
             footEl.querySelector('[data-print-uc-form]')?.addEventListener('click', async () => {
                 if (!window.EnrollmentForm) return showMsg('req-detail-msg', 'Could not open the print view.');
                 const result = await window.EnrollmentForm.printApprovedRequest(supabase, req.id, { programName });
-                if (!result.ok) showMsg('req-detail-msg', result.error);
+                if (!result.ok) return showMsg('req-detail-msg', result.error);
+                window.EnrollmentForm.showHistory(supabase, req.id, historyEl);
             });
         } else if (RS.sentBack(req)) {
             footEl.innerHTML = `
