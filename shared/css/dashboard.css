@@ -3657,6 +3657,9 @@ th.num .sort-btn { text-align: right; }
     margin: 0.9rem 0 0.3rem;
 }
 .req-sheet .dim { font-size: 0.82rem; flex: 1 1 16rem; }
+/* "Printed 3 times. Last: ..." under the print buttons; empty until the form is printed (db/092). */
+.req-sheet .print-history { flex-basis: 100%; }
+.req-sheet .print-history:empty { display: none; }
 
 /* Department: section demand (how many students chose each section) */
 .demand-headline { margin: 0 0 var(--s2); font-weight: 600; }

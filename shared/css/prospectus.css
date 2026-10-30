@@ -1754,9 +1754,25 @@
 
 .req-detail-foot {
     display: flex;
-    justify-content: flex-end;
-    margin-top: var(--s2);
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    margin-top: var(--s3, 1rem);
 }
+/* The message sits on the left, the button on the right; on a narrow screen they stack. */
+.req-detail-foot:not(:empty) {
+    padding: 0.8rem 1rem;
+    background: var(--surface, #fff);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+}
+.req-detail-foot p { margin: 0; text-align: left; flex: 1 1 18rem; line-height: 1.45; }
+.req-detail-foot p .fa-check { margin-right: 0.45rem; color: #047857; }
+.req-detail-foot .btn-small { flex: none; }
+/* "Printed 3 times. Last: ..." under the status message (db/092); empty until the form is printed. */
+.req-detail-foot .print-history { display: block; margin-top: 0.15rem; color: var(--slate); font-size: 0.78rem; }
+.req-detail-foot .print-history:empty { display: none; }
 /* Approving a subject should not look like a destructive control: the
    shared .btn-icon hover is red, which is right for reject only. */
 .req-status-cell [data-approve-item]:hover {

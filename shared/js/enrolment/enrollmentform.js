@@ -13,11 +13,17 @@
 //
 //   EnrollmentForm.build({ items })            -> { rows, totalUnits, section }
 //   EnrollmentForm.html(data)                  -> a full printable page
-//   EnrollmentForm.printApprovedRequest(supabase, requestId, { programName })   (the Faculty adviser and the Registrar)
+//   EnrollmentForm.printApprovedRequest(supabase, requestId, { programName })   (the Faculty adviser, the Registrar and the student)
+//   EnrollmentForm.showHistory(supabase, requestId, element)   writes "Printed 3 times. Last: ..." into the element (db/092)
+//
+// Every print is recorded (log_form_print, db/092): who printed it and when, so a lost or reprinted form can be traced.
 //
 // data = { student: { first_name, last_name, student_id, year_level, email, phone }, items, term: { number, year },
 //          program: { name }, ref }
-// An item is { code, units, meetings: [{ edp_code, schedule_days, start_time, end_time, room, section }] }.
+// An item is { code, units, changedAt, meetings: [{ edp_code, schedule_days, start_time, end_time, room, section }] }.
+// changedAt (request_item.section_changed_at, db/091) is set when the student switched that subject to another section
+// after approval. The latest one marks the form REVISED: the Dean signed the old section, so a reprint must be told
+// apart from the first copy and signed again.
 
 (function (root, factory) {
     if (typeof module === 'object' && module.exports) module.exports = factory(require('../schedule/scheduleconflicts.js'), require('../curriculum/curriculumprint.js'));
@@ -66,6 +72,18 @@ function build({ items }) {
     return { rows, totalUnits: rows.reduce((t, r) => t + (r.units ?? 0), 0), section };
 }
 
+/* The latest time a section was switched on this plan, or null when none was. */
+function revisedAt(items) {
+    let latest = null;
+    for (const it of items ?? []) {
+        const t = it?.changedAt ? new Date(it.changedAt) : null;
+        if (t && !Number.isNaN(t.getTime()) && (!latest || t > latest)) latest = t;
+    }
+    return latest;
+}
+
+const dateText = (d) => d.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Manila' });
+
 const TERM_BOX = { 1: 'first', 2: 'second', 3: 'summer' };
 
 const box = (on) => `<span class="box${on ? ' on' : ''}"></span>`;
@@ -105,11 +123,13 @@ const line = (label, value = '', cls = '') =>
 
 function page1(data, sheet) {
     const { student = {}, term, program, ref } = data;
+    const revised = revisedAt(data.items);
     const ay = Number.isFinite(Number(term?.year)) ? `${Number(term.year)}–${Number(term.year) + 1}` : '';
     const on = TERM_BOX[term?.number];
     const total = Math.max(MIN_ROWS, sheet.rows.length);
     // 16 lines fill the sheet at 40px each; a longer plan gets thinner lines so the page still fits.
-    const rowPx = Math.max(18, Math.floor(MIN_ROWS * 40 / total));
+    // The REVISED mark makes the header taller, so its lines are 2px thinner to give that height back.
+    const rowPx = Math.max(18, Math.floor(MIN_ROWS * (revised ? 38 : 40) / total));
     const body = Array.from({ length: total }, (_, i) => {
         const r = sheet.rows[i];
         return r
@@ -127,7 +147,7 @@ function page1(data, sheet) {
       <div class="c">BANILAD CAMPUS</div>
       <div class="a">GOV. M. CUENCO AVENUE, BANILAD, CEBU CITY, PHILIPPINES 6000</div>
     </div>
-    <div class="formno"><strong>UC-FORM 1A</strong><span>COLLEGE ENROLLMENT FORM</span><b>OLD STUDENT</b>${ref ? `<em>Ref. ${esc(ref)}</em>` : ''}</div>
+    <div class="formno"><strong>UC-FORM 1A</strong><span>COLLEGE ENROLLMENT FORM</span><b>OLD STUDENT</b>${ref ? `<em>Ref. ${esc(ref)}</em>` : ''}${revised ? `<u class="revised">REVISED COPY<small>Section changed ${esc(dateText(revised))}. Replaces any earlier printed copy; needs a new signature.</small></u>` : ''}</div>
   </header>
 
   <div class="id-row">
@@ -265,6 +285,8 @@ const CSS = `
   .formno strong { display: block; font-size: 14px; }
   .formno span, .formno b, .formno em { display: block; font-size: 8px; font-style: normal; }
   .formno em { margin-top: 2px; color: #333; }
+  .formno .revised { display: block; margin-top: 4px; padding: 2px 6px; border: 1.5px solid #000; text-decoration: none; font-size: 9px; font-weight: 700; letter-spacing: .06em; }
+  .formno .revised small { display: block; max-width: 190px; margin-left: auto; font-size: 7.5px; font-weight: 400; letter-spacing: 0; }
   .fl { display: flex; align-items: flex-end; gap: 6px; margin: 3px 0; }
   .fl .lab { font-weight: 600; white-space: nowrap; font-size: 9px; letter-spacing: .03em; }
   .fl .val { flex: 1; min-height: 12px; border-bottom: 1px solid #000; padding: 0 3px; font-size: 10px; font-weight: 700; }
@@ -356,19 +378,22 @@ function print(data) {
 async function printApprovedRequest(supabase, requestId, helpers = {}) {
     if (!supabase) return { ok: false, error: 'Could not open the print view.' };
 
-    const { data: req, error } = await supabase
+    const load = (itemCols) => supabase
         .from('request')
         .select(`
             id, status, registrar_status, requested_term, requested_year, created_at,
             student:student_id (id, first_name, last_name, student_id, year_level, program_id, email, phone),
             request_item (
-                status, subject_id,
+                status, subject_id${itemCols},
                 subject:subject_id (code, units),
                 offering:offering_id (section)
             )
         `)
         .eq('id', requestId)
         .maybeSingle();
+    let { data: req, error } = await load(', section_changed_at');
+    // Before db/091 the column does not exist: print without the REVISED mark rather than not at all.
+    if (error && /section_changed_at/.test(error.message ?? '')) ({ data: req, error } = await load(''));
     if (error || !req) return { ok: false, error: 'Could not load that plan.' };
 
     const RS = window.CurriculogicRequestStatus;
@@ -392,6 +417,7 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
     const items = okItems.map(i => ({
         code: i.subject?.code ?? '',
         units: i.subject?.units ?? 0,
+        changedAt: i.section_changed_at ?? null,
         meetings: i.offering?.section
             ? (offerings ?? []).filter(o => o.subject_id === i.subject_id && o.section === i.offering.section)
             : [],
@@ -405,8 +431,41 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
         ref: window.CurriculogicRequestRef?.format(req.id, req.created_at) ?? '',
         program: { name: helpers.programName ? helpers.programName(req.student) : (programs?.nameOf(req.student.program_id, '') ?? '') },
     });
+    // The record of this print (db/092). A failure here must never stop the form from printing.
+    try { await supabase.rpc('log_form_print', { p_request_id: req.id }); } catch (e) { /* the form is already open */ }
     return { ok: true };
 }
 
-return { build, html, print, printApprovedRequest, idBoxes, timeText };
+const WHO = { student: 'the student', faculty: 'the adviser', registrar: 'the Registrar' };
+
+const stampText = (value) => new Date(value).toLocaleString('en-PH', {
+    year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila',
+});
+
+/* "Printed 3 times. Last: October 30, 2026, 10:42 AM, by Jay Darga (the adviser)." An empty string when it was never printed.
+   rows: what form_print_history returns, newest first: { printed_at, printed_as, printed_by_name, total }. */
+function historyText(rows) {
+    const list = (rows ?? []).filter(r => r && r.printed_at && !Number.isNaN(new Date(r.printed_at).getTime()));
+    if (!list.length) return '';
+    const total = Math.max(Number(list[0].total) || 0, list.length);
+    const last = list[0];
+    const who = last.printed_by_name
+        ? `${last.printed_by_name} (${WHO[last.printed_as] ?? last.printed_as})`
+        : (WHO[last.printed_as] ?? '');
+    return `Printed ${total === 1 ? 'once' : total + ' times'}. Last: ${stampText(last.printed_at)}${who ? ', by ' + who : ''}.`;
+}
+
+/* Reads the print record of a plan and writes the sentence into element. Quiet when there is nothing to say or the
+   record is not available (before db/092): the form works either way. */
+async function showHistory(supabase, requestId, element) {
+    if (!supabase || !element) return;
+    try {
+        const { data, error } = await supabase.rpc('form_print_history', { p_request_id: Number(requestId) });
+        element.textContent = error ? '' : historyText(data);
+    } catch (e) {
+        element.textContent = '';
+    }
+}
+
+return { build, html, print, printApprovedRequest, idBoxes, timeText, revisedAt, historyText, showHistory };
 }));
