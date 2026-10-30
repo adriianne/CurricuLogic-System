@@ -46,7 +46,7 @@ function parseYearLevel(raw) {
     return m ? { value: Number(m[1]) } : { error: 'Year level must be 1 to 4, or left blank.' };
 }
 
-/* A student ID is 7 digits, as everywhere else in the system. Spaces and dashes typed in are dropped. */
+/* A student ID is 8 digits, as everywhere else in the system. Spaces and dashes typed in are dropped. */
 const cleanStudentId = (raw) => String(raw ?? '').replace(/[\s-]/g, '');
 
 /* The programme a row names, matched against the programmes that exist, ignoring case.
@@ -81,7 +81,7 @@ function checkRows(rows, programs, existing = new Set()) {
         const reject = (why) => bad.push({ ...base, why });
 
         if (!studentId) { reject('Missing student ID.'); continue; }
-        if (!/^\d{7}$/.test(studentId)) { reject('Student ID must be 7 digits.'); continue; }
+        if (!/^\d{8}$/.test(studentId)) { reject('Student ID must be 8 digits.'); continue; }
 
         const firstProblem = first ? NameRules.problem(first, 'first name') : 'Missing first name.';
         if (firstProblem) { reject(firstProblem); continue; }

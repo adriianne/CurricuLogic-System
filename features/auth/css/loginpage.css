@@ -22,6 +22,9 @@
     --rust-tint:   #f6e1dd;
     --green-deep:  #0a7a53;
     --green-tint:  #def0e6;
+    --amber:       #b7791f;
+    --amber-deep:  #7a4a05;
+    --amber-tint:  #fbefd2;
 
     --font-display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
     --font-mono:    ui-monospace, 'Cascadia Mono', Consolas, monospace;
@@ -648,6 +651,10 @@ img { max-width: 100%; }
 
 .msg.error   { display: block; background: var(--rust-tint); color: var(--rust); border-left: 3px solid var(--rust); animation: msg-in 200ms var(--ease-out); }
 .msg.success { display: block; background: var(--green-tint); color: var(--green-deep); border-left: 3px solid var(--green-deep); animation: msg-in 200ms var(--ease-out); }
+/* A caution that does not stop the person (Register: "not found on the EDP list"). Without this rule the message stayed
+   display: none and the student saw the button change with no explanation. tests/authmessages.test.mjs keeps every style
+   the pages use defined. */
+.msg.pending { display: block; background: var(--amber-tint); color: var(--amber-deep); border-left: 3px solid var(--amber); animation: msg-in 200ms var(--ease-out); }
 
 /* Feedback appears in place; shorter and quieter than the page entrance */
 @keyframes msg-in {
@@ -695,7 +702,8 @@ img { max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
     .auth-card > * { animation: fade-only 200ms ease backwards; animation-delay: 0ms; }
     .msg.error,
-    .msg.success { animation: fade-only 200ms ease; }
+    .msg.success,
+    .msg.pending { animation: fade-only 200ms ease; }
 
     .btn-submit:hover,
     .btn-submit:active { transform: none; }

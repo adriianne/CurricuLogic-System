@@ -47,7 +47,7 @@ const PREVIEW_FACULTY = {
 };
 
 const PREVIEW_STUDENTS = [
-    { id: 's1', user_id: 'u1', first_name: 'Althea',  last_name: 'Villanueva', student_id: '2401187', email: 'althea1@gmail.com',  year_level: 2, is_approved: true,  record_verified: true  },
+    { id: 's1', user_id: 'u1', first_name: 'Althea',  last_name: 'Villanueva', student_id: '24001187', email: 'althea1@gmail.com',  year_level: 2, is_approved: true,  record_verified: true  },
     { id: 's2', user_id: 'u2', first_name: 'Marco',   last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph',      year_level: 2, is_approved: true,  record_verified: true  },
     { id: 's3', user_id: 'u3', first_name: 'Janine',  last_name: 'Abella',     student_id: '2300845', email: 'janine.abella@uc.edu.ph',     year_level: 3, is_approved: true,  record_verified: false },
     { id: 's4', user_id: 'u4', first_name: 'Paulo',   last_name: 'Cabahug',    student_id: '2501562', email: 'paulo.cabahug@uc.edu.ph',     year_level: 1, is_approved: true,  record_verified: false },
@@ -1650,12 +1650,20 @@ async function loadRequestDetail(requestId) {
                 </p>
                 <button class="btn-small" id="print-enrollment-form" data-print-request="${req.id}">
                     <i class="fa-solid fa-print" aria-hidden="true"></i>
-                    Print enrollment form
+                    Print advising slip
+                </button>
+                <button class="btn-small" id="print-uc-form" data-print-uc-form="${req.id}">
+                    <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+                    Print UC enrollment form
                 </button>`;
+            const programName = (s) => window.CurriculogicPrograms?.nameOf(s?.program_id, '') ?? '';
             footEl.querySelector('[data-print-request]')?.addEventListener('click', async () => {
-                const result = await window.AdvisingSlip.printApprovedRequest(supabase, req.id, {
-                    programName: (s) => window.CurriculogicPrograms?.nameOf(s?.program_id, '') ?? '',
-                });
+                const result = await window.AdvisingSlip.printApprovedRequest(supabase, req.id, { programName });
+                if (!result.ok) showMsg('req-detail-msg', result.error);
+            });
+            footEl.querySelector('[data-print-uc-form]')?.addEventListener('click', async () => {
+                if (!window.EnrollmentForm) return showMsg('req-detail-msg', 'Could not open the print view.');
+                const result = await window.EnrollmentForm.printApprovedRequest(supabase, req.id, { programName });
                 if (!result.ok) showMsg('req-detail-msg', result.error);
             });
         } else if (RS.sentBack(req)) {

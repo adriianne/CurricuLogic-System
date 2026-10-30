@@ -352,8 +352,9 @@ function summarize(plan) {
 function describeWishes(wishes) {
     if (!wishes) return [];
     const out = [];
-    if (wishes.earliestStart) out.push(`no classes before ${clock(wishes.earliestStart)}`);
-    if (wishes.latestEnd) out.push(`classes done by ${clock(wishes.latestEnd)}`);
+    // A start of midnight or an end at the very end of the day limits nothing, so it is not shown as a wish.
+    if (wishes.earliestStart && wishes.earliestStart > '00:00') out.push(`no classes before ${clock(wishes.earliestStart)}`);
+    if (wishes.latestEnd && wishes.latestEnd < '23:59') out.push(`classes done by ${clock(wishes.latestEnd)}`);
     const days = (wishes.avoidDays ?? []).filter(d => DAY_NAME[d]).map(d => DAY_NAME[d]);
     if (days.length) out.push(`no classes on ${days.join(', ')}`);
     if (wishes.maxUnits) out.push(`up to ${wishes.maxUnits} units`);

@@ -12,7 +12,7 @@ const X = require('../shared/js/accounts/expectedstudents.js');
 
 const PROGRAMS = [{ id: 1, code: 'BSIT' }, { id: 2, code: 'BSN' }];
 const row = (over = {}) => ({
-    __line: 2, student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva',
+    __line: 2, student_id: '24001187', first_name: 'Althea', last_name: 'Villanueva',
     program_code: 'BSIT', email: 'althea@gmail.com', ...over,
 });
 
@@ -47,15 +47,15 @@ describe('checkRows', () => {
         assert.equal(X.checkRows([row({ program_code: 'bsn' })], PROGRAMS).ok[0].programId, 2);
     });
     test('an ID already on the list is an update', () => {
-        assert.equal(X.checkRows([row()], PROGRAMS, new Set(['2401187'])).ok[0].isUpdate, true);
+        assert.equal(X.checkRows([row()], PROGRAMS, new Set(['24001187'])).ok[0].isUpdate, true);
     });
     test('spaces and dashes in the ID are dropped', () => {
-        assert.equal(X.checkRows([row({ student_id: '24-011 87' })], PROGRAMS).ok[0].studentId, '2401187');
+        assert.equal(X.checkRows([row({ student_id: '24-0011 87' })], PROGRAMS).ok[0].studentId, '24001187');
     });
     test('each kind of bad row says why', () => {
         const cases = [
             [{ student_id: '' }, /Missing student ID/],
-            [{ student_id: '12345' }, /7 digits/],
+            [{ student_id: '12345' }, /8 digits/],
             [{ first_name: '' }, /Missing first name/],
             [{ last_name: '' }, /Missing last name/],
             [{ program_code: '' }, /Missing programme/],
@@ -76,7 +76,7 @@ describe('checkRows', () => {
         assert.equal(bad[0].line, 3);
     });
     test('good and bad rows are sorted apart', () => {
-        const { ok, bad } = X.checkRows([row(), row({ student_id: '1', __line: 3 }), row({ student_id: '2401188', __line: 4 })], PROGRAMS);
+        const { ok, bad } = X.checkRows([row(), row({ student_id: '1', __line: 3 }), row({ student_id: '24001188', __line: 4 })], PROGRAMS);
         assert.equal(ok.length, 2);
         assert.equal(bad.length, 1);
     });
@@ -84,14 +84,14 @@ describe('checkRows', () => {
 
 describe('search', () => {
     const list = [
-        { student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva', email: 'a@x.com', program_code: 'BSIT' },
-        { student_id: '2401203', first_name: 'Marco', last_name: 'Deveza', email: 'm@x.com', program_code: 'BSN' },
+        { student_id: '24001187', first_name: 'Althea', last_name: 'Villanueva', email: 'a@x.com', program_code: 'BSIT' },
+        { student_id: '24001203', first_name: 'Marco', last_name: 'Deveza', email: 'm@x.com', program_code: 'BSN' },
     ];
     test('matches ID, name, email and programme', () => {
         assert.equal(X.search(list, '1187').length, 1);
         assert.equal(X.search(list, 'marco deveza').length, 1);
         assert.equal(X.search(list, 'M@X').length, 1);
-        assert.equal(X.search(list, 'bsn')[0].student_id, '2401203');
+        assert.equal(X.search(list, 'bsn')[0].student_id, '24001203');
     });
     test('empty search returns everything', () => {
         assert.equal(X.search(list, '  ').length, 2);
@@ -162,7 +162,7 @@ describe('checkRows with year_level', () => {
 
 describe('accountCandidates', () => {
     const l = (id, email) => ({ student_id: id, email, first_name: 'A', last_name: 'B' });
-    const list = [l('2400001', 'a@x.com'), l('2400002', 'b@x.com'), l('2400003', 'C@X.com'), l('2400004', 'd@x.com')];
+    const list = [l('24000001', 'a@x.com'), l('24000002', 'b@x.com'), l('24000003', 'C@X.com'), l('24000004', 'd@x.com')];
 
     test('everyone without an account is created', () => {
         const r = X.accountCandidates(list, new Set(), new Set(), 50);
@@ -171,8 +171,8 @@ describe('accountCandidates', () => {
         assert.equal(r.later, 0);
     });
     test('a student ID that already has an account is skipped, with the reason', () => {
-        const r = X.accountCandidates(list, new Set(['2400002']), new Set(), 50);
-        assert.deepEqual(r.create.map(x => x.student_id), ['2400001', '2400003', '2400004']);
+        const r = X.accountCandidates(list, new Set(['24000002']), new Set(), 50);
+        assert.deepEqual(r.create.map(x => x.student_id), ['24000001', '24000003', '24000004']);
         assert.match(r.skipped[0].why, /student ID/);
     });
     test('an email that is already used is skipped, whatever its case', () => {
@@ -186,11 +186,23 @@ describe('accountCandidates', () => {
         assert.equal(r.later, 1);
     });
     test('skipped students do not count against the limit', () => {
-        const r = X.accountCandidates(list, new Set(['2400001']), new Set(), 3);
-        assert.deepEqual(r.create.map(x => x.student_id), ['2400002', '2400003', '2400004']);
+        const r = X.accountCandidates(list, new Set(['24000001']), new Set(), 3);
+        assert.deepEqual(r.create.map(x => x.student_id), ['24000002', '24000003', '24000004']);
         assert.equal(r.later, 0);
     });
     test('an empty list is fine', () => {
         assert.deepEqual(X.accountCandidates([], new Set(), new Set(), 50), { create: [], skipped: [], later: 0 });
+    });
+});
+
+describe('student IDs are 8 digits only (db/090)', () => {
+    const row = (id) => ({ __line: 2, student_id: id, first_name: 'Althea', last_name: 'Villanueva', email: 'a@x.com', program_code: 'BSIT' });
+    test('8 digits pass; 7 and 9 digits are rejected, the old 7-digit form too', () => {
+        assert.equal(X.checkRows([row('26000001')], PROGRAMS).ok.length, 1);
+        for (const id of ['2401187', '240011870']) {
+            const r = X.checkRows([row(id)], PROGRAMS);
+            assert.equal(r.ok.length, 0, id);
+            assert.match(r.bad[0].why, /8 digits/);
+        }
     });
 });

@@ -58,7 +58,7 @@ const PREVIEW_STAFF = [
 ];
 
 const PREVIEW_STUDENTS = [
-    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', program_id: 1, email: 'althea1@gmail.com',   is_approved: true,  approval_status: 'approved' },
+    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '24001187', program_id: 1, email: 'althea1@gmail.com',   is_approved: true,  approval_status: 'approved' },
     { id: 's2', first_name: 'Marco',  last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph', is_approved: false, approval_status: 'pending' },
     { id: 's3', first_name: 'Janine', last_name: 'Abella',     student_id: null,       email: 'janine.abella@uc.edu.ph', is_approved: false, approval_status: 'pending' },
 ];
@@ -79,6 +79,7 @@ const VIEWS = {
     programs:  'Programs',
     students:  'Students',
     edplist:   'EDP student list',
+    logs:      'System logs',
     profile:   'Profile',
 };
 
@@ -111,6 +112,7 @@ function showView(name) {
     if (name === 'students') loadStudents();
     if (name === 'bulk')     initBulkUpload();
     if (name === 'edplist')  initEdpList();
+    if (name === 'logs')     initLogs();
 }
 
 function route() {
@@ -1167,7 +1169,7 @@ async function createAccount() {
     // Staff (faculty, registrar, department) get their EMP- number from the
     // database when the account is created; nothing is typed for them.
     // A student with no ID yet is fine: leave it blank and the database
-    // issues one (db/045). A typed ID is checked there (7 digits, unique).
+    // issues one (db/045). A typed ID is checked there (8 digits, unique).
 
     // Every role in this form belongs to exactly one programme (db/030) --
     // a student's decides their curriculum, and a staff role's is what
@@ -1465,7 +1467,7 @@ function downloadBulkTemplate() {
         faculty:    { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: '', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
         registrar:  { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: '', student_id: '', program_code: sampleProgram, department: 'Office of the Registrar', year_level: '', password: '', username: '' },
         department: { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: '', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
-        student:    { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '2401187', program_code: sampleProgram, department: '', year_level: '2', password: '', username: '' },
+        student:    { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '24001187', program_code: sampleProgram, department: '', year_level: '2', password: '', username: '' },
         // An admin belongs to no programme, whatever is chosen above.
         admin:      { first_name: 'Alex', last_name: 'Rivera', email: 'alex.rivera@uc.edu.ph', role: 'admin', employee_id: 'SYS-ADMIN02', student_id: '', program_code: '', department: '', year_level: '', password: '', username: 'alex.rivera' },
     };
@@ -1647,7 +1649,7 @@ function validateBulkRows(rows, fileName) {
         if (role === 'student') {
             // A blank student_id is fine: the database issues the number.
             if (studentId) {
-                if (!/^\d{7}$/.test(studentId)) { bad.push({ ...base, why: 'Student ID must be 7 digits, or left blank to be assigned automatically.' }); continue; }
+                if (!/^\d{8}$/.test(studentId)) { bad.push({ ...base, why: 'Student ID must be 8 digits, or left blank to be assigned automatically.' }); continue; }
                 if (seenStudentIds.has(studentId)) { bad.push({ ...base, why: 'Duplicate student ID in file.' }); continue; }
                 seenStudentIds.add(studentId);
             }
@@ -2719,7 +2721,7 @@ async function onEdpBodyClick(e) {
 
 function downloadEdpTemplate() {
     const code = PROGRAMS[0]?.code ?? '';
-    const rows = [{ student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva', program_code: code, email: 'althea.villanueva@uc.edu.ph', year_level: '2' }];
+    const rows = [{ student_id: '24001187', first_name: 'Althea', last_name: 'Villanueva', program_code: code, email: 'althea.villanueva@uc.edu.ph', year_level: '2' }];
     const ws = XLSX.utils.json_to_sheet(rows, { header: CurriculogicExpectedStudents.COLUMNS });
     ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 32 }, { wch: 12 }];
     const wb = XLSX.utils.book_new();
@@ -3104,6 +3106,454 @@ async function createEdpAccounts() {
     forgetStudentEdp();
     showMsg('edp-msg', `${plural(success.length, 'account')} created from the list.`, 'success');
     if (!PREVIEW) { await loadStudents(); renderEdpList(); } else renderEdpList();
+}
+
+
+/* ---------- system logs (read-only) ----------
+   Shows the project's own log tables to the Administrator: audit_log (activity), account_stop_log (accounts),
+   bulk_upload_history (uploads), maintenance_log (nightly cleanup) and cura_usage (Cura speed and failures).
+   Every rule about wording, masking and summing is in shared/js/records/systemlogs.js, which is tested.
+   Nothing here writes. The database lets only an Administrator read these tables (db/089 and earlier). */
+
+const SL = window.CurriculogicSystemLogs;
+const LOGS_PAGE = 50;
+const LOG_ROLE_TABLES = ['system_administrator', 'registrar_staff', 'faculty_staff', 'department_staff', 'university_student'];
+const LOG_ROLE_OF_TABLE = {
+    system_administrator: 'system_administrator', registrar_staff: 'registrar_staff', faculty_staff: 'faculty_staff',
+    department_staff: 'department_staff', university_student: 'student',
+};
+
+const LOGS = {
+    tab: 'activity',
+    audit: [],            // activity rows loaded so far, newest first
+    auditMore: false,     // true when the last request returned more than one page
+    auditBusy: false,
+    people: new Map(),    // sign-in id -> "Name (Role)", filled as rows are read
+    maint: [],            // maintenance_log rows (the latest 300)
+    cura: [],             // cura_usage rows from the last 7 days
+};
+let logsInitialized = false;
+
+/* Sample data for ?preview, so the page can be seen without signing in. */
+const PREVIEW_NOW = Date.now();
+const prevAgo = (h) => new Date(PREVIEW_NOW - h * 3600000).toISOString().replace('Z', '');
+const PREVIEW_AUDIT = [
+    { id: 9, actor_id: 'u1', actor_role: 'system_administrator', action: 'PROVISION_ACCOUNT', table_name: 'university_student', record_id: '0c0e8f3a-1111-4a8b-9e0b-aaaaaaaaaaaa', old_values: null, new_values: { id: '0c0e8f3a', email: 'juan.delacruz@gmail.com', first_name: 'Juan', last_name: 'Dela Cruz', user_id: 'x', password_hash: 'abc', year_level: 3 }, created_at: prevAgo(0.5) },
+    { id: 8, actor_id: 'u1', actor_role: 'system_administrator', action: 'UPDATE_UNIVERSITY_STUDENT', table_name: 'university_student', record_id: '0c0e8f3a-1111-4a8b-9e0b-aaaaaaaaaaaa', old_values: { is_approved: false }, new_values: { is_approved: true }, created_at: prevAgo(2) },
+    { id: 7, actor_id: 'u2', actor_role: 'department_staff', action: 'UPDATE_PROSPECTUS', table_name: 'prospectus', record_id: '13', old_values: { status: 'draft' }, new_values: { status: 'active' }, created_at: prevAgo(5) },
+    { id: 6, actor_id: null, actor_role: 'system', action: 'DELETE_UNIVERSITY_STUDENT', table_name: 'university_student', record_id: 'fa4cb413-d6e5-4933-83d3-bbfb2566f4f0', old_values: { id: 'fa4cb413', email: 'old.person@gmail.com', last_name: 'Reyes' }, new_values: null, created_at: prevAgo(30) },
+    { id: 5, actor_id: 'u3', actor_role: 'registrar_staff', action: 'UPDATE_UNIVERSITY_STUDENT', table_name: 'university_student', record_id: '77aa', old_values: { year_level: 2 }, new_values: { year_level: 3 }, created_at: prevAgo(52) },
+];
+const PREVIEW_PEOPLE = new Map([['u1', 'System Admin (Administrator)'], ['u2', 'Dept Staff (Department)'], ['u3', 'Registrar Staff (Registrar)']]);
+const PREVIEW_STOPS = [
+    { seq: 2, role: 'student', target_id: 's1', action: 'restore', reason: null, actor_id: 'u1', created_at: prevAgo(10) + 'Z' },
+    { seq: 1, role: 'student', target_id: 's1', action: 'stop', reason: 'Not enrolled this year', actor_id: 'u1', created_at: prevAgo(60) + 'Z' },
+];
+const PREVIEW_UPLOADS = [
+    { id: 'b1', admin_id: 'admin1', file_name: 'edp-list-2026.csv', total_rows: 40, success_count: 38, failed_count: 2, created_at: prevAgo(80) + 'Z' },
+];
+const PREVIEW_MAINT = [
+    { ran_at: prevAgo(20) + 'Z', task: 'unconfirmed_signups', rows_found: 0, dry_run: false },
+    { ran_at: prevAgo(20) + 'Z', task: 'read_notifications', rows_found: 2, dry_run: false },
+    { ran_at: prevAgo(20) + 'Z', task: 'stg_subject', rows_found: 5, dry_run: false },
+];
+const PREVIEW_CURA = [
+    { created_at: prevAgo(0.2) + 'Z', client: 'web', status: 'ok', duration_ms: 37659, model: 'gemini-flash-lite-latest', attempts: 3, had_wishes: false },
+    { created_at: prevAgo(1) + 'Z', client: 'web', status: 'ok', duration_ms: 4200, model: 'gemini-3.1-flash-lite', attempts: 1, had_wishes: true },
+    { created_at: prevAgo(3) + 'Z', client: 'app', status: 'busy', duration_ms: 46100, model: 'gemini-flash-lite-latest', attempts: 6, had_wishes: false },
+    { created_at: prevAgo(5) + 'Z', client: 'web', status: 'ok', duration_ms: 5100, model: 'gemini-3.1-flash-lite', attempts: 1, had_wishes: false },
+    { created_at: prevAgo(30) + 'Z', client: 'web', status: 'error', duration_ms: 900, model: null, attempts: 2, had_wishes: false },
+];
+
+function logsWhen(iso) {
+    const t = SL.parseTime(iso);
+    if (!Number.isFinite(t)) return '';
+    return new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function logsEmpty(text) {
+    return `<div class="empty"><i class="fa-solid fa-inbox" aria-hidden="true"></i><h3>${escapeHtml(text)}</h3></div>`;
+}
+
+function logsLoading(text = 'Loading') {
+    return `<div class="empty"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><h3>${escapeHtml(text)}</h3></div>`;
+}
+
+/* Names for sign-in ids, read once per id from the role tables (an Administrator may read all of them). */
+async function logsLearnPeople(userIds) {
+    if (PREVIEW) { for (const [k, v] of PREVIEW_PEOPLE) LOGS.people.set(k, v); return; }
+    const ids = [...new Set(userIds.filter(Boolean))].filter(id => !LOGS.people.has(id));
+    if (!ids.length || !supabase) return;
+    await Promise.all(LOG_ROLE_TABLES.map(async (table) => {
+        const { data, error } = await supabase.from(table).select('user_id, first_name, last_name').in('user_id', ids);
+        if (error) { console.warn(`logs: names from ${table} failed:`, error.message); return; }
+        for (const p of data ?? []) {
+            LOGS.people.set(p.user_id, `${fullName(p) || 'Unnamed'} (${SL.roleLabel(LOG_ROLE_OF_TABLE[table])})`);
+        }
+    }));
+}
+
+function logsPerson(id, role) {
+    if (!id) return SL.roleLabel(role);
+    return LOGS.people.get(id) ?? `Removed account (${SL.roleLabel(role)})`;
+}
+
+/* ---- Activity ---- */
+
+function logsFilters() {
+    return {
+        kind: $('logs-f-kind')?.value || '',
+        table: $('logs-f-table')?.value || '',
+        role: $('logs-f-role')?.value || '',
+        from: $('logs-f-from')?.value || '',
+        to: $('logs-f-to')?.value || '',
+        record: ($('logs-f-record')?.value || '').trim(),
+    };
+}
+
+/* The same filters applied to the sample data. */
+function logsPreviewAudit(f, before) {
+    const day = 86400000;
+    return PREVIEW_AUDIT
+        .filter(r => (before === null || r.id < before))
+        .filter(r => !f.kind || r.action.startsWith(f.kind))
+        .filter(r => !f.table || r.table_name === f.table)
+        .filter(r => !f.role || r.actor_role === f.role)
+        .filter(r => !f.record || r.record_id === f.record)
+        .filter(r => !f.from || SL.parseTime(r.created_at) >= Date.parse(f.from))
+        .filter(r => !f.to || SL.parseTime(r.created_at) < Date.parse(f.to) + day)
+        .slice(0, LOGS_PAGE + 1);
+}
+
+async function logsFetchAudit(f, before) {
+    if (PREVIEW) return { rows: logsPreviewAudit(f, before), error: null };
+    let q = supabase.from('audit_log')
+        .select('id, actor_id, actor_role, action, table_name, record_id, old_values, new_values, created_at')
+        .order('id', { ascending: false })
+        .limit(LOGS_PAGE + 1);
+    if (before !== null) q = q.lt('id', before);
+    if (f.kind) q = q.ilike('action', `${f.kind}%`);
+    if (f.table) q = q.eq('table_name', f.table);
+    if (f.role) q = q.eq('actor_role', f.role);
+    if (f.record) q = q.eq('record_id', f.record);
+    if (f.from) q = q.gte('created_at', f.from);
+    if (f.to) {
+        const next = new Date(Date.parse(f.to) + 86400000).toISOString().slice(0, 10);
+        q = q.lt('created_at', next);
+    }
+    const { data, error } = await q;
+    return { rows: data ?? [], error };
+}
+
+/* reset: start again from the newest entry (a filter changed); otherwise add the next page. */
+async function loadActivity(reset) {
+    if (LOGS.auditBusy) return;
+    LOGS.auditBusy = true;
+    const body = $('logs-activity-body');
+    if (reset) { LOGS.audit = []; if (body) body.innerHTML = logsLoading(); }
+
+    const before = reset || !LOGS.audit.length ? null : LOGS.audit[LOGS.audit.length - 1].id;
+    const { rows, error } = await logsFetchAudit(logsFilters(), before);
+    LOGS.auditBusy = false;
+
+    if (error) {
+        console.warn('logs: activity failed:', error.message);
+        if (body) body.innerHTML = logsEmpty('Could not load the activity log.');
+        showMsg('logs-msg', 'Could not load the activity log. Try again in a moment.');
+        return;
+    }
+    showMsg('logs-msg', '', 'info');
+    LOGS.auditMore = rows.length > LOGS_PAGE;
+    LOGS.audit.push(...rows.slice(0, LOGS_PAGE));
+    await logsLearnPeople(LOGS.audit.map(r => r.actor_id));
+    renderActivity();
+}
+
+function renderActivity() {
+    const body = $('logs-activity-body');
+    if (!body) return;
+    const more = $('logs-activity-more');
+    if (more) more.hidden = !LOGS.auditMore;
+    setText('logs-activity-count', LOGS.audit.length ? `${LOGS.audit.length} shown${LOGS.auditMore ? ', newest first' : ''}` : '');
+
+    if (!LOGS.audit.length) { body.innerHTML = logsEmpty('Nothing matches these filters.'); return; }
+
+    const rows = LOGS.audit.map(r => {
+        const c = SL.changesOf(r);
+        const list = c.fields.length
+            ? `<ul class="logs-changes">${c.fields.map(f =>
+                `<li><span class="mono">${escapeHtml(f.field)}</span>: <span class="from">${escapeHtml(f.from)}</span> &rarr; ${escapeHtml(f.to)}</li>`).join('')}${c.more ? `<li class="more">and ${c.more} more fields</li>` : ''}</ul>`
+            : '';
+        const rid = String(r.record_id ?? '');
+        return `<tr>
+            <td>${escapeHtml(logsWhen(r.created_at))}<br><span class="dim">${escapeHtml(SL.agoLabel(r.created_at))}</span></td>
+            <td>${escapeHtml(logsPerson(r.actor_id, r.actor_role))}</td>
+            <td><strong>${escapeHtml(SL.actionLabel(r.action))}</strong><br><span class="dim">${escapeHtml(SL.tableLabel(r.table_name))}</span></td>
+            <td class="mono" title="${escapeHtml(rid)}">${escapeHtml(rid.length > 12 ? rid.slice(0, 8) + '…' : rid)}</td>
+            <td>${list || '<span class="dim">No details recorded</span>'}</td>
+        </tr>`;
+    }).join('');
+
+    body.innerHTML = `<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>When</th><th>Who</th><th>What</th><th>Record</th><th>Details</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+}
+
+/* ---- Accounts ---- */
+
+async function loadAccountsLog() {
+    const body = $('logs-accounts-body');
+    if (body) body.innerHTML = logsLoading();
+
+    let rows = [];
+    if (PREVIEW) rows = PREVIEW_STOPS;
+    else {
+        const { data, error } = await supabase.from('account_stop_log')
+            .select('seq, role, target_id, action, reason, actor_id, created_at')
+            .order('seq', { ascending: false }).limit(100);
+        if (error) { console.warn('logs: accounts failed:', error.message); if (body) body.innerHTML = logsEmpty('Could not load this log.'); return; }
+        rows = data ?? [];
+    }
+
+    // Who was stopped is a row id in that role's own table, not a sign-in id.
+    const names = new Map();
+    if (PREVIEW) names.set('student:s1', 'Maria Santos');
+    else {
+        const byTable = { student: 'university_student', faculty: 'faculty_staff', registrar: 'registrar_staff', department: 'department_staff' };
+        await Promise.all(Object.entries(byTable).map(async ([role, table]) => {
+            const ids = [...new Set(rows.filter(r => r.role === role).map(r => r.target_id))];
+            if (!ids.length) return;
+            const { data } = await supabase.from(table).select('id, first_name, last_name').in('id', ids);
+            for (const p of data ?? []) names.set(`${role}:${p.id}`, fullName(p) || 'Unnamed');
+        }));
+    }
+    await logsLearnPeople(rows.map(r => r.actor_id));
+
+    setText('logs-accounts-count', rows.length ? `${rows.length} shown` : '');
+    if (!body) return;
+    if (!rows.length) { body.innerHTML = logsEmpty('No account has been stopped or restored yet.'); return; }
+
+    body.innerHTML = `<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>When</th><th>Account</th><th>What</th><th>Reason</th><th>Done by</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+            <td>${escapeHtml(logsWhen(r.created_at))}<br><span class="dim">${escapeHtml(SL.agoLabel(r.created_at))}</span></td>
+            <td>${escapeHtml(names.get(`${r.role}:${r.target_id}`) ?? 'Removed account')}<br><span class="dim">${escapeHtml(SL.roleLabel(r.role === 'student' ? 'student' : `${r.role}_staff`))}</span></td>
+            <td><span class="pill ${r.action === 'stop' ? 'bad' : 'ok'}">${r.action === 'stop' ? 'Stopped' : 'Restored'}</span></td>
+            <td>${r.reason ? escapeHtml(r.reason) : '<span class="dim">&mdash;</span>'}</td>
+            <td>${escapeHtml(logsPerson(r.actor_id, 'system_administrator'))}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ---- Uploads ---- */
+
+async function loadUploadsLog() {
+    const body = $('logs-uploads-body');
+    if (body) body.innerHTML = logsLoading();
+
+    let rows = [];
+    const admins = new Map();
+    if (PREVIEW) { rows = PREVIEW_UPLOADS; admins.set('admin1', 'System Admin'); }
+    else {
+        const { data, error } = await supabase.from('bulk_upload_history')
+            .select('id, admin_id, file_name, total_rows, success_count, failed_count, created_at')
+            .order('created_at', { ascending: false }).limit(100);
+        if (error) { console.warn('logs: uploads failed:', error.message); if (body) body.innerHTML = logsEmpty('Could not load this log.'); return; }
+        rows = data ?? [];
+        const ids = [...new Set(rows.map(r => r.admin_id).filter(Boolean))];
+        if (ids.length) {
+            const { data: people } = await supabase.from('system_administrator').select('id, first_name, last_name').in('id', ids);
+            for (const p of people ?? []) admins.set(p.id, fullName(p) || 'Unnamed');
+        }
+    }
+
+    setText('logs-uploads-count', rows.length ? `${rows.length} shown` : '');
+    if (!body) return;
+    if (!rows.length) { body.innerHTML = logsEmpty('No bulk upload has been run yet.'); return; }
+
+    body.innerHTML = `<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>When</th><th>File</th><th>Done by</th><th class="num">Rows</th><th class="num">Created</th><th class="num">Rejected</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+            <td>${escapeHtml(logsWhen(r.created_at))}<br><span class="dim">${escapeHtml(SL.agoLabel(r.created_at))}</span></td>
+            <td>${escapeHtml(r.file_name ?? '')}</td>
+            <td>${escapeHtml(admins.get(r.admin_id) ?? 'Removed account')}</td>
+            <td class="num">${escapeHtml(r.total_rows ?? '')}</td>
+            <td class="num">${escapeHtml(r.success_count ?? '')}</td>
+            <td class="num">${r.failed_count ? `<span class="pill bad">${escapeHtml(r.failed_count)}</span>` : '0'}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ---- System health: the nightly cleanup and Cura ---- */
+
+async function loadHealthData() {
+    if (PREVIEW) { LOGS.maint = PREVIEW_MAINT; LOGS.cura = PREVIEW_CURA; return true; }
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const [m, c] = await Promise.all([
+        supabase.from('maintenance_log').select('ran_at, task, rows_found, dry_run').order('ran_at', { ascending: false }).limit(300),
+        supabase.from('cura_usage').select('created_at, client, status, duration_ms, model, attempts, had_wishes')
+            .gte('created_at', weekAgo).order('created_at', { ascending: false }).limit(5000),
+    ]);
+    if (m.error) console.warn('logs: maintenance failed:', m.error.message);
+    if (c.error) console.warn('logs: cura usage failed:', c.error.message);
+    LOGS.maint = m.data ?? [];
+    LOGS.cura = c.data ?? [];
+    return !m.error && !c.error;
+}
+
+async function loadAuditCount() {
+    if (PREVIEW) {
+        const since = Date.now() - 86400000;
+        return PREVIEW_AUDIT.filter(r => SL.parseTime(r.created_at) >= since).length;
+    }
+    const since = new Date(Date.now() - 86400000).toISOString();
+    const { count, error } = await supabase.from('audit_log').select('id', { count: 'exact', head: true }).gte('created_at', since);
+    return error ? null : count;
+}
+
+function renderLogsStats(auditCount) {
+    const now = Date.now();
+    setText('logs-stat-audit', auditCount === null ? '—' : String(auditCount), 'stat-value');
+
+    const clean = SL.lastCleanup(LOGS.maint, now);
+    if (clean.state === 'none') {
+        setText('logs-stat-cleanup', 'Not yet', 'stat-value warn');
+        setText('logs-stat-cleanup-hint', 'No run recorded');
+    } else {
+        setText('logs-stat-cleanup', SL.agoLabel(clean.ranAt, now), clean.state === 'ok' ? 'stat-value' : 'stat-value warn');
+        setText('logs-stat-cleanup-hint', clean.state === 'ok' ? 'On time' : 'Late: it should run every night');
+    }
+
+    const day = SL.curaSummary(LOGS.cura, now, 24);
+    setText('logs-stat-cura', day.successRate === null ? '—' : `${day.successRate}%`, 'stat-value');
+    setText('logs-stat-cura-hint', day.total ? `${day.ok} of ${day.total} went well` : 'No requests yet');
+    setText('logs-stat-time', day.avgMs === null ? '—' : SL.durationLabel(day.avgMs), 'stat-value');
+    setText('logs-stat-time-hint', day.maxMs === null ? 'Last 24 hours' : `Slowest ${SL.durationLabel(day.maxMs)}`);
+}
+
+function renderCleanup() {
+    const body = $('logs-cleanup-body');
+    if (!body) return;
+    const c = SL.lastCleanup(LOGS.maint, Date.now());
+    if (c.state === 'none') {
+        setText('logs-cleanup-note', '');
+        body.innerHTML = logsEmpty('The nightly cleanup has not run yet.');
+        return;
+    }
+    setText('logs-cleanup-note', `Last run ${logsWhen(c.ranAt)} (${SL.agoLabel(c.ranAt)})`);
+    body.innerHTML = `
+        ${c.state === 'late' ? `<div class="notice pending logs-warn"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><div><strong>The cleanup is late</strong>It should run every night and last ran ${escapeHtml(String(c.hoursAgo))} hours ago. Check that the scheduled job is still active in the database.</div></div>` : ''}
+        <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>Rule</th><th class="num">Rows removed</th></tr></thead>
+            <tbody>${c.tasks.map(t => `<tr><td>${escapeHtml(t.task.replace(/_/g, ' '))}</td><td class="num">${escapeHtml(t.rowsFound)}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+}
+
+function renderCuraHealth() {
+    const body = $('logs-cura-body');
+    if (!body) return;
+    const now = Date.now();
+    const d = SL.curaSummary(LOGS.cura, now, 24);
+    const w = SL.curaSummary(LOGS.cura, now, 168);
+
+    if (!w.total) { body.innerHTML = logsEmpty('No Cura requests in the last 7 days.'); return; }
+
+    const mix = (s) => `
+        <div class="logs-mix">
+            <span><b>${s.total}</b> requests</span>
+            <span><b>${s.ok}</b> OK</span>
+            <span><b>${s.busy}</b> busy</span>
+            <span><b>${s.error}</b> errors</span>
+            <span><b>${s.badRequest}</b> refused</span>
+            <span>average <b>${escapeHtml(SL.durationLabel(s.avgMs))}</b></span>
+            <span>95% within <b>${escapeHtml(SL.durationLabel(s.p95Ms))}</b></span>
+            <span>slowest <b>${escapeHtml(SL.durationLabel(s.maxMs))}</b></span>
+            <span>average tries <b>${s.avgAttempts ?? '—'}</b></span>
+            <span><b>${s.withWishes}</b> with plan wishes</span>
+        </div>`;
+
+    // A plain reading of the numbers, only when there is something to say.
+    const notes = [];
+    // Two or three requests say nothing about a pattern, so both warnings wait for at least five.
+    if (w.total >= 5 && w.retried / w.total >= 0.3) {
+        notes.push(`${w.retried} of ${w.total} answers in the last 7 days needed more than one try. Cura retries when the AI service is busy or fails, which is what makes some answers slow.`);
+    }
+    if (w.total >= 5 && w.successRate !== null && w.successRate < 80) {
+        notes.push(`Only ${w.successRate}% of requests in the last 7 days went well.`);
+    }
+
+    const recent = LOGS.cura.slice(0, 15).map(r => {
+        const pill = SL.statusPill(r.status);
+        return `<tr>
+            <td>${escapeHtml(logsWhen(r.created_at))}<br><span class="dim">${escapeHtml(SL.agoLabel(r.created_at))}</span></td>
+            <td>${escapeHtml(r.client ?? '—')}</td>
+            <td><span class="pill ${pill.cls}">${escapeHtml(pill.label)}</span></td>
+            <td class="num">${escapeHtml(SL.durationLabel(r.duration_ms))}</td>
+            <td>${escapeHtml(r.model ?? '—')}</td>
+            <td class="num">${escapeHtml(r.attempts ?? '—')}</td>
+            <td>${r.had_wishes ? 'Yes' : ''}</td>
+        </tr>`;
+    }).join('');
+
+    body.innerHTML = `
+        ${notes.map(n => `<div class="notice pending logs-warn"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><div>${escapeHtml(n)}</div></div>`).join('')}
+        <h3 class="logs-sub">Last 24 hours</h3>${d.total ? mix(d) : '<p class="dim">No requests in the last 24 hours.</p>'}
+        <h3 class="logs-sub">Last 7 days</h3>${mix(w)}
+        <p class="dim" style="margin:0 0 var(--s3);">Models used: ${w.byModel.length ? w.byModel.map(m => `${escapeHtml(m.model)} (${m.count})`).join(', ') : 'none recorded'}</p>
+        <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>When</th><th>From</th><th>Result</th><th class="num">Time</th><th>Model</th><th class="num">Tries</th><th>Wishes</th></tr></thead>
+            <tbody>${recent}</tbody>
+        </table></div>`;
+}
+
+async function loadHealth() {
+    const ok = await loadHealthData();
+    if (!ok) showMsg('logs-msg', 'Some of the health numbers could not be loaded.');
+    renderLogsStats(await loadAuditCount());
+    renderCleanup();
+    renderCuraHealth();
+}
+
+/* ---- the page ---- */
+
+const LOGS_TAB_LOADERS = {
+    activity: () => loadActivity(true),
+    accounts: loadAccountsLog,
+    uploads: loadUploadsLog,
+    health: loadHealth,
+};
+
+function setLogsTab(name) {
+    if (!(name in LOGS_TAB_LOADERS)) return;
+    LOGS.tab = name;
+    document.querySelectorAll('[data-logs-tab]').forEach((btn) => {
+        const on = btn.dataset.logsTab === name;
+        btn.classList.toggle('on', on);
+        btn.setAttribute('aria-pressed', String(on));
+    });
+    document.querySelectorAll('[data-logs-panel]').forEach((panel) => { panel.hidden = panel.dataset.logsPanel !== name; });
+    LOGS_TAB_LOADERS[name]();
+}
+
+function initLogs() {
+    if (!SL) { showMsg('logs-msg', 'The log page could not start (a script did not load).'); return; }
+    if (!logsInitialized) {
+        logsInitialized = true;
+        $('logs-tabs')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-logs-tab]');
+            if (btn) setLogsTab(btn.dataset.logsTab);
+        });
+        for (const id of ['logs-f-kind', 'logs-f-table', 'logs-f-role', 'logs-f-from', 'logs-f-to']) {
+            $(id)?.addEventListener('change', () => loadActivity(true));
+        }
+        let timer = null;
+        $('logs-f-record')?.addEventListener('input', () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => loadActivity(true), 350);
+        });
+        $('logs-activity-more')?.addEventListener('click', () => loadActivity(false));
+    }
+    // The summary tiles are on every tab; the open tab loads its own table.
+    loadHealthData().then(async () => renderLogsStats(await loadAuditCount()));
+    setLogsTab(LOGS.tab);
 }
 
 

@@ -186,3 +186,12 @@ describe('when nothing fits what was asked', () => {
         assert.match(summarize(run([a], {})), /Nothing could be selected automatically/);
     });
 });
+
+describe('wishes that limit nothing are not shown', () => {
+    const { describeWishes } = require('../shared/js/enrolment/autoplan.js');
+    test('a start at midnight and an end at the end of the day are left out of the words', () => {
+        assert.deepEqual(describeWishes(W({ earliestStart: '00:00', latestEnd: '12:00' })), ['classes done by 12:00 PM']);
+        assert.deepEqual(describeWishes(W({ earliestStart: '09:00', latestEnd: '23:59' })), ['no classes before 9:00 AM']);
+        assert.deepEqual(describeWishes(W({ earliestStart: '00:00', latestEnd: '23:59' })), []);
+    });
+});

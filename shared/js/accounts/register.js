@@ -22,11 +22,11 @@ if (!supabase) console.error('register.js: Supabase client not created. Is confi
 
 const $ = (id) => document.getElementById(id);
 
-/* A student ID is 7 digits. A leading "uc-" (the sign-in prefix) is accepted
+/* A student ID is 8 digits. A leading "uc-" (the sign-in prefix) is accepted
    and dropped, the same as the database does. null when it is not valid. */
 const studentIdDigits = (raw) => {
     const digits = String(raw ?? '').trim().replace(/^uc-/i, '');
-    return /^\d{7}$/.test(digits) ? digits : null;
+    return /^\d{8}$/.test(digits) ? digits : null;
 };
 
 let path = 'new';
@@ -39,7 +39,7 @@ function showMsg(text, type = 'error') {
     if (!box) return;
     box.textContent = text;
     box.className = 'msg ' + type;
-    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function clearMsg() {
@@ -149,7 +149,7 @@ function validate() {
         if (lastProblem) return mark('last-name', lastProblem);
     } else {
         if (!$('student-id').value.trim()) return mark('student-id', 'Enter your student ID.');
-        if (!studentIdDigits($('student-id').value)) return mark('student-id', 'Student ID is 7 digits, for example 2401187.');
+        if (!studentIdDigits($('student-id').value)) return mark('student-id', 'Student ID is 8 digits, for example 24001187.');
     }
 
     const email = CurriculogicEmailRules.clean($('email').value);

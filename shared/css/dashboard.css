@@ -434,6 +434,7 @@ ul { list-style: none; }
 }
 
 .stat-value.muted { color: #cbd5e1; }
+.stat-value.warn { color: #b45309; }
 
 .stat-hint {
     display: block;
@@ -818,6 +819,7 @@ dl:has(> .detail) { container: detail-list / inline-size; }
 .btn-accent:active { transform: translateY(0); box-shadow: none; }
 
 .btn-accent:disabled {
+    background: var(--indigo);
     opacity: 0.6;
     cursor: not-allowed;
     transform: none;
@@ -2708,6 +2710,51 @@ input[type="password"]::-ms-clear {
     color: var(--indigo);
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
+
+/* The same switch made of buttons, for tabs that stay on one address (Administrator > System logs). */
+button.mode-opt {
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
+}
+button.mode-opt.on { background: #fff; }
+button.mode-opt:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+
+/* ---- Administrator > System logs ---- */
+.logs-date {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.82rem;
+    color: var(--slate);
+}
+.logs-date input {
+    height: 2.6rem;
+    padding: 0 0.6rem;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.86rem;
+    color: var(--ink);
+    background: #fff;
+}
+.logs-date input:focus {
+    outline: none;
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+.logs-more { margin-top: var(--s3); text-align: center; }
+.logs-more[hidden], .logs-more > [hidden] { display: none; }
+.logs-changes { margin: 0.35rem 0 0; padding: 0; list-style: none; font-size: 0.8rem; color: var(--slate); }
+.logs-changes li { margin: 0.15rem 0; overflow-wrap: anywhere; }
+.logs-changes .from { text-decoration: line-through; }
+.logs-changes .more { font-style: italic; }
+.logs-mix { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 0 0 var(--s3); font-size: 0.86rem; }
+.logs-mix b { font-weight: 600; }
+.logs-warn { margin-bottom: var(--s3); }
+.logs-sub { margin: var(--s3) 0 var(--s2); font-size: 0.9rem; font-weight: 600; color: var(--ink); }
+.logs-sub:first-of-type { margin-top: 0; }
 
 
 /* ---- grade upload: the chosen file, and a status bar with a real percentage ---- */

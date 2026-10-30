@@ -192,3 +192,57 @@ describe('the wishes instruction', () => {
         assert.match(src, /Never mention the field names "wishes"/);
     });
 });
+
+// ---- usageRow: the usage log keeps how a request ended, never what was said ----
+
+describe('the usage log row', () => {
+    const base = { userId: 'u-1', client: 'web', ms: 1234.4, httpStatus: 200, busy: false, model: 'gemini-flash-lite-latest', attempts: 1, hadWishes: false };
+
+    test('a signed-out or unknown caller gets no row, so the table cannot be filled from outside', () => {
+        for (const userId of [undefined, null, '', 7]) assert.equal(core.usageRow({ ...base, userId }), null);
+    });
+
+    test('an answered request is "ok" with its time, model and tries', () => {
+        assert.deepEqual(core.usageRow(base), {
+            user_id: 'u-1', client: 'web', status: 'ok', http_status: 200, duration_ms: 1234,
+            model: 'gemini-flash-lite-latest', attempts: 1, had_wishes: false,
+        });
+    });
+
+    test('how a request failed decides its status', () => {
+        assert.equal(core.usageRow({ ...base, httpStatus: 502, busy: true }).status, 'busy');
+        assert.equal(core.usageRow({ ...base, httpStatus: 502, busy: false }).status, 'error');
+        assert.equal(core.usageRow({ ...base, httpStatus: 500 }).status, 'error');
+        assert.equal(core.usageRow({ ...base, httpStatus: 409 }).status, 'bad_request');
+        assert.equal(core.usageRow({ ...base, httpStatus: 413 }).status, 'bad_request');
+        assert.equal(core.usageRow({ ...base, httpStatus: undefined }).status, 'error');
+    });
+
+    test('odd values are cleaned, not stored as they came', () => {
+        const row = core.usageRow({ ...base, client: 'toaster', ms: -5, model: 'm'.repeat(200), attempts: -1, hadWishes: 'yes' });
+        assert.equal(row.client, null);
+        assert.equal(row.duration_ms, 0);
+        assert.equal(row.model.length, 60);
+        assert.equal(row.attempts, null);
+        assert.equal(row.had_wishes, false);
+        assert.equal(core.usageRow({ ...base, ms: 99999999 }).duration_ms, 600000);
+        assert.equal(core.usageRow({ ...base, ms: NaN }).duration_ms, 0);
+        assert.equal(core.usageRow({ ...base, hadWishes: true }).had_wishes, true);
+        assert.equal(core.usageRow({ ...base, client: 'app' }).client, 'app');
+    });
+
+    test('the row has no field that could hold what the student wrote', () => {
+        const keys = Object.keys(core.usageRow(base)).sort();
+        assert.deepEqual(keys, ['attempts', 'client', 'duration_ms', 'had_wishes', 'http_status', 'model', 'status', 'user_id']);
+    });
+});
+
+describe('the function writes the usage row', () => {
+    const src = fs.readFileSync(new URL('../supabase/functions/eligibility-chat/index.ts', import.meta.url), 'utf8');
+    test('records through usageRow, only for an accepted student, and never lets a failure change the answer', () => {
+        assert.match(src, /core\.usageRow\(/);
+        assert.match(src, /who\.userId = data\.user\.id/);
+        assert.match(src, /usage not logged/);
+        assert.doesNotMatch(src, /usage\.(message|reply|summary|history)/);
+    });
+});

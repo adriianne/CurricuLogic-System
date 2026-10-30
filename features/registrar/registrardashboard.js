@@ -46,7 +46,7 @@ const PREVIEW_REGISTRAR = {
 };
 
 const PREVIEW_STUDENTS = [
-    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', email: 'althea1@gmail.com', year_level: 2, is_approved: true,  record_verified: true,  approval_status: 'approved', declared_path: 'existing', created_at: '2026-08-11T02:00:00Z' },
+    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '24001187', email: 'althea1@gmail.com', year_level: 2, is_approved: true,  record_verified: true,  approval_status: 'approved', declared_path: 'existing', created_at: '2026-08-11T02:00:00Z' },
     { id: 's2', first_name: 'Marco',  last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph',     year_level: 2, is_approved: false, record_verified: false, approval_status: 'pending',  declared_path: 'existing', created_at: '2026-08-20T09:15:00Z' },
     { id: 's3', first_name: 'Janine', last_name: 'Abella',     student_id: null,          email: 'janine.abella@uc.edu.ph',    year_level: null, is_approved: false, record_verified: false, approval_status: 'pending', declared_path: 'new',     created_at: '2026-08-22T14:40:00Z' },
     { id: 's4', first_name: 'Paulo',  last_name: 'Cabahug',    student_id: '9999999', email: 'paulo.cabahug@uc.edu.ph',    year_level: null, is_approved: false, record_verified: false, approval_status: 'declined', declared_path: 'existing', created_at: '2026-08-18T11:05:00Z', review_note: 'Student ID not found in the official list.' },
@@ -2165,7 +2165,11 @@ async function loadAdvisingDetail(requestId) {
                 <span class="pill ok"><i class="fa-solid fa-check"></i> Approved for enrollment</span>
                 <button class="btn-small" data-print-plan="${req.id}">
                     <i class="fa-solid fa-print" aria-hidden="true"></i>
-                    Print enrollment form
+                    Print advising slip
+                </button>
+                <button class="btn-small" data-print-uc-form="${req.id}">
+                    <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+                    Print UC enrollment form
                 </button>`;
         } else if (RS.sentBack(req)) {
             actionsEl.innerHTML =
@@ -2266,6 +2270,8 @@ async function loadAdvisingCount() {
 $('view-advising')?.addEventListener('click', (e) => {
     const printBtn = e.target.closest('[data-print-plan]');
     if (printBtn) return printApprovedPlan(printBtn.dataset.printPlan);
+    const ucFormBtn = e.target.closest('[data-print-uc-form]');
+    if (ucFormBtn) return printUcForm(ucFormBtn.dataset.printUcForm);
 
     const viewCard = e.target.closest('[data-view-plan]');
     if (viewCard) {
@@ -2290,6 +2296,15 @@ async function printApprovedPlan(requestId) {
     const result = await window.AdvisingSlip.printApprovedRequest(supabase, requestId, {
         programName,
     });
+    if (!result.ok) showMsg(msgBox, result.error);
+}
+
+/* The university's own UC-Form 1A, filled in from the approved plan (enrollmentform.js). */
+async function printUcForm(requestId) {
+    if (!supabase) return;
+    const msgBox = $('adv-sub-detail')?.hidden === false ? 'adv-detail-msg' : 'adv-msg';
+    if (typeof window.EnrollmentForm === 'undefined') return showMsg(msgBox, 'Could not open the print view.');
+    const result = await window.EnrollmentForm.printApprovedRequest(supabase, requestId, { programName });
     if (!result.ok) showMsg(msgBox, result.error);
 }
 

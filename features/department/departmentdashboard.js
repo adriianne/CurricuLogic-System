@@ -176,7 +176,7 @@ const PREVIEW_STAFF = {
 };
 
 const PREVIEW_STUDENTS = [
-    { id: 's1', user_id: 'u1', first_name: 'Althea', last_name: 'Villanueva', student_id: '2401187', email: 'althea1@gmail.com', year_level: 2, record_verified: true,  prospectus_id: 1, program_id: 1, created_at: '2026-09-23T02:00:00Z', verified_at: '2026-09-29T02:00:00Z' },
+    { id: 's1', user_id: 'u1', first_name: 'Althea', last_name: 'Villanueva', student_id: '24001187', email: 'althea1@gmail.com', year_level: 2, record_verified: true,  prospectus_id: 1, program_id: 1, created_at: '2026-09-23T02:00:00Z', verified_at: '2026-09-29T02:00:00Z' },
     { id: 's2', user_id: 'u2', first_name: 'Marco',  last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph', year_level: 2, record_verified: true,  prospectus_id: 1, program_id: 1, created_at: '2026-09-24T02:00:00Z', verified_at: '2026-09-29T02:00:00Z' },
     { id: 's3', user_id: 'u3', first_name: 'Janine', last_name: 'Abella',     student_id: '2300845', email: 'janine.abella@uc.edu.ph', year_level: 3, record_verified: false, prospectus_id: null, program_id: 1, created_at: '2026-09-25T02:00:00Z', verified_at: null },
     { id: 's4', user_id: 'u4', first_name: 'Paulo',  last_name: 'Cabahug',    student_id: '2501562', email: 'paulo.cabahug@uc.edu.ph', year_level: null, record_verified: false, prospectus_id: null, program_id: 1, created_at: '2026-09-26T02:00:00Z', verified_at: null },
@@ -804,8 +804,8 @@ function renderTiles() {
     setStat('tile-schedule-number', offeringsCount);
     setText('tile-schedule-status',
         offeringsCount > 0
-            ? `offering${offeringsCount === 1 ? '' : 's'} published`
-            : 'nothing published yet');
+            ? `offering${offeringsCount === 1 ? '' : 's'} published this term`
+            : 'nothing published for this term yet');
 
     // ── Grade uploads ─────────────────────────────────────────────
     const gradeFiles = READY.gradeFiles;
@@ -2142,7 +2142,7 @@ async function loadReadiness() {
        students" and "cannot read students" need different responses. */
     const [students, offerings, gradeFiles] = await Promise.all([
         supabase.from('university_student').select('id, program_id'),
-        supabase.from('subject_offering').select('id, section'),
+        supabase.from('subject_offering').select('id, section, academic_year, term'),
         supabase.from('grade_file').select('id'),
     ]);
 
@@ -2170,7 +2170,10 @@ async function loadReadiness() {
     const prefix = `${myCode}-`.toLowerCase();
 
     READY.students   = mine(students.data, s => s.program_id === myProgramId).length;
-    READY.offerings  = mine(offerings.data, o => String(o.section ?? '').toLowerCase().startsWith(prefix)).length;
+    // Only the current term counts (shared/js/schedule/offeringcount.js): another term's schedule is not this term's.
+    let termNow = null;
+    try { termNow = await window.CurriculogicTerm?.load() ?? null; } catch (_) { termNow = null; }
+    READY.offerings  = window.CurriculogicOfferingCount.forTerm(offerings.data, termNow, scoped ? prefix : '');
     READY.gradeFiles = gradeFiles.data?.length ?? 0;
 }
 
@@ -4580,7 +4583,7 @@ function initGrades() {
 function padStudentId(v) {
     const raw = String(v ?? '').trim().replace(/[\s-]/g, '');
     if (!raw) return '';
-    if (/^\d+$/.test(raw) && raw.length < 7) return raw.padStart(7, '0');
+    if (/^\d+$/.test(raw) && raw.length < 8) return raw.padStart(8, '0');
     return raw.toUpperCase();
 }
 
@@ -4593,7 +4596,7 @@ async function loadStudentMap() {
     if (gradeState.studentMap) return gradeState.studentMap;
     if (PREVIEW) {
         gradeState.studentMap = new Map([
-            ['2401187', { id: 'stu1', student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva' }],
+            ['24001187', { id: 'stu1', student_id: '24001187', first_name: 'Althea', last_name: 'Villanueva' }],
             ['2401188', { id: 'stu2', student_id: '2401188', first_name: 'Marco', last_name: 'Deveza' }],
         ]);
         return gradeState.studentMap;
@@ -4824,7 +4827,7 @@ $('g-subject')?.addEventListener('change', () => {
 async function fetchClassList(subject, year, term) {
     if (PREVIEW) {
         return [
-            { student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva' },
+            { student_id: '24001187', first_name: 'Althea', last_name: 'Villanueva' },
             { student_id: '2401188', first_name: 'Marco',  last_name: 'Deveza' },
         ];
     }
@@ -4947,8 +4950,8 @@ async function validateGrades(rows, fileName, report = () => {}) {
         if (wrongSubject) { bad.push({ ...base, why: wrongSubject }); continue; }
         if (!rawId) { bad.push({ ...base, why: 'No student ID.' }); continue; }
         const cleanId = padStudentId(rawId);
-        if (/^\d+$/.test(cleanId) && cleanId.length !== 7) {
-            bad.push({ ...base, why: `"${rawId}" should be 7 digits. Check Excel formatting.` });
+        if (/^\d+$/.test(cleanId) && cleanId.length !== 8) {
+            bad.push({ ...base, why: `"${rawId}" should be 8 digits. Check Excel formatting.` });
             continue;
         }
         const student = students.get(cleanId);
@@ -5530,9 +5533,9 @@ $('grade-template')?.addEventListener('click', () => {
 
     const rows = [
         ['student_id', 'student_name', 'subject_code', 'grade', 'status'],
-        ['2401187',    'Althea Villanueva', 'CC-COMPROG12', 2.25, ''],
-        ['2401187',    'Althea Villanueva', 'SOCIO101',     1.75, ''],
-        ['2401187',    'Althea Villanueva', 'RIZAL101',     2.00, ''],
+        ['24001187',    'Althea Villanueva', 'CC-COMPROG12', 2.25, ''],
+        ['24001187',    'Althea Villanueva', 'SOCIO101',     1.75, ''],
+        ['24001187',    'Althea Villanueva', 'RIZAL101',     2.00, ''],
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -6012,7 +6015,7 @@ async function loadStudentPlan(s, seq) {
     body.innerHTML = `
         <div class="stu-plan-head">
             <span class="pill ok"><i class="fa-solid fa-check"></i> Approved for enrollment</span>
-            <span class="dim">${items.length} subject${items.length === 1 ? '' : 's'} · ${units} units · submitted ${escapeHtml(longDate(plan.created_at))}</span>
+            <span class="dim">${window.CurriculogicRequestRef?.format(plan.id, plan.created_at) ? escapeHtml(window.CurriculogicRequestRef.format(plan.id, plan.created_at)) + ' · ' : ''}${items.length} subject${items.length === 1 ? '' : 's'} · ${units} units · submitted ${escapeHtml(longDate(plan.created_at))}</span>
         </div>
         <div class="table-wrap">
             <table class="data-table">
@@ -6182,7 +6185,7 @@ const PREVIEW_DEMAND = [
 ];
 
 const PREVIEW_DEMAND_NAMES = [
-    { student_id: '2401187', first_name: 'Althea', last_name: 'Villanueva', year_level: 1, request_status: 'approved' },
+    { student_id: '24001187', first_name: 'Althea', last_name: 'Villanueva', year_level: 1, request_status: 'approved' },
     { student_id: '2401203', first_name: 'Marco',  last_name: 'Deveza',     year_level: 1, request_status: 'submitted' },
 ];
 

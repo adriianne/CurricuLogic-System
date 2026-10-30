@@ -76,7 +76,7 @@ function identifierProblem(identifier) {
     if (takesStudentId && STUDENT_SHAPE.test(identifier)) return null;
     if (takesStaffId   && STAFF_SHAPE.test(identifier))   return null;
 
-    if (takesStudentId && !takesStaffId) return 'Enter your school email or your student ID (for example uc-2401187).';
+    if (takesStudentId && !takesStaffId) return 'Enter your school email or your student ID (for example uc-24001187).';
     if (takesStaffId && !takesStudentId) return 'Enter your school email or your employee ID (for example EMP-00123).';
     if (!takesStudentId && !takesStaffId) return 'Enter your administrator email address.';
     return 'Enter your school email or your ID.';

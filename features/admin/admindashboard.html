@@ -55,6 +55,9 @@
             <a href="#programs" data-view="programs">
                 <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i> Programs
             </a>
+            <a href="#logs" data-view="logs">
+                <i class="fa-solid fa-clipboard-check" aria-hidden="true"></i> System logs
+            </a>
             <a href="#profile" data-view="profile">
                 <i class="fa-solid fa-user" aria-hidden="true"></i> Profile
             </a>
@@ -283,7 +286,7 @@
                                 <!-- Student-only: Student ID, Year level and Student type -->
                                 <div class="field" id="a-student-id-wrap" hidden>
                                     <label for="a-student-id">Student ID <span class="opt">optional</span></label>
-                                    <input type="text" id="a-student-id" placeholder="7 digits, or leave blank" autocomplete="off" maxlength="12">
+                                    <input type="text" id="a-student-id" placeholder="8 digits, or leave blank" autocomplete="off" maxlength="12">
                                 </div>
                                 <div class="field" id="a-year-level-wrap" hidden>
                                     <label for="a-year-level">Year level</label>
@@ -390,7 +393,7 @@
                         <ul class="notice-list">
                             <li><b>Required columns:</b> <span class="mono">first_name, last_name, email, role</span>.</li>
                             <li><b>Staff</b> (faculty, registrar, department): leave <span class="mono">employee_id</span> blank, it is assigned automatically (EMP-00001, EMP-00002, ...). Only an admin row needs one (SYS-...) plus a username.</li>
-                            <li><b>Students:</b> <span class="mono">student_id</span> is optional. Give it if the student already has one (7 digits), or leave it blank and the system assigns the next number.</li>
+                            <li><b>Students:</b> <span class="mono">student_id</span> is optional. Give it if the student already has one (8 digits), or leave it blank and the system assigns the next number.</li>
                             <li><b>Programme:</b> every role except admin also needs <span class="mono">program_code</span>. It decides a student's curriculum, and is what each staff role's per-programme account cap is checked against.</li>
                             <li><b>Optional:</b> <span class="mono">password, department, year_level</span>. Leave <span class="mono">password</span> blank and each person is emailed a one-time link to choose their own; type one only if you will hand it over yourself.</li>
                         </ul>
@@ -651,7 +654,7 @@
                         <strong>File format</strong>
                         <ul class="notice-list">
                             <li><b>Columns:</b> <span class="mono">student_id, first_name, last_name, program_code, email</span> are required. <span class="mono">year_level</span> (1 to 4) is optional: give it for students who are not first-years, so the Registrar and Department can see who needs grades uploaded.</li>
-                            <li><b>student_id</b> is 7 digits. <b>program_code</b> is the programme's code (for example BSIT).</li>
+                            <li><b>student_id</b> is 8 digits. <b>program_code</b> is the programme's code (for example BSIT).</li>
                             <li><b>email</b> is the address EDP has on file. A setup link will be sent there, not to what the student types.</li>
                             <li>A student ID that is already on the list is updated with the new details. Nobody is removed by an upload.</li>
                         </ul>
@@ -732,6 +735,137 @@
 
                     </div>
                 </section>
+
+            </section>
+
+            <!--  SYSTEM LOGS (read-only; src: shared/js/records/systemlogs.js) -->
+            <section class="view view-wide" id="view-logs" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">System logs</h1>
+                    <p class="page-sub">
+                        Who changed what, when the nightly cleanup ran, and how Cura is doing. Read-only.
+                        Failed sign-ins and errors from the platform itself are in the Supabase dashboard (Logs).
+                    </p>
+                </div>
+
+                <div id="logs-msg" class="msg" role="status"></div>
+
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Changes, last 24 hours</span>
+                        <span class="stat-value muted" id="logs-stat-audit">—</span>
+                        <span class="stat-hint">Entries in the activity log</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Nightly cleanup</span>
+                        <span class="stat-value muted" id="logs-stat-cleanup">—</span>
+                        <span class="stat-hint" id="logs-stat-cleanup-hint">Last run</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Cura answered, 24 hours</span>
+                        <span class="stat-value muted" id="logs-stat-cura">—</span>
+                        <span class="stat-hint" id="logs-stat-cura-hint">Requests that went well</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Cura average time</span>
+                        <span class="stat-value muted" id="logs-stat-time">—</span>
+                        <span class="stat-hint" id="logs-stat-time-hint">Last 24 hours</span>
+                    </div>
+                </div>
+
+                <nav class="mode-switch" aria-label="Log sections" id="logs-tabs">
+                    <button type="button" class="mode-opt on" data-logs-tab="activity" aria-pressed="true">Activity</button>
+                    <button type="button" class="mode-opt" data-logs-tab="accounts" aria-pressed="false">Accounts</button>
+                    <button type="button" class="mode-opt" data-logs-tab="uploads" aria-pressed="false">Uploads</button>
+                    <button type="button" class="mode-opt" data-logs-tab="health" aria-pressed="false">System health</button>
+                </nav>
+
+                <!-- Activity: audit_log -->
+                <section class="card" data-logs-panel="activity">
+                    <div class="card-head">
+                        <span class="card-title">Activity</span>
+                        <span class="card-note" id="logs-activity-count"></span>
+                    </div>
+                    <div class="card-body">
+                        <div class="toolbar">
+                            <select id="logs-f-kind" aria-label="What was done">
+                                <option value="">Any action</option>
+                                <option value="PROVISION">Created account</option>
+                                <option value="INSERT">Added</option>
+                                <option value="UPDATE">Changed</option>
+                                <option value="DELETE">Deleted</option>
+                                <option value="COPY">Copied</option>
+                            </select>
+                            <select id="logs-f-table" aria-label="Which kind of record">
+                                <option value="">Any record</option>
+                                <option value="university_student">Student</option>
+                                <option value="faculty_staff">Faculty</option>
+                                <option value="registrar_staff">Registrar</option>
+                                <option value="department_staff">Department</option>
+                                <option value="system_administrator">Administrator</option>
+                                <option value="prospectus">Prospectus</option>
+                                <option value="program">Programme</option>
+                            </select>
+                            <select id="logs-f-role" aria-label="Who did it">
+                                <option value="">Anyone</option>
+                                <option value="system_administrator">Administrator</option>
+                                <option value="registrar_staff">Registrar</option>
+                                <option value="faculty_staff">Faculty</option>
+                                <option value="department_staff">Department</option>
+                                <option value="student">Student</option>
+                                <option value="system">System (automatic)</option>
+                            </select>
+                            <label class="logs-date">From <input type="date" id="logs-f-from" aria-label="From date"></label>
+                            <label class="logs-date">To <input type="date" id="logs-f-to" aria-label="To date"></label>
+                            <div class="search-wrap">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input type="search" id="logs-f-record" placeholder="Record ID (exact)"
+                                       autocomplete="off" aria-label="Find a record by its ID" maxlength="80">
+                            </div>
+                        </div>
+                        <div id="logs-activity-body"></div>
+                        <div class="logs-more">
+                            <button type="button" class="btn-small" id="logs-activity-more" hidden>Load 50 more</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Accounts: account_stop_log -->
+                <section class="card" data-logs-panel="accounts" hidden>
+                    <div class="card-head">
+                        <span class="card-title">Stopped and restored accounts</span>
+                        <span class="card-note" id="logs-accounts-count"></span>
+                    </div>
+                    <div class="card-body" id="logs-accounts-body"></div>
+                </section>
+
+                <!-- Uploads: bulk_upload_history -->
+                <section class="card" data-logs-panel="uploads" hidden>
+                    <div class="card-head">
+                        <span class="card-title">Bulk uploads</span>
+                        <span class="card-note" id="logs-uploads-count"></span>
+                    </div>
+                    <div class="card-body" id="logs-uploads-body"></div>
+                </section>
+
+                <!-- System health: maintenance_log and cura_usage -->
+                <div data-logs-panel="health" hidden>
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Nightly cleanup</span>
+                            <span class="card-note" id="logs-cleanup-note"></span>
+                        </div>
+                        <div class="card-body" id="logs-cleanup-body"></div>
+                    </section>
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Cura</span>
+                            <span class="card-note">Times are for one answer from start to finish. No messages are stored.</span>
+                        </div>
+                        <div class="card-body" id="logs-cura-body"></div>
+                    </section>
+                </div>
 
             </section>
 
@@ -909,6 +1043,7 @@
 <script src="../../shared/js/app/motion.js"></script>
 <script src="../../shared/js/app/profilephoto.js"></script>
 <script src="../../shared/js/app/theme.js"></script>
+<script src="../../shared/js/records/systemlogs.js"></script>
 <script src="admindashboard.js"></script>
 </body>
 </html>

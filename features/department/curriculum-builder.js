@@ -106,6 +106,7 @@ let DRAFT_BATCH   = null;   // survives a re-mount; OPTS does not
 let PENDING_AI_FILE = null;
 let PROGRESS_TIMER  = null;
 let PROGRESS_VALUE  = 0;
+let AI_BUSY         = false;   // an extraction is running: its button, the file buttons and a second run are locked
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
     c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -827,7 +828,7 @@ function aiUploadHtml() {
                 <strong>AI-assisted curriculum upload</strong>
                 <span class="cb-dim">Extract subjects from a curriculum or prospectus PDF.</span>
             </div>
-            ${hasFile ? `<button class="cb-ai-icon-btn" id="ai-close" aria-label="Cancel">
+            ${hasFile ? `<button class="cb-ai-icon-btn" id="ai-close" aria-label="Cancel"${AI_BUSY ? ' disabled' : ''}>
                 <i class="fa-solid fa-xmark"></i>
             </button>` : ''}
         </div>
@@ -842,13 +843,13 @@ function aiUploadHtml() {
                     <p class="cb-ai-file-name">${esc(PENDING_AI_FILE.name)}</p>
                     <p class="cb-ai-file-size">${formatBytes(PENDING_AI_FILE.size)}</p>
                 </div>
-                <button class="cb-ai-icon-btn" id="ai-trash" aria-label="Remove file">
+                <button class="cb-ai-icon-btn" id="ai-trash" aria-label="Remove file"${AI_BUSY ? ' disabled' : ''}>
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
-                <div class="cb-ai-progress" id="ai-progress" hidden>
-                    <div class="cb-ai-progress-pct" id="ai-progress-pct">0%</div>
+                <div class="cb-ai-progress" id="ai-progress"${AI_BUSY ? '' : ' hidden'}>
+                    <div class="cb-ai-progress-pct" id="ai-progress-pct">${AI_BUSY ? Math.round(PROGRESS_VALUE) : 0}%</div>
                     <div class="cb-ai-progress-track">
-                        <div class="cb-ai-progress-fill" id="ai-progress-fill" style="width:0%"></div>
+                        <div class="cb-ai-progress-fill" id="ai-progress-fill" style="width:${AI_BUSY ? PROGRESS_VALUE.toFixed(1) : 0}%"></div>
                     </div>
                 </div>
             </div>
@@ -864,7 +865,7 @@ function aiUploadHtml() {
 
         ${hasFile ? `
             <div class="cb-ai-actions">
-                <button class="btn-primary" id="ai-extract">Extract Subjects</button>
+                <button class="btn-primary" id="ai-extract"${AI_BUSY ? ' disabled' : ''}>${AI_BUSY ? 'Extracting…' : 'Extract Subjects'}</button>
             </div>
         ` : ''}
     </div>`;
@@ -1219,7 +1220,7 @@ function fileToBase64(file) {
     });
 }
 
-async function analyzeDocument(file) {
+async function analyzeDocumentRun(file) {
     if (!file) return;
 
     const fileIssue = CurriculogicUploadLimits.fileProblem(file, 'pdf');
@@ -1411,7 +1412,7 @@ async function analyzeDocument(file) {
     // appears on screen.
     finishProgress();
 
-    setTimeout(() => {
+    await new Promise((resolve) => setTimeout(() => {
         PENDING_AI_FILE = null;
         validate();
         render();
@@ -1439,7 +1440,37 @@ async function analyzeDocument(file) {
                 }
                 : null,
         );
-    }, 500);
+        resolve();
+    }, 500));
+}
+
+/* Pressing Extract again while it runs does nothing: one analysis at a time. A second click used to start a second paid AI
+   call and a second progress timer, so the bar jumped back and an old timer could overwrite 100% with its own value.
+   The lock is released on every way out (done, rejected, failed). */
+const analyzeDocument = SingleFlight.guard(analyzeDocumentRun, {
+    onStart: () => setAiBusy(true),
+    onEnd: () => setAiBusy(false),
+});
+
+/* Locks or unlocks the card in place (a full render() would reset the bar). render() reads AI_BUSY too, so a redraw keeps it. */
+function setAiBusy(on) {
+    AI_BUSY = on;
+    const extract = document.getElementById('ai-extract');
+    if (extract) {
+        extract.disabled = on;
+        extract.textContent = on ? 'Extracting…' : 'Extract Subjects';
+    }
+    for (const id of ['ai-trash', 'ai-close']) {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = on;
+    }
+    // A run that ended without filling the grid (rejected or failed) must not leave the bar frozen part-way; a finished
+    // run redraws the card, which starts with the bar hidden.
+    if (!on && PROGRESS_VALUE < 100) {
+        const bar = document.getElementById('ai-progress');
+        if (bar) bar.hidden = true;
+        PROGRESS_VALUE = 0;
+    }
 }
 
 function showAiStatus(msg, cls, details) {
@@ -1466,20 +1497,29 @@ function showAiStatus(msg, cls, details) {
 }
 
 function clearAiFile() {
+    if (AI_BUSY) return;          // the file is being read; removing it now would leave an analysis writing rows for nothing
     PENDING_AI_FILE = null;
     stopProgress();
     render();
 }
 
-function startProgress() {
+/* Paints the bar on the card that is on screen right now. The elements are looked up on every call, because render() can
+   replace the card while an analysis is running; a timer holding the old elements would paint nothing. */
+function paintProgress() {
     const bar  = document.getElementById('ai-progress');
     const fill = document.getElementById('ai-progress-fill');
     const pct  = document.getElementById('ai-progress-pct');
     if (!bar || !fill || !pct) return;
-
     bar.hidden = false;
+    fill.style.width = PROGRESS_VALUE.toFixed(1) + '%';
+    pct.textContent  = Math.round(PROGRESS_VALUE) + '%';
+}
+
+function startProgress() {
+    stopProgress();               // never two timers: a leftover one would keep painting its own, older value
     PROGRESS_VALUE = 0;
     const t0 = Date.now();
+    paintProgress();
 
     /* Time-calibrated estimate, not a measurement. Gemini returns one
        response when it finishes; there is no per-chunk signal to read.
@@ -1501,17 +1541,13 @@ function startProgress() {
         else                   next = 77 + (elapsed - 15) * 1.2;    // slow creep
 
         PROGRESS_VALUE = Math.min(next, 95);   // never hit 100 until done
-
-        fill.style.width = PROGRESS_VALUE.toFixed(1) + '%';
-        pct.textContent  = Math.round(PROGRESS_VALUE) + '%';
+        paintProgress();
     }, 100);
 }
 function finishProgress() {
-    if (PROGRESS_TIMER) { clearInterval(PROGRESS_TIMER); PROGRESS_TIMER = null; }
-    const fill = document.getElementById('ai-progress-fill');
-    const pct  = document.getElementById('ai-progress-pct');
-    if (fill) fill.style.width = '100%';
-    if (pct)  pct.textContent = '100%';
+    stopProgress();
+    PROGRESS_VALUE = 100;
+    paintProgress();
 }
 
 function stopProgress() {
@@ -1519,7 +1555,7 @@ function stopProgress() {
 }
 
 function runAiExtraction() {
-    if (!PENDING_AI_FILE) return;
+    if (!PENDING_AI_FILE || AI_BUSY) return;
     analyzeDocument(PENDING_AI_FILE);
 }
 
