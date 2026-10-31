@@ -2000,7 +2000,7 @@ function renderAdvisingList() {
                             : '<span class="pill ok"><i class="fa-solid fa-check" aria-hidden="true"></i> Approved</span>'}</td>
                         <td class="dim">${escapeHtml(new Date(r.created_at).toLocaleDateString())}</td>
                         <td class="num">
-                            <button type="button" class="btn-small" data-print-plan="${escapeHtml(r.id)}"
+                            <button type="button" class="btn-small" data-print-uc-form="${escapeHtml(r.id)}"
                                     aria-label="Print enrollment form for ${escapeHtml(fullName(r.student))}" title="Print enrollment form">
                                 <i class="fa-solid fa-print" aria-hidden="true"></i>
                             </button>
@@ -2112,6 +2112,7 @@ async function loadAdvisingDetail(requestId) {
             <h3>Loading</h3>
         </div>`;
     if (actionsEl) actionsEl.innerHTML = '';
+    if ($('adv-detail-foot')) $('adv-detail-foot').innerHTML = '';
 
     const { data: req, error } = await supabase
         .from('request')
@@ -2158,24 +2159,32 @@ async function loadAdvisingDetail(requestId) {
             `${items.length} subject${items.length === 1 ? '' : 's'} · ${units} units`;
     }
 
-    if (actionsEl) {
+    // The status line is on the left of a bar under the subjects, the print button on the right
+    // (the same bar as on the Faculty request page).
+    if (actionsEl) actionsEl.innerHTML = '';
+    const footEl = $('adv-detail-foot');
+    if (footEl) {
         const RS = window.CurriculogicRequestStatus;
         if (RS.finalApproved(req)) {
-            actionsEl.innerHTML = `
-                <span class="pill ok"><i class="fa-solid fa-check"></i> Approved for enrollment</span>
-                <button class="btn-small" data-print-plan="${req.id}">
-                    <i class="fa-solid fa-print" aria-hidden="true"></i>
-                    Print advising slip
-                </button>
+            footEl.innerHTML = `
+                <p class="dim">
+                    <i class="fa-solid fa-check" aria-hidden="true"></i>
+                    Approved for enrollment. Print the enrollment form for the student to sign.
+                    <small class="print-history" data-print-history></small>
+                </p>
                 <button class="btn-small" data-print-uc-form="${req.id}">
-                    <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
-                    Print UC enrollment form
+                    <i class="fa-solid fa-print" aria-hidden="true"></i>
+                    Print enrollment form
                 </button>`;
+            window.EnrollmentForm?.showHistory(supabase, req.id, footEl.querySelector('[data-print-history]'));
         } else if (RS.sentBack(req)) {
-            actionsEl.innerHTML =
-                '<span class="pill bad"><i class="fa-solid fa-xmark"></i> Sent back earlier (closed)</span>';
+            footEl.innerHTML = `
+                <p class="dim">
+                    <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                    This plan was sent back earlier. It is closed; the student will submit a new one.
+                </p>`;
         } else {
-            actionsEl.innerHTML = '';
+            footEl.innerHTML = '';
         }
     }
 
@@ -2268,8 +2277,6 @@ async function loadAdvisingCount() {
 }
 
 $('view-advising')?.addEventListener('click', (e) => {
-    const printBtn = e.target.closest('[data-print-plan]');
-    if (printBtn) return printApprovedPlan(printBtn.dataset.printPlan);
     const ucFormBtn = e.target.closest('[data-print-uc-form]');
     if (ucFormBtn) return printUcForm(ucFormBtn.dataset.printUcForm);
 
@@ -2280,32 +2287,17 @@ $('view-advising')?.addEventListener('click', (e) => {
     }
 });
 
-/* Reprints the enrollment form of an approved plan. The loading and the form
-   itself are shared with the faculty adviser (advisingslip.js): both print
-   the same snapshot of what the adviser approved. */
-async function printApprovedPlan(requestId) {
+/* Reprints the university's own UC-Form 1A of an approved plan (enrollmentform.js). The loading and the form
+   are shared with the faculty adviser: both print the same snapshot of what the adviser approved. */
+async function printUcForm(requestId) {
     if (!supabase) return;
     // The list and the detail page each have their own message line.
     const msgBox = $('adv-sub-detail')?.hidden === false ? 'adv-detail-msg' : 'adv-msg';
-
-    if (typeof window.AdvisingSlip === 'undefined') {
-        console.error('advisingslip.js not loaded — check script order');
-        return showMsg(msgBox, 'Could not open the print view.');
-    }
-
-    const result = await window.AdvisingSlip.printApprovedRequest(supabase, requestId, {
-        programName,
-    });
-    if (!result.ok) showMsg(msgBox, result.error);
-}
-
-/* The university's own UC-Form 1A, filled in from the approved plan (enrollmentform.js). */
-async function printUcForm(requestId) {
-    if (!supabase) return;
-    const msgBox = $('adv-sub-detail')?.hidden === false ? 'adv-detail-msg' : 'adv-msg';
     if (typeof window.EnrollmentForm === 'undefined') return showMsg(msgBox, 'Could not open the print view.');
     const result = await window.EnrollmentForm.printApprovedRequest(supabase, requestId, { programName });
-    if (!result.ok) showMsg(msgBox, result.error);
+    if (!result.ok) return showMsg(msgBox, result.error);
+    // On the plan page, refresh "Printed N times" (the list's icon has no such line).
+    window.EnrollmentForm.showHistory(supabase, requestId, document.querySelector('#adv-detail-foot [data-print-history]'));
 }
 
 
