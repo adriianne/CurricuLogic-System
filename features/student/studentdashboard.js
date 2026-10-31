@@ -2712,7 +2712,37 @@ function itemStatusChip(status) {
 document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-sheet]');
     if (btn) printEnrollmentSheet(btn.dataset.sheet);
+
+    // The university's own UC-Form 1A, so a student who lost the printed one can print it again.
+    const formBtn = e.target.closest('[data-uc-form]');
+    if (formBtn) printUcForm(formBtn);
 });
+
+async function printUcForm(btn) {
+    const msg = btn.closest('.req-sheet')?.querySelector('[data-uc-form-msg]');
+    const say = (text, cls) => { if (msg) { msg.textContent = text; msg.className = `msg ${cls ?? ''}`; } };
+    if (PREVIEW) return say('The form prints from live data, so it is not shown in preview.', '');
+    if (!window.EnrollmentForm) return say('Could not open the print view.', 'error');
+    say('', '');
+    btn.disabled = true;
+    try {
+        const result = await window.EnrollmentForm.printApprovedRequest(supabase, btn.dataset.ucForm);
+        if (!result.ok) say(result.error, 'error');
+        else loadUcFormHistory(btn.closest('.req-sheet'));
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+/* "Printed 3 times. Last: ..." under the button (db/092). Read when a request card is opened and after each print. */
+function loadUcFormHistory(sheet) {
+    const el = sheet?.querySelector('[data-uc-form-history]');
+    if (el && !PREVIEW) window.EnrollmentForm?.showHistory(supabase, el.dataset.ucFormHistory, el);
+}
+document.addEventListener('toggle', (e) => {
+    const card = e.target;
+    if (card?.matches?.('details.req-card') && card.open) loadUcFormHistory(card.querySelector('.req-sheet'));
+}, true);
 
 /* EDP office result
    After the student takes the enrolment form to the EDP office, they tell this page which subjects were
@@ -2755,7 +2785,7 @@ function edpNextStepsHtml(request) {
             if (alt.sameSubject.length) {
                 more = `<p class="edp-alt-head">Other sections of ${escapeHtml(x.code)} that fit your plan:</p>
                     <ul>${alt.sameSubject.map(g => `<li>${escapeHtml(fmtSection(g))}</li>`).join('')}</ul>
-                    <p class="dim">Write its EDP code on your form. You do not need your adviser’s approval to change section.</p>`;
+                    <p class="dim">Use "Switch a section" below, then print the enrollment form again and have it signed again. You do not need your adviser’s approval to change section.</p>`;
             } else if (alt.replacements.length) {
                 more = `<p class="edp-alt-head">No other section of ${escapeHtml(x.code)} fits without a clash. These subjects are open to you and fit:</p>
                     <ul>${alt.replacements.map(r => `<li><strong>${escapeHtml(r.code)}</strong> ${escapeHtml(r.title)} (${escapeHtml(r.units)} units): ${escapeHtml(fmtSection(r.group))}</li>`).join('')}</ul>
@@ -2795,7 +2825,7 @@ function switchSectionHtml(request) {
         </li>`).join('');
 
     return `<div class="edp-next switch-box"><strong>Switch a section</strong>
-        <p class="dim">Pick another section of the same subject. It does not clash with the rest of your plan. Your adviser is only told, nothing needs their approval. Write the new EDP code on your form.</p>
+        <p class="dim">Pick another section of the same subject. It does not clash with the rest of your plan. Your adviser is only told, nothing needs their approval. After you switch, print the enrollment form again (above) and have it signed again, because the signed copy shows the old section.</p>
         <ul class="edp-next-list">${list}</ul>
         <span class="msg" data-switch-msg role="status"></span></div>`;
 }
@@ -2828,7 +2858,7 @@ async function switchSection(btn) {
             btn.disabled = false; btn.dataset.armed = ''; btn.textContent = 'Switch';
             return;
         }
-        say(`Switched to ${data?.to_section ?? btn.dataset.switchSection}.`, 'success');
+        say(`Switched to ${data?.to_section ?? btn.dataset.switchSection}. Print the enrollment form again and have it signed again.`, 'success');
     }
 
     // keep the page's copy in step, then redraw the panel with the new section
@@ -2848,7 +2878,7 @@ async function switchSection(btn) {
     const panelNow = document.querySelector(`.edp-panel[data-edp-request="${requestId}"]`);
     if (panelNow) panelNow.open = true;
     const note = panelNow?.querySelector('[data-switch-msg]') ?? panelNow?.querySelector('[data-edp-msg]');
-    if (note) { note.textContent = `Switched to ${btn.dataset.switchSection}. Write its EDP code on your form.`; note.className = 'msg success'; }
+    if (note) { note.textContent = `Switched to ${btn.dataset.switchSection}. Print the enrollment form again and have it signed again: the old signed copy shows the old section.`; note.className = 'msg success'; }
 }
 
 function edpResultPanel(request) {
@@ -3211,8 +3241,14 @@ async function loadRequestHistory() {
                         <button type="button" class="btn-accent" data-sheet="${r.id}">
                             <i class="fa-solid fa-print" aria-hidden="true"></i> Enrolment sheet
                         </button>
-                        <span class="dim">One page for the EDP office: your EDP codes, plus backup sections in case one is full.
-                            Seats and conflicts are confirmed by the EDP office, not by this system.</span>
+                        <button type="button" class="btn-small" data-uc-form="${r.id}">
+                            <i class="fa-solid fa-file-lines" aria-hidden="true"></i> Print enrollment form
+                        </button>
+                        <span class="dim">The sheet is one page for the EDP office: your EDP codes, plus backup sections in case one is full.
+                            The enrollment form is the university's own form, filled in for you; print it again if you lose it,
+                            and again after you switch a section. Seats and conflicts are confirmed by the EDP office, not by this system.</span>
+                        <span class="msg" data-uc-form-msg role="status"></span>
+                        <span class="dim print-history" data-uc-form-history="${r.id}"></span>
                     </div>` : ''}
                 ${RS.finalApproved(r) ? edpResultPanel(r) : ''}
                 ${RS.finalApproved(r) ? `
