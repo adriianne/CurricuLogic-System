@@ -744,30 +744,34 @@
                 <div class="page-head">
                     <h1 class="page-title">System logs</h1>
                     <p class="page-sub">
-                        Who changed what, when the nightly cleanup ran, and how Cura is doing. Read-only.
+                        Who has an account and in what state, when the nightly cleanup ran, and how Cura is doing. Read-only.
                         Failed sign-ins and errors from the platform itself are in the Supabase dashboard (Logs).
                     </p>
                 </div>
 
                 <div id="logs-msg" class="msg" role="status"></div>
 
-                <div class="stats">
-                    <div class="stat">
-                        <span class="stat-label">Changes, last 24 hours</span>
-                        <span class="stat-value muted" id="logs-stat-audit">—</span>
-                        <span class="stat-hint">Entries in the activity log</span>
+                <div class="stats logs-stats">
+                    <div class="stat" data-act="active-accounts" role="button" tabindex="0" aria-label="Show only active accounts">
+                        <span class="stat-ico" data-tone="indigo" aria-hidden="true"><i class="fa-solid fa-user-check"></i></span>
+                        <span class="stat-label">Active accounts</span>
+                        <span class="stat-value muted" id="logs-stat-users">—</span>
+                        <span class="stat-hint" id="logs-stat-users-hint">All kinds of account</span>
                     </div>
                     <div class="stat">
+                        <span class="stat-ico" data-tone="green" aria-hidden="true"><i class="fa-solid fa-broom"></i></span>
                         <span class="stat-label">Nightly cleanup</span>
                         <span class="stat-value muted" id="logs-stat-cleanup">—</span>
                         <span class="stat-hint" id="logs-stat-cleanup-hint">Last run</span>
                     </div>
                     <div class="stat">
+                        <span class="stat-ico" data-tone="amber" aria-hidden="true"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
                         <span class="stat-label">Cura answered, 24 hours</span>
                         <span class="stat-value muted" id="logs-stat-cura">—</span>
                         <span class="stat-hint" id="logs-stat-cura-hint">Requests that went well</span>
                     </div>
                     <div class="stat">
+                        <span class="stat-ico" data-tone="blue" aria-hidden="true"><i class="fa-solid fa-stopwatch"></i></span>
                         <span class="stat-label">Cura average time</span>
                         <span class="stat-value muted" id="logs-stat-time">—</span>
                         <span class="stat-hint" id="logs-stat-time-hint">Last 24 hours</span>
@@ -775,70 +779,53 @@
                 </div>
 
                 <nav class="mode-switch" aria-label="Log sections" id="logs-tabs">
-                    <button type="button" class="mode-opt on" data-logs-tab="activity" aria-pressed="true">Activity</button>
-                    <button type="button" class="mode-opt" data-logs-tab="accounts" aria-pressed="false">Accounts</button>
-                    <button type="button" class="mode-opt" data-logs-tab="uploads" aria-pressed="false">Uploads</button>
+                    <button type="button" class="mode-opt on" data-logs-tab="users" aria-pressed="true">User status<span class="tab-count" id="logs-tabcount-users"></span></button>
+                    <button type="button" class="mode-opt" data-logs-tab="uploads" aria-pressed="false">Uploads<span class="tab-count" id="logs-tabcount-uploads"></span></button>
                     <button type="button" class="mode-opt" data-logs-tab="health" aria-pressed="false">System health</button>
                 </nav>
 
-                <!-- Activity: audit_log -->
-                <section class="card" data-logs-panel="activity">
-                    <div class="card-head">
-                        <span class="card-title">Activity</span>
-                        <span class="card-note" id="logs-activity-count"></span>
-                    </div>
-                    <div class="card-body">
-                        <div class="toolbar">
-                            <select id="logs-f-kind" aria-label="What was done">
-                                <option value="">Any action</option>
-                                <option value="PROVISION">Created account</option>
-                                <option value="INSERT">Added</option>
-                                <option value="UPDATE">Changed</option>
-                                <option value="DELETE">Deleted</option>
-                                <option value="COPY">Copied</option>
-                            </select>
-                            <select id="logs-f-table" aria-label="Which kind of record">
-                                <option value="">Any record</option>
-                                <option value="university_student">Student</option>
-                                <option value="faculty_staff">Faculty</option>
-                                <option value="registrar_staff">Registrar</option>
-                                <option value="department_staff">Department</option>
-                                <option value="system_administrator">Administrator</option>
-                                <option value="prospectus">Prospectus</option>
-                                <option value="program">Programme</option>
-                            </select>
-                            <select id="logs-f-role" aria-label="Who did it">
-                                <option value="">Anyone</option>
-                                <option value="system_administrator">Administrator</option>
-                                <option value="registrar_staff">Registrar</option>
-                                <option value="faculty_staff">Faculty</option>
-                                <option value="department_staff">Department</option>
-                                <option value="student">Student</option>
-                                <option value="system">System (automatic)</option>
-                            </select>
-                            <label class="logs-date">From <input type="date" id="logs-f-from" aria-label="From date"></label>
-                            <label class="logs-date">To <input type="date" id="logs-f-to" aria-label="To date"></label>
-                            <div class="search-wrap">
-                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                                <input type="search" id="logs-f-record" placeholder="Record ID (exact)"
-                                       autocomplete="off" aria-label="Find a record by its ID" maxlength="80">
+                <!-- User status: every account, its state, its last sign-in; and the stop and restore history -->
+                <div data-logs-panel="users">
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">User status</span>
+                            <span class="card-note" id="logs-users-count"></span>
+                        </div>
+                        <div class="card-body">
+                            <div class="logs-roles" id="logs-roles"></div>
+                            <div class="toolbar">
+                                <select id="logs-u-role" aria-label="Kind of account">
+                                    <option value="">Any kind of account</option>
+                                    <option value="student">Student</option>
+                                    <option value="faculty">Faculty</option>
+                                    <option value="registrar">Registrar</option>
+                                    <option value="department">Department</option>
+                                </select>
+                                <select id="logs-u-state" aria-label="Status">
+                                    <option value="">Any status</option>
+                                    <option value="active">Active</option>
+                                    <option value="stopped">Stopped</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="declined">Declined</option>
+                                </select>
+                                <div class="search-wrap">
+                                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                    <input type="search" id="logs-u-term" placeholder="Search name, ID or email"
+                                           autocomplete="off" aria-label="Search accounts" maxlength="100">
+                                </div>
                             </div>
+                            <p class="logs-users-note" id="logs-users-note" aria-live="polite" hidden></p>
+                            <div id="logs-users-body"></div>
                         </div>
-                        <div id="logs-activity-body"></div>
-                        <div class="logs-more">
-                            <button type="button" class="btn-small" id="logs-activity-more" hidden>Load 50 more</button>
+                    </section>
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title">Stopped and restored accounts</span>
+                            <span class="card-note" id="logs-accounts-count"></span>
                         </div>
-                    </div>
-                </section>
-
-                <!-- Accounts: account_stop_log -->
-                <section class="card" data-logs-panel="accounts" hidden>
-                    <div class="card-head">
-                        <span class="card-title">Stopped and restored accounts</span>
-                        <span class="card-note" id="logs-accounts-count"></span>
-                    </div>
-                    <div class="card-body" id="logs-accounts-body"></div>
-                </section>
+                        <div class="card-body" id="logs-accounts-body"></div>
+                    </section>
+                </div>
 
                 <!-- Uploads: bulk_upload_history -->
                 <section class="card" data-logs-panel="uploads" hidden>

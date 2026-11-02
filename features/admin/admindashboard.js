@@ -3124,26 +3124,19 @@ const LOG_ROLE_OF_TABLE = {
 };
 
 const LOGS = {
-    tab: 'activity',
-    audit: [],            // activity rows loaded so far, newest first
-    auditMore: false,     // true when the last request returned more than one page
-    auditBusy: false,
+    tab: 'users',
     people: new Map(),    // sign-in id -> "Name (Role)", filled as rows are read
     maint: [],            // maintenance_log rows (the latest 300)
     cura: [],             // cura_usage rows from the last 7 days
+    users: [],            // one row per account for the User status table (SL.buildUsers)
+    rolesFor: null,       // the users array the role cards were last built from
+    signIns: new Map(),   // 'role:id' -> when that account last signed in; null when the times could not be read
 };
 let logsInitialized = false;
 
 /* Sample data for ?preview, so the page can be seen without signing in. */
 const PREVIEW_NOW = Date.now();
 const prevAgo = (h) => new Date(PREVIEW_NOW - h * 3600000).toISOString().replace('Z', '');
-const PREVIEW_AUDIT = [
-    { id: 9, actor_id: 'u1', actor_role: 'system_administrator', action: 'PROVISION_ACCOUNT', table_name: 'university_student', record_id: '0c0e8f3a-1111-4a8b-9e0b-aaaaaaaaaaaa', old_values: null, new_values: { id: '0c0e8f3a', email: 'juan.delacruz@gmail.com', first_name: 'Juan', last_name: 'Dela Cruz', user_id: 'x', password_hash: 'abc', year_level: 3 }, created_at: prevAgo(0.5) },
-    { id: 8, actor_id: 'u1', actor_role: 'system_administrator', action: 'UPDATE_UNIVERSITY_STUDENT', table_name: 'university_student', record_id: '0c0e8f3a-1111-4a8b-9e0b-aaaaaaaaaaaa', old_values: { is_approved: false }, new_values: { is_approved: true }, created_at: prevAgo(2) },
-    { id: 7, actor_id: 'u2', actor_role: 'department_staff', action: 'UPDATE_PROSPECTUS', table_name: 'prospectus', record_id: '13', old_values: { status: 'draft' }, new_values: { status: 'active' }, created_at: prevAgo(5) },
-    { id: 6, actor_id: null, actor_role: 'system', action: 'DELETE_UNIVERSITY_STUDENT', table_name: 'university_student', record_id: 'fa4cb413-d6e5-4933-83d3-bbfb2566f4f0', old_values: { id: 'fa4cb413', email: 'old.person@gmail.com', last_name: 'Reyes' }, new_values: null, created_at: prevAgo(30) },
-    { id: 5, actor_id: 'u3', actor_role: 'registrar_staff', action: 'UPDATE_UNIVERSITY_STUDENT', table_name: 'university_student', record_id: '77aa', old_values: { year_level: 2 }, new_values: { year_level: 3 }, created_at: prevAgo(52) },
-];
 const PREVIEW_PEOPLE = new Map([['u1', 'System Admin (Administrator)'], ['u2', 'Dept Staff (Department)'], ['u3', 'Registrar Staff (Registrar)']]);
 const PREVIEW_STOPS = [
     { seq: 2, role: 'student', target_id: 's1', action: 'restore', reason: null, actor_id: 'u1', created_at: prevAgo(10) + 'Z' },
@@ -3198,105 +3191,149 @@ function logsPerson(id, role) {
     return LOGS.people.get(id) ?? `Removed account (${SL.roleLabel(role)})`;
 }
 
-/* ---- Activity ---- */
+/* ---- User status: every account, its state, and when it last signed in ----
+   The accounts come from the lists the Staff and Students pages already read; the state (active, stopped,
+   pending, declined) is decided by accountstop.js, the same rule as those pages; the last sign-in time comes
+   from admin_last_sign_ins (db/094), which answers only an Administrator. Nothing here writes. */
 
-function logsFilters() {
-    return {
-        kind: $('logs-f-kind')?.value || '',
-        table: $('logs-f-table')?.value || '',
-        role: $('logs-f-role')?.value || '',
-        from: $('logs-f-from')?.value || '',
-        to: $('logs-f-to')?.value || '',
-        record: ($('logs-f-record')?.value || '').trim(),
-    };
-}
+const USER_TABLE_LIMIT = 200;   // rows drawn at once; a filter narrows the rest
+const USER_ROLE_NAMES = { student: 'Student', faculty: 'Faculty', registrar: 'Registrar', department: 'Department' };
+const USER_STATE_LABELS = { active: 'Active', stopped: 'Stopped', pending: 'Pending', declined: 'Declined' };
+const USER_STATE_PILL = { active: 'ok', stopped: 'bad', pending: 'waiting', declined: 'bad' };
 
-/* The same filters applied to the sample data. */
-function logsPreviewAudit(f, before) {
-    const day = 86400000;
-    return PREVIEW_AUDIT
-        .filter(r => (before === null || r.id < before))
-        .filter(r => !f.kind || r.action.startsWith(f.kind))
-        .filter(r => !f.table || r.table_name === f.table)
-        .filter(r => !f.role || r.actor_role === f.role)
-        .filter(r => !f.record || r.record_id === f.record)
-        .filter(r => !f.from || SL.parseTime(r.created_at) >= Date.parse(f.from))
-        .filter(r => !f.to || SL.parseTime(r.created_at) < Date.parse(f.to) + day)
-        .slice(0, LOGS_PAGE + 1);
-}
-
-async function logsFetchAudit(f, before) {
-    if (PREVIEW) return { rows: logsPreviewAudit(f, before), error: null };
-    let q = supabase.from('audit_log')
-        .select('id, actor_id, actor_role, action, table_name, record_id, old_values, new_values, created_at')
-        .order('id', { ascending: false })
-        .limit(LOGS_PAGE + 1);
-    if (before !== null) q = q.lt('id', before);
-    if (f.kind) q = q.ilike('action', `${f.kind}%`);
-    if (f.table) q = q.eq('table_name', f.table);
-    if (f.role) q = q.eq('actor_role', f.role);
-    if (f.record) q = q.eq('record_id', f.record);
-    if (f.from) q = q.gte('created_at', f.from);
-    if (f.to) {
-        const next = new Date(Date.parse(f.to) + 86400000).toISOString().slice(0, 10);
-        q = q.lt('created_at', next);
+/* Last sign-in times: a Map of 'role:id' -> time, or null when they could not be read. */
+async function loadSignIns() {
+    if (PREVIEW) {
+        const m = new Map();
+        [...PREVIEW_STUDENTS.map(r => ['student', r]), ...PREVIEW_STAFF.map(r => [r.role, r])].forEach(([role, r], i) => {
+            if (i % 3 !== 2) m.set(`${role}:${r.id}`, new Date(PREVIEW_NOW - (i * 9 + 1) * 3600000).toISOString());
+        });
+        return m;
     }
-    const { data, error } = await q;
-    return { rows: data ?? [], error };
+    if (!supabase) return null;
+    const { data, error } = await supabase.rpc('admin_last_sign_ins');
+    if (error) { console.warn('logs: sign-in times failed:', error.message); return null; }
+    return new Map((data ?? []).map(r => [`${r.role}:${r.account_id}`, r.last_sign_in_at]));
 }
 
-/* reset: start again from the newest entry (a filter changed); otherwise add the next page. */
-async function loadActivity(reset) {
-    if (LOGS.auditBusy) return;
-    LOGS.auditBusy = true;
-    const body = $('logs-activity-body');
-    if (reset) { LOGS.audit = []; if (body) body.innerHTML = logsLoading(); }
-
-    const before = reset || !LOGS.audit.length ? null : LOGS.audit[LOGS.audit.length - 1].id;
-    const { rows, error } = await logsFetchAudit(logsFilters(), before);
-    LOGS.auditBusy = false;
-
-    if (error) {
-        console.warn('logs: activity failed:', error.message);
-        if (body) body.innerHTML = logsEmpty('Could not load the activity log.');
-        showMsg('logs-msg', 'Could not load the activity log. Try again in a moment.');
-        return;
-    }
-    showMsg('logs-msg', '', 'info');
-    LOGS.auditMore = rows.length > LOGS_PAGE;
-    LOGS.audit.push(...rows.slice(0, LOGS_PAGE));
-    await logsLearnPeople(LOGS.audit.map(r => r.actor_id));
-    renderActivity();
+async function loadUsers() {
+    const body = $('logs-users-body');
+    if (body) body.innerHTML = logsLoading();
+    const [signIns] = await Promise.all([loadSignIns(), loadStopLog(), loadStaff(), loadStudents()]);
+    LOGS.signIns = signIns;
+    LOGS.users = SL.buildUsers({
+        students: STUDENTS,
+        staff: STAFF,
+        signIns: signIns ?? new Map(),
+        stateOf: (role, row) => CurriculogicAccountStop.accountState(role, row, STOPPED),
+    });
+    setText('logs-tabcount-users', LOGS.users.length ? String(LOGS.users.length) : '');
+    renderLogsStats();
+    renderUsers();
+    loadAccountsLog();          // the stop and restore history, in the card below
 }
 
-function renderActivity() {
-    const body = $('logs-activity-body');
-    if (!body) return;
-    const more = $('logs-activity-more');
-    if (more) more.hidden = !LOGS.auditMore;
-    setText('logs-activity-count', LOGS.audit.length ? `${LOGS.audit.length} shown${LOGS.auditMore ? ', newest first' : ''}` : '');
-
-    if (!LOGS.audit.length) { body.innerHTML = logsEmpty('Nothing matches these filters.'); return; }
-
-    const rows = LOGS.audit.map(r => {
-        const c = SL.changesOf(r);
-        const list = c.fields.length
-            ? `<ul class="logs-changes">${c.fields.map(f =>
-                `<li><span class="mono">${escapeHtml(f.field)}</span>: <span class="from">${escapeHtml(f.from)}</span> &rarr; ${escapeHtml(f.to)}</li>`).join('')}${c.more ? `<li class="more">and ${c.more} more fields</li>` : ''}</ul>`
+/* A card for each kind of account: how many are active, and what the rest are. The whole card and each status pill
+   are buttons: pressing one filters the table below (see applyUserFilter). */
+function renderRoles(counts) {
+    const roles = $('logs-roles');
+    if (!roles) return;
+    roles.innerHTML = SL.USER_ROLES.map((role) => {
+        const c = counts[role];
+        const pill = (state, cls, text) => c[state]
+            ? `<button type="button" class="pill ${cls}" data-pick-role="${escapeHtml(role)}" data-pick-state="${state}" aria-pressed="false" title="Show only these accounts">${c[state]} ${escapeHtml(text)}</button>`
             : '';
-        const rid = String(r.record_id ?? '');
-        return `<tr>
-            <td>${escapeHtml(logsWhen(r.created_at))}<br><span class="dim">${escapeHtml(SL.agoLabel(r.created_at))}</span></td>
-            <td>${escapeHtml(logsPerson(r.actor_id, r.actor_role))}</td>
-            <td><strong>${escapeHtml(SL.actionLabel(r.action))}</strong><br><span class="dim">${escapeHtml(SL.tableLabel(r.table_name))}</span></td>
-            <td class="mono" title="${escapeHtml(rid)}">${escapeHtml(rid.length > 12 ? rid.slice(0, 8) + '…' : rid)}</td>
-            <td>${list || '<span class="dim">No details recorded</span>'}</td>
+        const rolePills = [pill('stopped', 'bad', 'stopped'), pill('pending', 'waiting', 'pending'), pill('declined', 'bad', 'declined')].join('')
+            || (c.total ? '<span class="dim">All active</span>' : '<span class="dim">No accounts yet</span>');
+        return `<div class="logs-role" data-role="${escapeHtml(role)}">
+            <button type="button" class="logs-role-main" data-pick-role="${escapeHtml(role)}" aria-pressed="false" aria-label="Show ${USER_ROLE_NAMES[role]} accounts">
+                <span class="stat-label">${USER_ROLE_NAMES[role]}</span><b class="n">${c.active}</b><span class="sub">active of ${c.total}</span>
+            </button>
+            <div class="logs-role-pills">${rolePills}</div></div>`;
+    }).join('');
+}
+
+/* Marks the card, pill or tile that matches the filters now. Runs after every change of the filters, typed or pressed. */
+function paintRoleSelection() {
+    const role = $('logs-u-role')?.value || '';
+    const state = $('logs-u-state')?.value || '';
+    document.querySelectorAll('#logs-roles .logs-role').forEach((card) => {
+        const on = card.dataset.role === role && state === '';
+        card.classList.toggle('is-picked', on);
+        card.querySelector('.logs-role-main')?.setAttribute('aria-pressed', String(on));
+    });
+    document.querySelectorAll('#logs-roles .pill[data-pick-state]').forEach((pill) => {
+        const on = pill.dataset.pickRole === role && pill.dataset.pickState === state;
+        pill.classList.toggle('is-picked', on);
+        pill.setAttribute('aria-pressed', String(on));
+    });
+    const tile = document.querySelector('[data-act="active-accounts"]');
+    const tileOn = role === '' && state === 'active';
+    tile?.classList.toggle('is-picked', tileOn);
+    tile?.setAttribute('aria-pressed', String(tileOn));
+}
+
+/* A card, a pill or the Active accounts tile was pressed: set the two filters (or clear them if it was already on). */
+function applyUserFilter(pick) {
+    const next = SL.toggleUserFilter({ role: $('logs-u-role')?.value || '', state: $('logs-u-state')?.value || '' }, pick);
+    if ($('logs-u-role')) $('logs-u-role').value = next.role;
+    if ($('logs-u-state')) $('logs-u-state').value = next.state;
+    if ($('logs-u-term')) $('logs-u-term').value = '';
+    renderUsers();
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (next.role || next.state) $('logs-users-body')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'nearest' });
+}
+
+function renderUsers() {
+    const body = $('logs-users-body');
+    if (!body) return;
+
+    // The cards are built once for each load of the data; pressing one only repaints them (so the focus stays).
+    if (LOGS.rolesFor !== LOGS.users) { renderRoles(SL.statusCounts(LOGS.users)); LOGS.rolesFor = LOGS.users; }
+
+    const list = SL.filterUsers(LOGS.users, {
+        role: $('logs-u-role')?.value || '',
+        state: $('logs-u-state')?.value || '',
+        term: $('logs-u-term')?.value || '',
+    });
+    setText('logs-users-count', LOGS.users.length ? `${list.length} of ${LOGS.users.length} accounts` : '');
+    paintRoleSelection();
+    const note = $('logs-users-note');
+    const noteText = SL.userFilterNote({ role: $('logs-u-role')?.value || '', state: $('logs-u-state')?.value || '' }, list.length, LOGS.users.length);
+    if (note) {
+        note.hidden = !noteText;
+        note.innerHTML = noteText ? `${escapeHtml(noteText)} <button type="button" class="btn-link" data-clear-users>Show all accounts</button>` : '';
+    }
+
+    if (!LOGS.users.length) { body.innerHTML = logsEmpty('No accounts to show.'); return; }
+    if (!list.length) { body.innerHTML = logsEmpty('No account matches these filters.'); return; }
+
+    const shown = list.slice(0, USER_TABLE_LIMIT);
+    const rows = shown.map((u) => {
+        const signIn = LOGS.signIns === null
+            ? '<span class="dim">Not available</span>'
+            : (() => {
+                const si = SL.signInText(u.lastSignIn);
+                return si.never
+                    ? '<span class="never">Never signed in</span>'
+                    : `${escapeHtml(si.text)}<br><span class="dim">${escapeHtml(logsWhen(new Date(u.lastSignIn).toISOString()))}</span>`;
+            })();
+        const programme = PROGRAMS.find(p => p.id === u.programId)?.code || '—';
+        const sub = [u.ident, u.email].filter(Boolean).join(' · ');
+        return `<tr class="logs-row">
+            <td data-label="Account"><div class="logs-who"><span class="avatar" aria-hidden="true">${escapeHtml(SL.initials(u.name))}</span><div>${escapeHtml(u.name)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</div></div></td>
+            <td data-label="Kind"><span class="logs-chip">${USER_ROLE_NAMES[u.role]}</span></td>
+            <td data-label="Programme">${escapeHtml(programme)}</td>
+            <td data-label="Status"><span class="pill ${USER_STATE_PILL[u.state] ?? 'waiting'}">${USER_STATE_LABELS[u.state] ?? escapeHtml(u.state)}</span></td>
+            <td data-label="Last sign-in">${signIn}</td>
+            <td data-label="Created">${u.createdAt ? escapeHtml(logsWhen(u.createdAt)) : '<span class="dim">—</span>'}</td>
         </tr>`;
     }).join('');
 
-    body.innerHTML = `<div class="table-wrap"><table class="data-table">
-        <thead><tr><th>When</th><th>Who</th><th>What</th><th>Record</th><th>Details</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>`;
+    body.innerHTML = `<div class="table-wrap logs-scroll"><table class="data-table logs-cards">
+        <thead><tr><th>Account</th><th>Kind</th><th>Programme</th><th>Status</th><th>Last sign-in</th><th>Created</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+        ${list.length > shown.length ? `<p class="dim" style="margin:var(--s2) 0 0;">Showing the first ${shown.length} of ${list.length}. Narrow the filters to see the rest.</p>` : ''}`;
 }
 
 /* ---- Accounts ---- */
@@ -3333,7 +3370,7 @@ async function loadAccountsLog() {
     if (!body) return;
     if (!rows.length) { body.innerHTML = logsEmpty('No account has been stopped or restored yet.'); return; }
 
-    body.innerHTML = `<div class="table-wrap"><table class="data-table">
+    body.innerHTML = `<div class="table-wrap logs-scroll"><table class="data-table">
         <thead><tr><th>When</th><th>Account</th><th>What</th><th>Reason</th><th>Done by</th></tr></thead>
         <tbody>${rows.map(r => `<tr>
             <td>${escapeHtml(logsWhen(r.created_at))}<br><span class="dim">${escapeHtml(SL.agoLabel(r.created_at))}</span></td>
@@ -3370,7 +3407,8 @@ async function loadUploadsLog() {
     if (!body) return;
     if (!rows.length) { body.innerHTML = logsEmpty('No bulk upload has been run yet.'); return; }
 
-    body.innerHTML = `<div class="table-wrap"><table class="data-table">
+    setText('logs-tabcount-uploads', String(rows.length));
+    body.innerHTML = `<div class="table-wrap logs-scroll"><table class="data-table">
         <thead><tr><th>When</th><th>File</th><th>Done by</th><th class="num">Rows</th><th class="num">Created</th><th class="num">Rejected</th></tr></thead>
         <tbody>${rows.map(r => `<tr>
             <td>${escapeHtml(logsWhen(r.created_at))}<br><span class="dim">${escapeHtml(SL.agoLabel(r.created_at))}</span></td>
@@ -3399,19 +3437,11 @@ async function loadHealthData() {
     return !m.error && !c.error;
 }
 
-async function loadAuditCount() {
-    if (PREVIEW) {
-        const since = Date.now() - 86400000;
-        return PREVIEW_AUDIT.filter(r => SL.parseTime(r.created_at) >= since).length;
-    }
-    const since = new Date(Date.now() - 86400000).toISOString();
-    const { count, error } = await supabase.from('audit_log').select('id', { count: 'exact', head: true }).gte('created_at', since);
-    return error ? null : count;
-}
-
-function renderLogsStats(auditCount) {
+function renderLogsStats() {
     const now = Date.now();
-    setText('logs-stat-audit', auditCount === null ? '—' : String(auditCount), 'stat-value');
+    const active = LOGS.users.filter(u => u.state === 'active').length;
+    setText('logs-stat-users', LOGS.users.length ? String(active) : '—', 'stat-value');
+    setText('logs-stat-users-hint', LOGS.users.length ? `of ${LOGS.users.length} accounts` : 'All kinds of account');
 
     const clean = SL.lastCleanup(LOGS.maint, now);
     if (clean.state === 'none') {
@@ -3441,7 +3471,7 @@ function renderCleanup() {
     setText('logs-cleanup-note', `Last run ${logsWhen(c.ranAt)} (${SL.agoLabel(c.ranAt)})`);
     body.innerHTML = `
         ${c.state === 'late' ? `<div class="notice pending logs-warn"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><div><strong>The cleanup is late</strong>It should run every night and last ran ${escapeHtml(String(c.hoursAgo))} hours ago. Check that the scheduled job is still active in the database.</div></div>` : ''}
-        <div class="table-wrap"><table class="data-table">
+        <div class="table-wrap logs-scroll"><table class="data-table">
             <thead><tr><th>Rule</th><th class="num">Rows removed</th></tr></thead>
             <tbody>${c.tasks.map(t => `<tr><td>${escapeHtml(t.task.replace(/_/g, ' '))}</td><td class="num">${escapeHtml(t.rowsFound)}</td></tr>`).join('')}</tbody>
         </table></div>`;
@@ -3493,12 +3523,40 @@ function renderCuraHealth() {
         </tr>`;
     }).join('');
 
+    // The last 7 days as a donut: how many answers went well, were busy, failed or were refused.
+    const slices = [
+        { label: 'Went well', n: w.ok,         color: '#0f8a5f' },
+        { label: 'Busy',      n: w.busy,       color: '#d99a1e' },
+        { label: 'Error',     n: w.error,      color: '#c0392b' },
+        { label: 'Refused',   n: w.badRequest, color: '#8a93a6' },
+    ];
+    let acc = 0;
+    const stops = slices.filter(s => s.n > 0).map(s => {
+        const from = acc / w.total * 100;
+        acc += s.n;
+        return `${s.color} ${from.toFixed(2)}% ${(acc / w.total * 100).toFixed(2)}%`;
+    });
+    // Any request with a status not listed above is grey, so the ring always closes.
+    if (acc < w.total) stops.push(`#cbd2de ${(acc / w.total * 100).toFixed(2)}% 100%`);
+    const donut = `
+        <div class="logs-donut-row">
+            <div class="logs-donut" style="background:conic-gradient(${stops.join(', ')})" role="img"
+                 aria-label="${w.successRate ?? 0}% of ${w.total} Cura requests went well in the last 7 days">
+                <div class="logs-donut-label"><b>${w.successRate ?? 0}%</b><span>went well</span></div>
+            </div>
+            <ul class="logs-legend">
+                ${slices.map(s => `<li><span class="dot" style="background:${s.color}"></span>${escapeHtml(s.label)}<span class="n">${s.n}</span></li>`).join('')}
+                <li class="dim"><span class="dot" style="background:transparent"></span>Last 7 days<span class="n">${w.total}</span></li>
+            </ul>
+        </div>`;
+
     body.innerHTML = `
         ${notes.map(n => `<div class="notice pending logs-warn"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><div>${escapeHtml(n)}</div></div>`).join('')}
+        ${donut}
         <h3 class="logs-sub">Last 24 hours</h3>${d.total ? mix(d) : '<p class="dim">No requests in the last 24 hours.</p>'}
         <h3 class="logs-sub">Last 7 days</h3>${mix(w)}
         <p class="dim" style="margin:0 0 var(--s3);">Models used: ${w.byModel.length ? w.byModel.map(m => `${escapeHtml(m.model)} (${m.count})`).join(', ') : 'none recorded'}</p>
-        <div class="table-wrap"><table class="data-table">
+        <div class="table-wrap logs-scroll"><table class="data-table">
             <thead><tr><th>When</th><th>From</th><th>Result</th><th class="num">Time</th><th>Model</th><th class="num">Tries</th><th>Wishes</th></tr></thead>
             <tbody>${recent}</tbody>
         </table></div>`;
@@ -3507,7 +3565,7 @@ function renderCuraHealth() {
 async function loadHealth() {
     const ok = await loadHealthData();
     if (!ok) showMsg('logs-msg', 'Some of the health numbers could not be loaded.');
-    renderLogsStats(await loadAuditCount());
+    renderLogsStats();
     renderCleanup();
     renderCuraHealth();
 }
@@ -3515,8 +3573,7 @@ async function loadHealth() {
 /* ---- the page ---- */
 
 const LOGS_TAB_LOADERS = {
-    activity: () => loadActivity(true),
-    accounts: loadAccountsLog,
+    users: loadUsers,
     uploads: loadUploadsLog,
     health: loadHealth,
 };
@@ -3541,18 +3598,26 @@ function initLogs() {
             const btn = e.target.closest('[data-logs-tab]');
             if (btn) setLogsTab(btn.dataset.logsTab);
         });
-        for (const id of ['logs-f-kind', 'logs-f-table', 'logs-f-role', 'logs-f-from', 'logs-f-to']) {
-            $(id)?.addEventListener('change', () => loadActivity(true));
-        }
-        let timer = null;
-        $('logs-f-record')?.addEventListener('input', () => {
-            clearTimeout(timer);
-            timer = setTimeout(() => loadActivity(true), 350);
+        for (const id of ['logs-u-role', 'logs-u-state']) $(id)?.addEventListener('change', renderUsers);
+        $('logs-u-term')?.addEventListener('input', renderUsers);
+        // The role cards, their status pills, and the Active accounts tile.
+        $('logs-roles')?.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-pick-role]');
+            if (b) applyUserFilter({ role: b.dataset.pickRole, state: b.dataset.pickState || '' });
         });
-        $('logs-activity-more')?.addEventListener('click', () => loadActivity(false));
+        $('logs-users-note')?.addEventListener('click', (e) => {
+            if (e.target.closest('[data-clear-users]')) applyUserFilter({ role: '', state: '' });
+        });
+        const tile = document.querySelector('[data-act="active-accounts"]');
+        const pickActive = () => {
+            applyUserFilter({ role: '', state: 'active' });
+            if (LOGS.tab !== 'users') setLogsTab('users');
+        };
+        tile?.addEventListener('click', pickActive);
+        tile?.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickActive(); } });
     }
     // The summary tiles are on every tab; the open tab loads its own table.
-    loadHealthData().then(async () => renderLogsStats(await loadAuditCount()));
+    loadHealthData().then(() => renderLogsStats());
     setLogsTab(LOGS.tab);
 }
 
