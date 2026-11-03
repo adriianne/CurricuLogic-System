@@ -91,11 +91,12 @@ function missesOf(group, wishes, conflicts) {
     const late = wishes.latestEnd ? minutesOf(wishes.latestEnd) : null;
     const avoid = new Map((wishes.avoidDays ?? []).filter(d => AVOID_DAY[d]).map(d => [AVOID_DAY[d], d]));
 
+    // The time-of-day buttons carry a `period`: they say "the afternoon", never a clock time.
     if (early !== null && group.meetings.some(m => { const t = minutesOf(m.start_time); return t !== null && t < early; })) {
-        out.push(`starts before ${clock(wishes.earliestStart)}`);
+        out.push(wishes.period ? `starts before the ${wishes.period}` : `starts before ${clock(wishes.earliestStart)}`);
     }
     if (late !== null && group.meetings.some(m => { const t = minutesOf(m.end_time); return t !== null && t > late; })) {
-        out.push(`ends after ${clock(wishes.latestEnd)}`);
+        out.push(wishes.period ? `ends after the ${wishes.period}` : `ends after ${clock(wishes.latestEnd)}`);
     }
     const hit = new Set();
     for (const m of group.meetings) for (const d of parseDays(m.schedule_days)) if (avoid.has(d)) hit.add(avoid.get(d));
@@ -149,7 +150,7 @@ function assignSections(items, meetingsClash) {
 
 const looseCode = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null, fillCap = null }) {
+function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null, fillCap = null, bestEffort = false }) {
     const { groupSections, meetingsClash } = conflicts;
     const studentCap = Number.isFinite(Number(cap)) ? Number(cap) : 0;
     // A units wish can only lower the limit.
@@ -256,9 +257,12 @@ function buildAutoPlan({ entries, suggestedIds, cap, conflicts, wishes = null, f
         const item = newItems[0];
         // First try to keep every wish; only when that leaves no arrangement, let a section that breaks one in.
         const all = [...items, ...newItems];
-        let trial = assignSections(fittingOnly(all), meetingsClash) ?? (extra ? null : assignSections(all, meetingsClash));
+        // bestEffort is for the time-of-day buttons: the student asked for the closest plan, so an optional
+        // subject may also join in the section nearest the wish (the miss is named in the result).
+        const strictExtra = extra && !bestEffort;
+        let trial = assignSections(fittingOnly(all), meetingsClash) ?? (strictExtra ? null : assignSections(all, meetingsClash));
         // An optional subject never costs a wish: it only joins in a section that meets every wish.
-        if (trial && extra && trial.slice(items.length).some(c => (c.misses ?? []).length)) trial = null;
+        if (trial && strictExtra && trial.slice(items.length).some(c => (c.misses ?? []).length)) trial = null;
         if (!trial && extra) { extrasLeft++; continue; }
 
         if (!trial) {
@@ -362,6 +366,21 @@ function describeWishes(wishes) {
     return out;
 }
 
-return { buildAutoPlan, summarize, describeWishes };
+/* The time limits behind the three buttons "Morning / Afternoon / Evening schedules" on Build your plan.
+   They use the same day parts as the rest of the app (morning before noon, afternoon noon to 5 pm,
+   evening after 5 pm) and come out as ordinary wishes, so the planner treats them exactly as it treats
+   what a student tells Cura. Anything else gives null, which is no wish at all. */
+const PERIODS = {
+    morning:   { earliestStart: null,    latestEnd: '12:00' },
+    afternoon: { earliestStart: '12:00', latestEnd: '17:00' },
+    evening:   { earliestStart: '17:00', latestEnd: null },
+};
+function periodWishes(period) {
+    const p = PERIODS[period];
+    if (!p) return null;
+    return { earliestStart: p.earliestStart, latestEnd: p.latestEnd, avoidDays: [], maxUnits: null, keepSubjects: [], period };
+}
+
+return { buildAutoPlan, summarize, describeWishes, periodWishes };
 
 }));

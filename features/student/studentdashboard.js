@@ -274,7 +274,7 @@ function renderProfile(student, authEmail) {
 
     $('d-verified').innerHTML = student?.record_verified
         ? '<span class="pill ok"><i class="fa-solid fa-check"></i> Verified</span>'
-        : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Pending with Registrar</span>';
+        : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Waiting for grades</span>';
 
     // Profile header: the same facts again, given a face.
     setText('prof-avatar', PHOTO_INITIALS);
@@ -388,8 +388,8 @@ function renderProfileProgress() {
 
     if (!RESULT) {
         if (note) note.textContent = '';
-        box.innerHTML = `<p class="dim">Your progress will appear here once the
-            Registrar has verified your record.</p>`;
+        box.innerHTML = `<p class="dim">Your progress will appear here once your
+            grades are on file.</p>`;
         return;
     }
 
@@ -493,9 +493,9 @@ function renderNotice(student) {
             <div class="notice pending">
                 <i class="fa-solid fa-clock" aria-hidden="true"></i>
                 <div>
-                    <strong>Your academic record is being verified</strong>
-                    Subject eligibility cannot be computed until the Office of the
-                    Registrar confirms your record and uploads your subject history.
+                    <strong>No grades on file yet</strong>
+                    Subject eligibility cannot be computed until your subject history is
+                    uploaded by your department. It starts as soon as your grades are in.
                 </div>
             </div>`;
         return;
@@ -890,7 +890,7 @@ function renderEligibility(student) {
                 <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i>
                 <h3>Nothing to show yet</h3>
                 <p>
-                    Once the Office of the Registrar verifies your record, this
+                    Once your grades are on file, this
                     panel will list what you can take and the specific requirement
                     behind anything you cannot.
                 </p>
@@ -1521,8 +1521,8 @@ function renderProspectusEmpty() {
             <h3>Curriculum not yet available</h3>
             <p>
                 The prospectus has not been published yet, or your account is
-                not yet linked to one. Check back once the Office of the
-                Registrar has finished verification.
+                not yet linked to one. Check back once your
+                department has published your curriculum.
             </p>
         </div>`;
 }
@@ -2267,7 +2267,8 @@ async function loadRequestPicker() {
     const picker = $('req-picker');
     if (!picker) return;
 
-    if ($('auto-plan')) $('auto-plan').hidden = true;      // shown below, once there is something to select
+    // The Auto-select card is always on this page. A result from an earlier press is cleared here.
+    if ($('auto-plan-result')) $('auto-plan-result').hidden = true;
 
     // Wishes from Cura are used once, on this load. They are dropped on the early exits below,
     // where the page already says why there is nothing to pick.
@@ -2414,15 +2415,18 @@ async function loadRequestPicker() {
 
         $('req-submit')?.addEventListener('click', submitAdvisingRequest);
         $('auto-plan-btn')?.addEventListener('click', () => runAutoPlan());
+        // Morning / Afternoon / Evening schedules: the same Auto-select, limited to that part of the day.
+        document.querySelectorAll('[data-auto-period]').forEach(b => {
+            b.addEventListener('click', () => {
+                const period = b.dataset.autoPeriod;
+                runAutoPlan(window.CurriculogicAutoPlan?.periodWishes(period) ?? null, period);
+            });
+        });
         requestsInitialized = true;
     }
 
-    // The button is offered only when the engine suggests something to select (or the student
-    // asked Cura for a plan, which can name subjects the engine did not suggest).
-    if ($('auto-plan')) {
-        $('auto-plan').hidden = suggested.length === 0 && !wishes;
-        if ($('auto-plan-result')) $('auto-plan-result').hidden = true;
-    }
+    // The card is always shown. Its result box starts empty on each load.
+    if ($('auto-plan-result')) $('auto-plan-result').hidden = true;
 
     updateRequestCount();
 
@@ -2436,8 +2440,9 @@ async function loadRequestPicker() {
    editable, and nothing is sent until Submit for review is pressed. */
 let autoPlanBusy = false;
 
-async function runAutoPlan(wishes = null) {
+async function runAutoPlan(wishes = null, period = null) {
     if (!window.CurriculogicAutoPlan || !window.ScheduleConflicts) return;
+    if (!RESULT) return;                     // nothing is loaded yet, so there is nothing to choose from
     if (autoPlanBusy) return;
     autoPlanBusy = true;
 
@@ -2473,6 +2478,7 @@ async function runAutoPlan(wishes = null) {
         conflicts: window.ScheduleConflicts,
         wishes,
         fillCap,
+        bestEffort: !!period,     // the time-of-day buttons give the closest plan, with the misses named
     });
 
     // The plan replaces whatever was picked before.
@@ -2491,13 +2497,13 @@ async function runAutoPlan(wishes = null) {
         if (section) sel.value = section;
     });
     updateRequestCount();
-    renderAutoPlanResult(plan);
+    renderAutoPlanResult(plan, period);
 
     // Ready to read and submit.
     if (plan.picks.length) $('req-submit')?.focus({ preventScroll: false });
 }
 
-function renderAutoPlanResult(plan) {
+function renderAutoPlanResult(plan, period = null) {
     const box = $('auto-plan-result');
     if (!box) return;
 
@@ -2508,7 +2514,10 @@ function renderAutoPlanResult(plan) {
 
     box.className = 'auto-plan-result ' + (plan.picks.length ? 'is-ok' : 'is-none');
     const asked = window.CurriculogicAutoPlan.describeWishes(plan.wishes);
-    const using = asked.length ? `<p class="dim">Using what you asked Cura for: ${escapeHtml(asked.join(' · '))}.</p>` : '';
+    // A time-of-day button says so, without any clock time; a plan that came from Cura lists what it understood.
+    const using = period
+        ? `<p class="dim">Using the ${escapeHtml(period)} schedules you chose.</p>`
+        : (asked.length ? `<p class="dim">Using what you asked Cura for: ${escapeHtml(asked.join(' · '))}.</p>` : '');
     box.innerHTML = `${using}<p>${escapeHtml(window.CurriculogicAutoPlan.summarize(plan))}</p>${left}`;
     box.hidden = false;
 }

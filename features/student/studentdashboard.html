@@ -285,7 +285,7 @@
                     <div id="req-msg" class="msg" role="status"></div>
 
                     <!-- One tap: pick the suggested subjects in sections that do not overlap -->
-                    <section class="auto-plan" id="auto-plan" aria-labelledby="auto-plan-title" hidden>
+                    <section class="auto-plan" id="auto-plan" aria-labelledby="auto-plan-title">
                         <div class="auto-plan-text">
                             <span class="auto-plan-icon" aria-hidden="true"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
                             <div>
@@ -297,6 +297,14 @@
                             <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
                             Auto-select plan
                         </button>
+                        <div class="auto-plan-times">
+                            <span class="auto-plan-times-label">Or choose the time of day</span>
+                            <div class="pref-choices" role="group" aria-label="Auto-select by time of day">
+                                <button type="button" class="pref-choice" data-auto-period="morning">Morning schedules</button>
+                                <button type="button" class="pref-choice" data-auto-period="afternoon">Afternoon schedules</button>
+                                <button type="button" class="pref-choice" data-auto-period="evening">Evening schedules</button>
+                            </div>
+                        </div>
                         <div class="auto-plan-result" id="auto-plan-result" role="status" aria-live="polite" hidden></div>
                     </section>
 
@@ -509,7 +517,7 @@
 
                                     <label for="pw-new">New password</label>
                                     <input type="password" id="pw-new" autocomplete="new-password" maxlength="72">
-                                    <p class="prof-hint">At least 8 characters, including a special character (! @ # $ %).</p>
+                                    <p class="prof-hint">At least 8 characters, with a letter, a number and a special character (! @ # $ %).</p>
 
                                     <label for="pw-confirm">Confirm new password</label>
                                     <input type="password" id="pw-confirm" autocomplete="new-password" maxlength="72">
