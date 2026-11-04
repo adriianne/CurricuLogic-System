@@ -147,6 +147,8 @@ function validate() {
         if (firstProblem) return mark('first-name', firstProblem);
         const lastProblem = CurriculogicNameRules.problem($('last-name').value, 'last name');
         if (lastProblem) return mark('last-name', lastProblem);
+        const middleProblem = CurriculogicNameRules.middleProblem($('middle-name')?.value);
+        if (middleProblem) return mark('middle-name', middleProblem);
     } else {
         if (!$('student-id').value.trim()) return mark('student-id', 'Enter your student ID.');
         if (!studentIdDigits($('student-id').value)) return mark('student-id', 'Student ID is 8 digits, for example 24001187.');
@@ -187,19 +189,25 @@ function signUpFailureMessage(error) {
     if (error?.status === 429 || text.includes('rate limit')) {
         return 'Too many requests right now. Please wait a few minutes and try again.';
     }
+    // The e-mail sender failed: the details were fine, so say so (it reveals nothing about any account).
+    if (text.includes('sending confirmation email') || text.includes('error sending')) {
+        return 'We could not send your confirmation e-mail right now, so the account was not created. Please try again in a few minutes, or contact the EDP office.';
+    }
     return 'We could not submit your request. Please check your details and try again.';
 }
 
-/* Asks the database whether these details are on the EDP list (db/085). It only advises: a student who
-   is not found is warned once and may still submit, and the Registrar checks by hand. Any failure here
-   counts as "no warning", so it can never stop a registration. */
+/* Asks the database whether these details match the EDP list, e-mail included (db/095). The EDP list now decides
+   who may have an account, so this is checked BEFORE the sign-in account is created: a registration that does not
+   match leaves nothing behind. The database checks again when the row is saved. Returns 'match', 'no_match',
+   'no_list', or null when the check itself failed. */
 async function expectedStudentResult() {
     try {
-        const { data, error } = await supabase.rpc('check_expected_student', {
+        const { data, error } = await supabase.rpc('check_registration_match', {
             p_student_id: path === 'existing' ? studentIdDigits($('student-id').value) : null,
             p_first_name: path === 'new' ? CurriculogicNameRules.clean($('first-name').value) : null,
             p_last_name:  path === 'new' ? CurriculogicNameRules.clean($('last-name').value) : null,
             p_program_id: Number($('program')?.value) > 0 ? Number($('program').value) : null,
+            p_email:      CurriculogicEmailRules.clean($('email').value),
         });
         return error ? null : data;
     } catch {
@@ -207,21 +215,33 @@ async function expectedStudentResult() {
     }
 }
 
-// True once the student has seen the "not on the list" warning for what is typed now.
-let warnedNotOnList = false;
-const resetWarning = () => {
-    if (!warnedNotOnList) return;
-    warnedNotOnList = false;
-    const b = $('register-btn');
-    if (b && !b.disabled) b.textContent = 'Submit request';
-};
-document.querySelectorAll('.field input, .field select, .path input').forEach((el) => {
-    el.addEventListener('input', resetWarning);
-    el.addEventListener('change', resetWarning);
-});
-
 const SUBMITTED_MESSAGE =
-    'Request submitted. Check your inbox to confirm your email address, then the Office of the Registrar will verify your details and notify you once your account is ready.';
+    'Your details match the EDP student list, so your account is approved. Check your inbox and confirm your email address, then log in with your school email.';
+
+// Shown when the email already has an account (the page says so plainly, by design).
+const EMAIL_EXISTS_MESSAGE =
+    'This email already exists. Log in instead, or use "Forgot password?" on the login page. If it is not your account, use a different email.';
+
+// Shown when a new student's name matches someone who already has an account or a pending request.
+const NAME_TAKEN_MESSAGE =
+    'A student with this name already has an account or a pending request, so this request cannot be sent. If that is you, log in or use "Forgot password?". If you are a different person with the same name, contact the Office of the Registrar.';
+
+/* Asks the database whether a student with this first and last name already has an account or a pending
+   request (db/093). Only the "new student" path is checked. Any failure counts as "no", so a broken check
+   can never stop a registration; the database trigger enforces the same rule on insert. */
+async function nameAlreadyRegistered() {
+    if (path !== 'new') return false;
+    try {
+        const { data, error } = await supabase.rpc('name_already_registered', {
+            p_first_name:  CurriculogicNameRules.clean($('first-name').value),
+            p_last_name:   CurriculogicNameRules.clean($('last-name').value),
+            p_middle_name: CurriculogicNameRules.clean($('middle-name')?.value) || null,
+        });
+        return !error && data === true;
+    } catch {
+        return false;
+    }
+}
 
 async function handleRegister() {
     clearMsg();
@@ -245,17 +265,14 @@ async function handleRegister() {
 
     const btn = $('register-btn');
 
-    if (!warnedNotOnList) {
-        btn.disabled = true;
-        btn.textContent = 'Checking…';
-        const advice = CurriculogicExpectedStudents.registrationAdvice(await expectedStudentResult());
+    // The EDP list decides: nothing is created unless the details (and the e-mail on file) match.
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    const gate = CurriculogicExpectedStudents.registrationCheck(await expectedStudentResult());
+    if (!gate.allow) {
         btn.disabled = false;
-        if (advice.warn) {
-            warnedNotOnList = true;
-            btn.textContent = 'Submit anyway';
-            return showMsg(advice.message, 'pending');
-        }
         btn.textContent = 'Submit request';
+        return showMsg(gate.message, 'error');
     }
 
     btn.disabled = true;
@@ -264,9 +281,19 @@ async function handleRegister() {
     const email = CurriculogicEmailRules.clean($('email').value);
 
     try {
+        // Same first and last name as someone who already has an account or a pending request: stop BEFORE
+        // the sign-in account is created, so a rejected request leaves nothing behind.
+        if (await nameAlreadyRegistered()) {
+            return showMsg(NAME_TAKEN_MESSAGE, 'error');
+        }
+
+        // After the student taps the link in the confirmation e-mail, they land on the login page
+        // (the address must be in Supabase > Authentication > URL Configuration > Redirect URLs).
+        const loginUrl = new URL('loginpage.html?confirmed=1', window.location.href).href;
         const { data, error } = await supabase.auth.signUp({
             email,
             password: $('password').value,
+            options: { emailRedirectTo: loginUrl },
         });
 
         if (error || !data?.user) {
@@ -276,11 +303,10 @@ async function handleRegister() {
 
         // Supabase returns a phantom user with an empty identities array when the
         // address is already registered. Stop here — the insert would fail on the FK.
+        // The student is told plainly that the email already exists (a product choice, 2 Nov 2026: the
+        // page does reveal whether an email is registered, so a student knows to log in instead).
         if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-            return showMsg(
-                'If this email is eligible, a confirmation message has been sent. Please check your inbox.',
-                'success'
-            );
+            return showMsg(EMAIL_EXISTS_MESSAGE, 'error');
         }
 
         const row = {
@@ -294,6 +320,9 @@ async function handleRegister() {
         if (path === 'new') {
             row.first_name = CurriculogicNameRules.clean($('first-name').value);
             row.last_name  = CurriculogicNameRules.clean($('last-name').value);
+            // Optional; left out when blank so the column stays empty (null), not an empty string.
+            const middleName = CurriculogicNameRules.clean($('middle-name')?.value);
+            if (middleName) row.middle_name = middleName;
             // No student ID is sent: the database issues one when the
             // Registrar approves the request (db/045).
         } else {
@@ -311,7 +340,16 @@ async function handleRegister() {
 
         if (insertError) {
             console.error('insert failed:', insertError.code, insertError.message, insertError.details);
-            return showMsg('We could not submit your request. Please contact the Registrar for assistance.');
+            // The database guard (db/093) caught a same-name request the page check missed.
+            if (insertError.code === '23505' && /already has an account/i.test(insertError.message || '')) {
+                return showMsg(NAME_TAKEN_MESSAGE, 'error');
+            }
+            // The database refuses a registration that does not match the EDP list (db/095).
+            const why = insertError.message || '';
+            if (/EDP student list/i.test(why)) return showMsg(CurriculogicExpectedStudents.NOT_ON_LIST_MESSAGE, 'error');
+            if (/not open yet/i.test(why)) return showMsg(CurriculogicExpectedStudents.NOT_OPEN_MESSAGE, 'error');
+            if (/already has an account/i.test(why)) return showMsg(EMAIL_EXISTS_MESSAGE, 'error');
+            return showMsg('We could not submit your request. Please contact the EDP office for assistance.');
         }
 
         showMsg(SUBMITTED_MESSAGE, 'success');

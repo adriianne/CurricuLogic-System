@@ -55,3 +55,37 @@ describe('clean', () => {
         assert.equal(N.clean(null), '');
     });
 });
+
+describe('middleProblem (the optional middle name)', () => {
+    test('blank is fine: a middle name is optional', () => {
+        for (const n of ['', '   ', null, undefined]) assert.equal(N.middleProblem(n), null, String(n));
+    });
+
+    test('ordinary middle names pass', () => {
+        for (const n of ['Cursoara', 'Santos', 'De la Cruz', "O'Brien", 'Mae-Ann', 'Muñoz', 'José', 'Ng', 'Q. Jr']) {
+            assert.equal(N.middleProblem(n), null, n);
+        }
+    });
+
+    test('digits and symbols are refused ("Cas@12", "123124")', () => {
+        for (const n of ['Cas@12', '123124', 'Ann2', 'Ann_B', '<b>x</b>', '=SUM(A1)', 'Ann 😀']) {
+            assert.match(N.middleProblem(n), /can only contain/, n);
+        }
+    });
+
+    test('a single letter is refused ("Q"), with or without a full stop', () => {
+        for (const n of ['Q', 'q', 'Q.', ' Q ']) assert.match(N.middleProblem(n), /at least 2 letters/, n);
+    });
+
+    test('must start with a letter, and no two punctuation marks in a row', () => {
+        assert.match(N.middleProblem("'Ann"), /start with a letter/);
+        assert.match(N.middleProblem('-Ann'), /start with a letter/);
+        assert.match(N.middleProblem('Ann..B'), /two punctuation marks/);
+        assert.match(N.middleProblem('Ann--Bea'), /two punctuation marks/);
+    });
+
+    test('too long is refused', () => {
+        assert.match(N.middleProblem('a'.repeat(61)), /at most 60/);
+        assert.equal(N.middleProblem('a'.repeat(60)), null);
+    });
+});

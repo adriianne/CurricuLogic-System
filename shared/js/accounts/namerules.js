@@ -43,6 +43,28 @@ function problem(raw, label = 'name') {
     return null;
 }
 
-return { MAX, clean, problem };
+/* The MIDDLE name is optional, so a blank one is fine (null). When something is typed it is checked more
+   strictly than a first or last name, because it is the field most often mistyped or filled with junk:
+     "Cursoara"  ok        "Cas@12"  refused (symbol and digits)    "123124"  refused (digits)
+     "Q"         refused   (a single letter is not a name; at least 2 letters)
+   - letters, spaces and ' ’ . - , only (same characters as other names)
+   - at least 2 letters
+   - must start with a letter
+   - no two punctuation marks in a row (".." "--" ",,")
+   - at most 60 characters */
+const MIN_LETTERS = 2;
+function middleProblem(raw) {
+    const s = clean(raw);
+    if (!s)                  return null;
+    if (s.length > MAX)      return `The middle name must be at most ${MAX} characters.`;
+    if (!ALLOWED.test(s))    return "The middle name can only contain letters, spaces, and the characters ' . - ,";
+    const letters = (s.match(/\p{L}/gu) || []).length;
+    if (letters < MIN_LETTERS) return `The middle name must have at least ${MIN_LETTERS} letters.`;
+    if (!/^\p{L}/u.test(s))  return 'The middle name must start with a letter.';
+    if (/['’.\-,]{2,}/u.test(s)) return 'The middle name cannot have two punctuation marks in a row.';
+    return null;
+}
+
+return { MAX, clean, problem, middleProblem };
 
 }));
