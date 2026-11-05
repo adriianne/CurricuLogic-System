@@ -76,7 +76,7 @@ describe('checkRows', () => {
         assert.equal(bad[0].line, 3);
     });
     test('good and bad rows are sorted apart', () => {
-        const { ok, bad } = X.checkRows([row(), row({ student_id: '1', __line: 3 }), row({ student_id: '24001188', __line: 4 })], PROGRAMS);
+        const { ok, bad } = X.checkRows([row(), row({ student_id: '1', __line: 3 }), row({ student_id: '24001188', email: 'second@example.com', __line: 4 })], PROGRAMS);
         assert.equal(ok.length, 2);
         assert.equal(bad.length, 1);
     });
@@ -98,15 +98,27 @@ describe('search', () => {
     });
 });
 
-describe('registrationAdvice', () => {
-    test('only "no_match" warns, and the warning offers "Submit anyway"', () => {
-        const a = X.registrationAdvice('no_match');
-        assert.equal(a.warn, true);
-        assert.match(a.message, /Submit anyway/);
+describe('registrationCheck', () => {
+    test('only "match" lets a registration through', () => {
+        assert.deepEqual(X.registrationCheck('match'), { allow: true, message: '' });
     });
-    test('a match, no list, an error or anything odd says nothing', () => {
-        for (const r of ['match', 'no_list', null, undefined, '', 'banana', 42]) {
-            assert.deepEqual(X.registrationAdvice(r), { warn: false, message: '' }, String(r));
+    test('"no_match" stops it, and the message points to the EDP office, with no "Submit anyway"', () => {
+        const a = X.registrationCheck('no_match');
+        assert.equal(a.allow, false);
+        assert.match(a.message, /EDP student list/);
+        assert.match(a.message, /contact the EDP office/);
+        assert.doesNotMatch(a.message, /Submit anyway|Registrar/);
+    });
+    test('"no_list" stops it: registration is not open until a list is uploaded', () => {
+        const a = X.registrationCheck('no_list');
+        assert.equal(a.allow, false);
+        assert.match(a.message, /not open yet/);
+    });
+    test('an error, nothing, or anything odd also stops it, so a gap on our side never lets someone in', () => {
+        for (const r of [null, undefined, '', 'banana', 42, 'MATCH']) {
+            const a = X.registrationCheck(r);
+            assert.equal(a.allow, false, String(r));
+            assert.ok(a.message.length > 0, String(r));
         }
     });
 });

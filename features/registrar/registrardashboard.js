@@ -46,7 +46,7 @@ const PREVIEW_REGISTRAR = {
 };
 
 const PREVIEW_STUDENTS = [
-    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '24001187', email: 'althea1@gmail.com', year_level: 2, is_approved: true,  record_verified: true,  approval_status: 'approved', declared_path: 'existing', created_at: '2026-08-11T02:00:00Z' },
+    { id: 's1', first_name: 'Althea', last_name: 'Villanueva', student_id: '24001187', program_id: 1, email: 'althea1@gmail.com', year_level: 2, is_approved: true,  record_verified: true,  approval_status: 'approved', declared_path: 'existing', created_at: '2026-08-11T02:00:00Z' },
     { id: 's2', first_name: 'Marco',  last_name: 'Deveza',     student_id: '2401203', email: 'marco.deveza@uc.edu.ph',     year_level: 2, is_approved: false, record_verified: false, approval_status: 'pending',  declared_path: 'existing', created_at: '2026-08-20T09:15:00Z' },
     { id: 's3', first_name: 'Janine', last_name: 'Abella',     student_id: null,          email: 'janine.abella@uc.edu.ph',    year_level: null, is_approved: false, record_verified: false, approval_status: 'pending', declared_path: 'new',     created_at: '2026-08-22T14:40:00Z' },
     { id: 's4', first_name: 'Paulo',  last_name: 'Cabahug',    student_id: '9999999', email: 'paulo.cabahug@uc.edu.ph',    year_level: null, is_approved: false, record_verified: false, approval_status: 'declined', declared_path: 'existing', created_at: '2026-08-18T11:05:00Z', review_note: 'Student ID not found in the official list.' },
@@ -83,7 +83,6 @@ function previewRequested() {
 const VIEWS = {
     dashboard: 'Dashboard',
     advising:  'Approved plans',
-    requests:  'Account requests',
     students:  'Students',
     student:   'Student detail',
     prospectus:'Prospectus',
@@ -115,7 +114,6 @@ function showView(name, param) {
 
     shell?.classList.remove('nav-open');
 
-    if (name === 'requests') { renderRequests(); ensureMatchPool(); }
     if (name === 'students') openStudentList();
     if (name === 'student' && param) openStudent(param);
     if (name === 'prospectus') loadProspectus();
@@ -546,7 +544,6 @@ async function loadStudents() {
 
 function afterLoad() {
     renderStats();
-    renderRecent();
     renderDashboardSummary();
     renderRequests();
     renderStudentChips();
@@ -588,82 +585,28 @@ const pending = () => STUDENTS
 /* dashboard */
 
 function renderStats() {
-    const p = COUNTS.pending;
-
-    setStat('stat-pending',  p, 'stat-value');
     setStat('stat-approved', COUNTS.approved, 'stat-value');
     setStat('stat-verified', COUNTS.verified, 'stat-value');
-    setStat('stat-declined', COUNTS.declined, 'stat-value');
 
     setStat('prof-stat-students', COUNTS.total);
     setStat('prof-stat-verified', COUNTS.verified);
-    setStat('prof-stat-pending',  p);
-
-    const badge = $('nav-pending');
-    if (badge) {
-        badge.textContent = String(p);
-        badge.hidden = p === 0;
-    }
 }
-
-function renderRecent() {
-    const body = $('recent-body');
-    if (!body) return;
-
-    const list = pending().slice(0, 5);
-
-    if (list.length === 0) {
-        body.innerHTML = `
-            <div class="empty">
-                <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
-                <h3>Nothing awaiting review</h3>
-                <p>All account requests have been reviewed.</p>
-            </div>`;
-        return;
-    }
-
-    body.innerHTML = `
-        <div class="table-wrap">
-            <table class="data-table">
-                <thead><tr><th>Student ID</th><th>Name</th><th>Email</th><th>Requested</th></tr></thead>
-                <tbody>${list.map(s => `
-                    <tr>
-                        <td class="mono">${escapeHtml(s.student_id || '—')}</td>
-                        <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
-                        <td class="dim">${escapeHtml(s.email || '—')}</td>
-                        <td class="dim">${daysAgo(s.created_at)}</td>
-                    </tr>`).join('')}
-                </tbody>
-            </table>
-        </div>`;
-}
-
 
 /* The header sentence and the "Needs attention" list: what is waiting for the Registrar, from numbers this page
-   already has (the counts, the oldest pending request, the approved plans). */
+   already has (the records still to verify and the approved plans). Account requests are no longer here: since
+   db/095 the EDP list approves a matching registration, so the Registrar has no queue of accounts to review. */
 function renderDashboardSummary() {
     const DS = window.DashboardSummary;
     if (!DS) return;
 
-    const waiting = COUNTS.pending;
-    const oldest = pending()[0] ?? null;
-    const oldestDays = oldest ? DS.ageDays(oldest.created_at) : 0;
     const unverified = Math.max(0, COUNTS.approved - COUNTS.verified);
 
     const items = [];
-    if (waiting > 0) {
-        items.push({
-            level: oldestDays >= 7 ? 'full' : 'near',
-            title: DS.count(waiting, 'account request') + ' awaiting review',
-            detail: oldest ? 'Oldest: ' + (fullName(oldest) || oldest.student_id || 'a student') + ', ' + daysAgo(oldest.created_at) + '.' : '',
-            go: '#requests', label: 'Review',
-        });
-    }
     if (unverified > 0) {
         items.push({
             level: 'info',
-            title: DS.count(unverified, 'approved student') + ' without a verified record',
-            detail: 'Their eligibility cannot be worked out until the record is verified.',
+            title: DS.count(unverified, 'approved student') + ' waiting for grades',
+            detail: 'Their eligibility starts once the Department uploads their grades.',
             go: '#students', label: 'Open students',
         });
     }
@@ -679,9 +622,7 @@ function renderDashboardSummary() {
     const P = window.CurriculogicPrograms;
     setText('hero-eyebrow', ['Registrar', P?.codeOf(REGISTRAR?.program_id, ''), P?.collegeOf(REGISTRAR?.program_id, '') || REGISTRAR?.department].filter(Boolean).join(' \u00b7 '));
     setText('hero-line', DS.sentence([
-        waiting > 0 && DS.count(waiting, 'account request') + ' waiting',
-        waiting > 0 && oldestDays >= 2 && 'the oldest has waited ' + DS.count(oldestDays, 'day'),
-        unverified > 0 && DS.count(unverified, 'approved student') + ' without a verified record',
+        unverified > 0 && DS.count(unverified, 'approved student') + ' waiting for grades',
     ], ADVISING_COUNT > 0 ? 'Nothing is waiting for you. ' + DS.count(ADVISING_COUNT, 'approved plan') + ' ready.' : 'Nothing is waiting for you right now.'));
     $('hero-line')?.classList.toggle('is-alert', items.some(i => i.level === 'full'));
 
@@ -995,8 +936,8 @@ function statusPill(s) {
 }
 
 const recordPill = (s) => s.record_verified
-    ? '<span class="pill ok">Verified</span>'
-    : '<span class="pill waiting">Unverified</span>';
+    ? '<span class="pill ok">Grades on file</span>'
+    : '<span class="pill waiting">Waiting for grades</span>';
 
 const STUDENT_PAGE_SIZE = 20;
 
@@ -1096,8 +1037,9 @@ function renderStudentChips() {
         ['approved',   'Approved',        COUNTS.approved],
         ['pending',    'Awaiting review', COUNTS.pending],
         ['declined',   'Declined',        COUNTS.declined],
-        ['unverified', 'Unverified',      unverified],
-    ];
+        ['unverified', 'Waiting for grades', unverified],
+    ].filter(([key, , n]) => !((key === 'pending' || key === 'declined' || key === 'unverified') && n === 0 && LIST.filter !== key));
+    // Since db/095 the EDP list approves accounts, so these two chips show only while old requests of that kind exist.
     box.innerHTML = defs.map(([key, label, n]) => `
         <button type="button" class="stu-chip${LIST.filter === key ? ' on' : ''}" data-student-filter="${key}"
                 aria-pressed="${LIST.filter === key}">${escapeHtml(label)}<b>${n}</b></button>`).join('');
@@ -1180,6 +1122,7 @@ async function prospectusFacts(ids) {
             PROSPECTUS_FACTS.set(p.id, {
                 units: units.get(p.id) || 0,
                 label: p.academic_year ? `${p.academic_year}–${Number(p.academic_year) + 1}` : '',
+                year: p.academic_year ?? null,
                 active: !!p.is_active,
             });
         }
@@ -1330,28 +1273,19 @@ function renderStudentHero(s) {
 
     renderStudentDetails(s, null);
 
-    // Verification is the only write the Registrar performs here. Grade
-    // upload belongs to Department Staff; this view is read-only on grades.
-    $('detail-actions').innerHTML = s.approval_status === 'approved'
-        ? `<button class="${s.record_verified ? 'btn-danger' : 'btn-accent'}"
-                   data-verify="${escapeHtml(s.id)}" data-to="${s.record_verified ? 'false' : 'true'}">
-               <i class="fa-solid ${s.record_verified ? 'fa-xmark' : 'fa-check'}" aria-hidden="true"></i>
-               <span>${s.record_verified ? 'Mark unverified' : 'Verify record'}</span>
-           </button>`
-        : '<p class="prose">This account has not been approved, so its record cannot be verified yet.</p>';
-
-    $('detail-actions').querySelectorAll('[data-verify]').forEach(b =>
-        b.addEventListener('click', async () => {
-            await setVerified(b.dataset.verify, b.dataset.to === 'true');
-            openStudent(s.id);
-        }));
+    // The Registrar no longer verifies records (db/096): a first-year is marked as soon as the account is
+    // approved, and any other student when the Department uploads their first grade. This view is read-only.
+    $('detail-actions').innerHTML = s.approval_status !== 'approved'
+        ? '<p class="prose">This account has not been approved yet.</p>'
+        : (s.record_verified ? ''
+            : '<p class="prose">No grades are on file yet. Recommendations start once the Department uploads them.</p>');
 }
 
 function renderStudentDetails(s, verifiedBy, curriculum) {
     const verifiedLine = s.record_verified
-        ? `<span class="pill ok">Verified</span>${s.verified_at
+        ? `<span class="pill ok">Grades on file</span>${s.verified_at
             ? ` <span class="dim">${escapeHtml(longDate(s.verified_at))}${verifiedBy ? ` · by ${escapeHtml(verifiedBy)}` : ''}</span>` : ''}`
-        : '<span class="pill waiting">Unverified</span>';
+        : '<span class="pill waiting">Waiting for grades</span>';
     $('detail-status').innerHTML = `
         <div class="detail"><dt>University email</dt><dd class="mono">${escapeHtml(s.email || '—')}</dd></div>
         <div class="detail"><dt>Registered</dt><dd>${escapeHtml(longDate(s.created_at))}</dd></div>
@@ -1933,6 +1867,25 @@ function fillTermFilter() {
     }
 }
 
+/* Plans ticked for printing. They stay ticked while the list is filtered, sorted, or paged. At most
+   PRINT_MANY_MAX forms go to one print job: each one is read from the server first. */
+const PRINT_MANY_MAX = 50;
+const ADV_PICK = new Set();
+
+function updatePickBar() {
+    const bar = $('adv-pick-bar');
+    if (!bar) return;
+    bar.hidden = ADV_PICK.size === 0;
+    const count = $('adv-pick-count');
+    if (count) {
+        count.textContent = ADV_PICK.size > PRINT_MANY_MAX
+            ? ADV_PICK.size + ' selected. Only ' + PRINT_MANY_MAX + ' can be printed at a time.'
+            : ADV_PICK.size + ' selected';
+    }
+    const btn = $('adv-print-selected');
+    if (btn) btn.disabled = ADV_PICK.size === 0 || ADV_PICK.size > PRINT_MANY_MAX;
+}
+
 function renderAdvisingList() {
     const queue   = $('adv-queue');
     const countEl = $('adv-queue-count');
@@ -1978,6 +1931,8 @@ function renderAdvisingList() {
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th class="pick-cell"><input type="checkbox" data-adv-pick-page aria-label="Select every plan on this page"
+                            ${shown.length && shown.every(r => ADV_PICK.has(Number(r.id))) ? 'checked' : ''}></th>
                         ${th('id', 'Student ID')}${th('ref', 'Reference')}${th('name', 'Name')}${th('term', 'Term')}
                         <th class="num">Subjects</th>${th('units', 'Units', 'num')}
                         <th>Status</th>${th('date', 'Submitted')}
@@ -1989,6 +1944,8 @@ function renderAdvisingList() {
                     const termLbl = `${termLabel(r.requested_term)} ${r.requested_year || ''}`.trim();
                     return `
                     <tr class="row-link" data-view-plan="${escapeHtml(r.id)}" tabindex="0" role="link">
+                        <td class="pick-cell"><input type="checkbox" data-adv-pick="${escapeHtml(r.id)}"
+                            aria-label="Select the plan of ${escapeHtml(fullName(r.student))}" ${ADV_PICK.has(Number(r.id)) ? 'checked' : ''}></td>
                         <td class="mono">${escapeHtml(r.student?.student_id || '—')}</td>
                         <td class="mono">${escapeHtml(CurriculogicRequestRef.format(r.id, r.created_at) || '—')}</td>
                         <td><strong>${escapeHtml(fullName(r.student) || '—')}</strong></td>
@@ -2021,6 +1978,7 @@ function renderAdvisingList() {
             </span>
         </div>` : ''}`;
 
+    updatePickBar();
     queue.querySelectorAll('tr[data-view-plan]').forEach((row) => {
         row.addEventListener('keydown', (e) => {
             if (e.target !== row) return;
@@ -2276,7 +2234,37 @@ async function loadAdvisingCount() {
     if (badge) badge.hidden = true;
 }
 
+// The plans on the page of the list that is showing.
+function advPageIds() {
+    return [...document.querySelectorAll('#adv-queue [data-adv-pick]')].map(c => Number(c.dataset.advPick));
+}
+$('adv-queue')?.addEventListener('change', (e) => {
+    const one = e.target.closest('[data-adv-pick]');
+    if (one) {
+        const id = Number(one.dataset.advPick);
+        if (one.checked) ADV_PICK.add(id); else ADV_PICK.delete(id);
+        return renderAdvisingList();
+    }
+    if (e.target.closest('[data-adv-pick-page]')) {
+        const on = e.target.checked;
+        advPageIds().forEach(id => (on ? ADV_PICK.add(id) : ADV_PICK.delete(id)));
+        renderAdvisingList();
+    }
+});
+$('adv-pick-clear')?.addEventListener('click', () => { ADV_PICK.clear(); renderAdvisingList(); });
+$('adv-print-selected')?.addEventListener('click', async () => {
+    if (!supabase || ADV_PICK.size === 0 || ADV_PICK.size > PRINT_MANY_MAX) return;
+    if (typeof window.EnrollmentForm === 'undefined') return showMsg('adv-msg', 'Could not open the print view.');
+    const result = await window.EnrollmentForm.printApprovedRequests(supabase, [...ADV_PICK], { programName });
+    if (!result.ok) return showMsg('adv-msg', result.error);
+    showMsg('adv-msg', result.skipped
+        ? 'Opened ' + result.printed + ' forms. ' + result.skipped + ' could not be printed (no longer approved).'
+        : 'Opened ' + result.printed + ' forms in one print window.', 'success');
+});
+
 $('view-advising')?.addEventListener('click', (e) => {
+    // A tick box is not a click on the row: do not open the plan.
+    if (e.target.closest('.pick-cell')) return;
     const ucFormBtn = e.target.closest('[data-print-uc-form]');
     if (ucFormBtn) return printUcForm(ucFormBtn.dataset.printUcForm);
 
