@@ -134,7 +134,7 @@ function showView(name, param) {
         if (queueEl)  queueEl.hidden  = inDetail;
         if (detailEl) detailEl.hidden = !inDetail;
         if (inDetail) loadRequestDetail(param);
-        else          loadRequestQueue();
+        else { loadRequestQueue(); loadApprovedPlans(); }
     }
 }
 
@@ -596,8 +596,8 @@ function renderStudentChips() {
     if (!box) return;
     const defs = [
         ['all',      'All',                   COUNTS.total],
-        ['verified', 'Verified records',      COUNTS.verified],
-        ['pending',  'Awaiting verification', Math.max(0, COUNTS.total - COUNTS.verified)],
+        ['verified', 'Grades on file',      COUNTS.verified],
+        ['pending',  'Waiting for grades', Math.max(0, COUNTS.total - COUNTS.verified)],
     ];
     const title = $('students-title');
     if (title) title.textContent = LIST.filter === 'all' ? 'Student list'
@@ -608,8 +608,8 @@ function renderStudentChips() {
 }
 
 const recordPill = (s) => s.record_verified
-    ? '<span class="pill ok">Verified</span>'
-    : '<span class="pill waiting">Pending</span>';
+    ? '<span class="pill ok">Grades on file</span>'
+    : '<span class="pill waiting">Waiting for grades</span>';
 
 function studentRowHtml(s) {
     const initials = SL().initialsOf(s.first_name, s.last_name, s.email);
@@ -1394,6 +1394,107 @@ function renderStudentRecord(records) {
    This select just needs to actually reach the real, already-flagged
    data the engine computed at submission time -- nothing here
    re-evaluates eligibility; request_item.status is already final. */
+/* The plans this adviser approved, with a tick box on each, so the forms of several students print in one go
+   (EnrollmentForm.printApprovedRequests). Ticks stay while the list reloads. At most PRINT_MANY_MAX per print. */
+const PRINT_MANY_MAX = 50;
+let AP_PLANS = [];
+const AP_PICK = new Set();
+
+async function loadApprovedPlans() {
+    const box = $('ap-list');
+    if (!box) return;
+    if (!supabase || !FACULTY) { AP_PLANS = []; renderApprovedPlans(); return; }
+    const { data, error } = await supabase
+        .from('request')
+        .select(
+            'id, status, registrar_status, requested_term, requested_year, created_at, ' +
+            'student:student_id (id, first_name, last_name, student_id), request_item (status)')
+        .in('status', ['approved', 'partially_approved'])
+        .order('created_at', { ascending: false })
+        .limit(200);
+    if (error) {
+        console.warn('loadApprovedPlans failed:', error.message);
+        box.innerHTML = '<div class="empty"><p>Could not load the approved plans.</p></div>';
+        return;
+    }
+    const RS = window.CurriculogicRequestStatus;
+    AP_PLANS = (data ?? []).filter(r => (RS ? RS.finalApproved(r) : r.registrar_status !== 'rejected'));
+    const ids = new Set(AP_PLANS.map(r => Number(r.id)));
+    [...AP_PICK].forEach(id => { if (!ids.has(id)) AP_PICK.delete(id); });
+    renderApprovedPlans();
+}
+
+function updateApPickBar() {
+    const bar = $('ap-pick-bar');
+    if (!bar) return;
+    bar.hidden = AP_PICK.size === 0;
+    const count = $('ap-pick-count');
+    if (count) {
+        count.textContent = AP_PICK.size > PRINT_MANY_MAX
+            ? AP_PICK.size + ' selected. Only ' + PRINT_MANY_MAX + ' can be printed at a time.'
+            : AP_PICK.size + ' selected';
+    }
+    const btn = $('ap-print-selected');
+    if (btn) btn.disabled = AP_PICK.size === 0 || AP_PICK.size > PRINT_MANY_MAX;
+}
+
+function renderApprovedPlans() {
+    const box = $('ap-list');
+    const note = $('ap-count');
+    if (!box) return;
+    if (note) note.textContent = AP_PLANS.length ? AP_PLANS.length + ' approved' : '';
+    if (!AP_PLANS.length) {
+        box.innerHTML = '<div class="empty"><i class="fa-solid fa-inbox" aria-hidden="true"></i><h3>No approved plans yet</h3>' +
+            '<p>Plans you approve appear here, ready to print.</p></div>';
+        updateApPickBar();
+        return;
+    }
+    const allOn = AP_PLANS.every(r => AP_PICK.has(Number(r.id)));
+    box.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+        '<th class="pick-cell"><input type="checkbox" data-ap-pick-all aria-label="Select every approved plan"' + (allOn ? ' checked' : '') + '></th>' +
+        '<th>Student ID</th><th>Reference</th><th>Name</th><th>Term</th><th class="num">Subjects</th><th>Approved</th></tr></thead><tbody>' +
+        AP_PLANS.map((r) => {
+            const items = r.request_item ?? [];
+            const okN = items.filter(i => i.status === 'approved').length;
+            const ref = window.CurriculogicRequestRef?.format(r.id, r.created_at) ?? '';
+            const name = fullName(r.student);
+            const term = (termLabel(r.requested_term) + ' ' + (r.requested_year || '')).trim();
+            return '<tr><td class="pick-cell"><input type="checkbox" data-ap-pick="' + escapeHtml(r.id) + '"' +
+                ' aria-label="Select the plan of ' + escapeHtml(name) + '"' + (AP_PICK.has(Number(r.id)) ? ' checked' : '') + '></td>' +
+                '<td class="mono">' + escapeHtml(r.student?.student_id ?? '') + '</td>' +
+                '<td class="mono">' + escapeHtml(ref) + '</td>' +
+                '<td><strong>' + escapeHtml(name) + '</strong></td>' +
+                '<td>' + escapeHtml(term) + '</td>' +
+                '<td class="num">' + okN + ' of ' + items.length + '</td>' +
+                '<td class="dim">' + escapeHtml(new Date(r.created_at).toLocaleDateString()) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    updateApPickBar();
+}
+
+$('ap-list')?.addEventListener('change', (e) => {
+    const one = e.target.closest('[data-ap-pick]');
+    if (one) {
+        const id = Number(one.dataset.apPick);
+        if (one.checked) AP_PICK.add(id); else AP_PICK.delete(id);
+        return renderApprovedPlans();
+    }
+    if (e.target.closest('[data-ap-pick-all]')) {
+        const on = e.target.checked;
+        AP_PLANS.forEach(r => (on ? AP_PICK.add(Number(r.id)) : AP_PICK.delete(Number(r.id))));
+        renderApprovedPlans();
+    }
+});
+$('ap-pick-clear')?.addEventListener('click', () => { AP_PICK.clear(); renderApprovedPlans(); });
+$('ap-print-selected')?.addEventListener('click', async () => {
+    if (!supabase || AP_PICK.size === 0 || AP_PICK.size > PRINT_MANY_MAX) return;
+    if (!window.EnrollmentForm) return showMsg('req-msg', 'Could not open the print view.');
+    const result = await window.EnrollmentForm.printApprovedRequests(supabase, [...AP_PICK], { programName });
+    if (!result.ok) return showMsg('req-msg', result.error);
+    showMsg('req-msg', result.skipped
+        ? 'Opened ' + result.printed + ' forms. ' + result.skipped + ' could not be printed (no longer approved).'
+        : 'Opened ' + result.printed + ' forms in one print window.', 'success');
+});
+
 /* Queue = one summary card per submitted request. Clicking View opens
    the detail sub-view. Students with no requests never appear here. */
 async function loadRequestQueue() {
