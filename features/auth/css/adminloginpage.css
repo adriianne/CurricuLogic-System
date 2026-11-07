@@ -435,3 +435,19 @@ img { max-width: 100%; }
     .orb, .admin-card, .admin-shell::after { animation: none; }
     .btn-submit { transition: background 150ms ease; }
 }
+
+/* A link-style button under a message (for example: send a new confirmation e-mail). */
+.msg-action {
+    display: block;
+    margin: -0.4rem 0 1rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--indigo, #4338ca);
+    text-decoration: underline;
+    cursor: pointer;
+}
+.msg-action:disabled { opacity: 0.6; cursor: default; }

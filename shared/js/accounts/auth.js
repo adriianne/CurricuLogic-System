@@ -31,7 +31,8 @@ const PAGE_ALLOWED_ROLES = (() => {
 // that second role too, on its next refresh.
 const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: { storageKey: authStorageKey?.(PAGE_ALLOWED_ROLES) },
+        // The confirmation link brings a session in the address; the student must still log in, so it is not read.
+        auth: { storageKey: authStorageKey?.(PAGE_ALLOWED_ROLES), detectSessionInUrl: false },
     })
     : null;
 
@@ -62,7 +63,7 @@ const GENERIC_FAIL = 'Invalid username or password.';
    (sign-in edge function) enforces the same shapes; this only gives a useful
    message before anything is sent. Returns null when the shape is fine. */
 const EMAIL_SHAPE   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const STUDENT_SHAPE = /^uc-\d{1,7}$/i;
+const STUDENT_SHAPE = /^uc-\d{1,8}$/i;
 const STAFF_SHAPE   = /^emp-[a-z0-9]{1,10}$/i;
 const STAFF_ROLES   = ['faculty_staff', 'registrar_staff', 'department_staff'];
 
@@ -107,6 +108,41 @@ function showMsg(text, type = 'error') {
 function clearMsg() {
     const box = $('msg');
     if (box) box.className = 'msg';
+    $('resend-confirm')?.remove();
+}
+
+/* The account is real and the password is right, but the e-mail was never confirmed: say so, and offer a new
+   link. The sign-in function sends it, so the page never needs to know the address behind an ID. */
+function offerResend(identifier, password, serverMessage) {
+    showMsg(serverMessage || 'Confirm your e-mail address first. Open the message we sent you and tap the link.');
+    $('resend-confirm')?.remove();
+    const box = $('msg');
+    if (!box) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'resend-confirm';
+    btn.className = 'msg-action';
+    btn.textContent = 'Send me a new confirmation e-mail';
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        try {
+            const res = await fetch(`${SUPABASE_URL}/functions/v1/sign-in`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+                body: JSON.stringify({ identifier, password, resend: true }),
+            });
+            if (res.status === 429) { btn.disabled = false; btn.textContent = 'Send me a new confirmation e-mail'; return showMsg('Too many requests right now. Please wait a few minutes and try again.'); }
+            if (!res.ok) { btn.disabled = false; btn.textContent = 'Send me a new confirmation e-mail'; return showMsg('We could not send it. Please try again in a moment.'); }
+            btn.remove();
+            showMsg('A new confirmation e-mail is on its way. Open it and tap the link, then log in.', 'success');
+        } catch {
+            btn.disabled = false;
+            btn.textContent = 'Send me a new confirmation e-mail';
+            showMsg('Cannot reach the sign-in service. Check your connection and try again.');
+        }
+    });
+    box.after(btn);
 }
 
 
@@ -205,6 +241,10 @@ async function handleLogin() {
             if (res.status === 429) {
                 return showMsg('Too many attempts. Please wait a few minutes and try again.');
             }
+            if (res.status === 403) {
+                const why = await res.json().catch(() => null);
+                if (why?.code === 'email_not_confirmed') return offerResend(identifier, password, why.error);
+            }
             if (!res.ok) {
                 if (DEBUG_LOGIN) console.warn('[FAIL: sign-in]', res.status);
                 return showMsg(GENERIC_FAIL);
@@ -296,6 +336,18 @@ async function handleLogin() {
             btn.textContent = 'Log in';
         }
     }
+}
+
+// Back from the confirmation e-mail: say so, and drop the sign-in details from the address bar.
+if (new URLSearchParams(window.location.search).get('confirmed') === '1') {
+    showMsg('Your e-mail address is confirmed. Log in with your school email or student ID.', 'success');
+    history.replaceState(null, '', window.location.pathname);
+}
+
+// Back from the Set password page: say the password was changed, and which one to use.
+if (new URLSearchParams(window.location.search).get('reset') === '1') {
+    showMsg('Your password has been changed. Log in with your new password.', 'success');
+    history.replaceState(null, '', window.location.pathname);
 }
 
 $('login-btn')?.addEventListener('click', handleLogin);
