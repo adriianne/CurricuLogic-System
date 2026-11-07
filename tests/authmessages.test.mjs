@@ -46,8 +46,13 @@ describe('every message kind the pages use is visible', () => {
         });
     }
 
-    test('the Register page asks for the warning kind, and it has an amber rule', () => {
-        assert.ok(kindsUsedBy(read('shared/js/accounts/register.js')).has('pending'));
+    // The Register page used to warn in amber ("not on the list, submit anyway"). Since db/095 the EDP list
+    // decides, so a registration that does not match is stopped with an error, not a warning.
+    test('the Register page stops a non-matching registration with an error, and keeps the amber rule for other pages', () => {
+        const kinds = kindsUsedBy(read('shared/js/accounts/register.js'));
+        assert.ok(kinds.has('error'));
+        assert.ok(kinds.has('success'));
+        assert.ok(!kinds.has('pending'), 'the "submit anyway" warning is gone');
         const rule = ruleFor('pending');
         assert.match(rule, /var\(--amber-tint\)/);
         assert.match(rule, /var\(--amber-deep\)/);
