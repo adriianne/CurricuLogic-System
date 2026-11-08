@@ -143,8 +143,8 @@ if (page === 'set') {
     }
 
     const LOGIN_PAGE = {
-        student: 'loginpage.html', faculty: 'staffloginpage.html', registrar: 'staffloginpage.html',
-        department: 'staffloginpage.html', admin: 'adminloginpage.html',
+        student: 'loginpage.html?reset=1', faculty: 'staffloginpage.html?reset=1', registrar: 'staffloginpage.html?reset=1',
+        department: 'staffloginpage.html?reset=1', admin: 'adminloginpage.html?reset=1',
     };
 
     let ROLE = null;

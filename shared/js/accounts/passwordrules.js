@@ -4,7 +4,7 @@
 // change-password box and the admin's Create account form and bulk upload.
 // Pure functions only, so they are testable without a browser.
 //
-//   - at least 8 characters, and at least one special character
+//   - at least 8 characters, with at least one letter, one number and one special character
 //   - an ADMIN account needs at least 12 characters (same special character rule)
 //   - spaces do not count toward the minimum: 8 spaces and a ! is not a password
 //   - at most 72 BYTES: bcrypt ignores everything after that, and an accented
@@ -39,6 +39,8 @@ const visibleLength = (password) => [...String(password ?? '').replace(/\s/g, ''
 
 /* Not a letter, digit or space (any alphabet). */
 const hasSpecial = (password) => /[^\p{L}\p{N}\s]/u.test(String(password ?? ''));
+const hasLetter  = (password) => /\p{L}/u.test(String(password ?? ''));
+const hasDigit   = (password) => /\p{N}/u.test(String(password ?? ''));
 
 /* null when the password is acceptable, otherwise a plain sentence. */
 function problem(password, role) {
@@ -51,15 +53,18 @@ function problem(password, role) {
         return `Password must be at most ${MAX} bytes (accented, emoji and non-Latin characters count as 2 to 4 each).`;
     }
     if (!hasSpecial(pw)) return 'Password must include a special character, such as ! @ # $ or %.';
+    if (!hasLetter(pw))  return 'Password must include a letter.';
+    if (!hasDigit(pw))   return 'Password must include a number.';
     return null;
 }
 
 /* The line shown under a password field. */
 function hint(role) {
-    return `At least ${minLength(role)} characters, including a special character (! @ # $ %).`;
+    return `At least ${minLength(role)} characters, with a letter, a number and a special character (! @ # $ %).`;
 }
 
-const LETTERS  = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+const LETTERS  = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+const DIGITS   = '23456789';
 const SPECIALS = '!@#$%';
 
 /* A random password that passes problem(). `pick(n)` returns an integer in
@@ -72,17 +77,18 @@ function generate(role, pick) {
         return buf[0] % n;
     });
     const length = isAdmin(role) ? 14 : 10;
-    const pool   = LETTERS + SPECIALS;
+    const pool   = LETTERS + DIGITS + SPECIALS;
 
-    const chars = [];
-    for (let i = 0; i < length; i++) chars.push(pool[rand(pool.length)]);
-    // The pool is mostly letters, so most draws contain no special character:
-    // make sure there is one, in a random position.
-    if (!chars.some((c) => SPECIALS.includes(c))) {
-        chars[rand(length)] = SPECIALS[rand(SPECIALS.length)];
-    }
+    // One letter, one number and one special character first, each in its own random position, so every
+    // password has all three; the other positions are drawn from the whole pool.
+    const chars = Array.from({ length }, () => pool[rand(pool.length)]);
+    const free  = Array.from({ length }, (_, i) => i);
+    const spot  = () => free.splice(rand(free.length), 1)[0];
+    chars[spot()] = LETTERS[rand(LETTERS.length)];
+    chars[spot()] = DIGITS[rand(DIGITS.length)];
+    chars[spot()] = SPECIALS[rand(SPECIALS.length)];
     return chars.join('');
 }
 
-return { MIN, MIN_ADMIN, MAX, minLength, byteLength, hasSpecial, problem, hint, generate };
+return { MIN, MIN_ADMIN, MAX, minLength, byteLength, hasSpecial, hasLetter, hasDigit, problem, hint, generate };
 }));
