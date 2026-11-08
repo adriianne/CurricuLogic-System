@@ -1,5 +1,5 @@
 // passwordrules.test.mjs
-// The one password rule: 8+ characters with a special character, 12+ for admin.
+// The one password rule: 8+ characters with a letter, a number and a special character; 12+ for admin.
 //
 //   node --test tests/passwordrules.test.mjs
 
@@ -18,7 +18,7 @@ describe('problem', () => {
 
     test('eight characters with a special character is accepted', () => {
         assert.equal(P.problem('Abcdef1!'), null);
-        assert.equal(P.problem('abcdefg#'), null);
+        assert.equal(P.problem('abcdef1#'), null);
     });
 
     test('no special character is refused, whatever the length', () => {
@@ -34,7 +34,7 @@ describe('problem', () => {
 
     test('any symbol counts', () => {
         for (const c of '!@#$%^&*()-_=+[]{};:\'",.<>/?\\|`~') {
-            assert.equal(P.problem(`abcdefg${c}`), null, `symbol ${c}`);
+            assert.equal(P.problem(`abcdef1${c}`), null, `symbol ${c}`);
         }
     });
 
@@ -44,13 +44,13 @@ describe('problem', () => {
 
     test('longer than 72 characters is refused', () => {
         assert.match(P.problem('a!'.repeat(37)), /at most 72/);   // 74
-        assert.equal(P.problem('a!'.repeat(36)), null);           // 72
+        assert.equal(P.problem('a!'.repeat(35) + '1!'), null);       // 72
     });
 
     test('spaces do not count toward the minimum', () => {
         assert.match(P.problem('        !'), /at least 8.*spaces do not count/);   // 8 spaces + !
         assert.match(P.problem('a b c d e f!'), /at least 8/);                      // 7 visible
-        assert.equal(P.problem('abcd efg!'), null);                                 // 8 visible
+        assert.equal(P.problem('abcd ef1!'), null);                                 // 8 visible
     });
 
     test('the 72 limit counts bytes, not characters', () => {
@@ -58,7 +58,7 @@ describe('problem', () => {
         assert.equal(P.byteLength('é'), 2);
         assert.equal(P.byteLength('田'), 3);
         assert.equal(P.byteLength('😀'), 4);
-        assert.equal(P.problem('田'.repeat(23) + '!'), null);                       // 24 chars, 70 bytes
+        assert.equal(P.problem('田'.repeat(22) + '1!'), null);                      // 24 chars, 68 bytes
         assert.match(P.problem('田'.repeat(24) + '!'), /at most 72 bytes/);         // 25 chars, 73 bytes
         assert.match(P.problem('😀'.repeat(18) + '!'), /at most 72 bytes/);         // 19 chars, 73 bytes
     });
@@ -70,11 +70,32 @@ describe('problem', () => {
     });
 });
 
+describe('a letter and a number are required too', () => {
+    test('no number is refused', () => {
+        assert.match(P.problem('abcdefg!'), /number/);
+        assert.match(P.problem('Passwor!'), /number/);
+    });
+    test('no letter is refused', () => {
+        assert.match(P.problem('12345678!'), /letter/);
+        assert.match(P.problem('!!!!!!!1'), /letter/);
+    });
+    test('the weak passwords that used to pass are refused', () => {
+        for (const pw of ['12345678!', '!!!!!!!!', 'abcdefg!', 'ABCDEFGH!']) assert.ok(P.problem(pw), pw);
+    });
+    test('a letter of another alphabet and a digit of another script count', () => {
+        assert.equal(P.problem('ñññññññ1!'), null);
+        assert.equal(P.problem('abcdefg\u0663!'), null);   // Arabic-indic digit three
+    });
+    test('the hint names all three', () => {
+        assert.match(P.hint(), /letter, a number and a special character/);
+    });
+});
+
 describe('admin accounts', () => {
     test('need 12 characters', () => {
         assert.match(P.problem('Abcdef1!', 'admin'), /at least 12/);
         assert.match(P.problem('Abcdefghij!', 'admin'), /at least 12/);  // 11
-        assert.equal(P.problem('Abcdefghijk!', 'admin'), null);          // 12
+        assert.equal(P.problem('Abcdefghij1!', 'admin'), null);         // 12
     });
 
     test('still need a special character', () => {
@@ -108,6 +129,12 @@ describe('generate', () => {
     test('length is 10, or 14 for an admin', () => {
         assert.equal(P.generate('student').length, 10);
         assert.equal(P.generate('admin').length, 14);
+    });
+
+    test('every kind of character is in a generated password, even when the draw is always the same', () => {
+        const pw = P.generate('student', () => 0);
+        assert.ok(/[A-Za-z]/.test(pw) && /[0-9]/.test(pw) && P.hasSpecial(pw), pw);
+        assert.equal(pw.length, 10);
     });
 
     test('a draw with no special character still gets one', () => {
