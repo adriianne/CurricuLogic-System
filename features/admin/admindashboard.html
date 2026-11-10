@@ -251,6 +251,10 @@
                                     <label for="a-last-name">Last name</label>
                                     <input type="text" id="a-last-name" placeholder="Dela Cruz" autocomplete="off" maxlength="60">
                                 </div>
+                                <div class="field field-span-2" id="a-middle-name-wrap" hidden>
+                                    <label for="a-middle-name">Middle name <span class="opt">optional</span></label>
+                                    <input type="text" id="a-middle-name" placeholder="Reyes" autocomplete="off" maxlength="60">
+                                </div>
                                 <div class="field field-span-2">
                                     <label for="a-email">University email</label>
                                     <input type="email" id="a-email" placeholder="juan.delacruz@uc.edu.ph" autocomplete="off" maxlength="254">
@@ -295,6 +299,12 @@
                                         <option value="2">2nd Year</option>
                                         <option value="3">3rd Year</option>
                                         <option value="4">4th Year</option>
+                                    </select>
+                                </div>
+                                <div class="field" id="a-curriculum-year-wrap" hidden>
+                                    <label for="a-curriculum-year">Curriculum <span class="opt">optional</span></label>
+                                    <select id="a-curriculum-year">
+                                        <option value="">The active curriculum</option>
                                     </select>
                                 </div>
                                 <div class="field" id="a-declared-path-wrap" hidden>
@@ -390,13 +400,9 @@
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                     <div>
                         <strong>File format</strong>
-                        <ul class="notice-list">
-                            <li><b>Required columns:</b> <span class="mono">first_name, last_name, email, role</span>.</li>
-                            <li><b>Staff</b> (faculty, registrar, department): leave <span class="mono">employee_id</span> blank, it is assigned automatically (EMP-00001, EMP-00002, ...). Only an admin row needs one (SYS-...) plus a username.</li>
-                            <li><b>Students:</b> <span class="mono">student_id</span> is optional. Give it if the student already has one (8 digits), or leave it blank and the system assigns the next number.</li>
-                            <li><b>Programme:</b> every role except admin also needs <span class="mono">program_code</span>. It decides a student's curriculum, and is what each staff role's per-programme account cap is checked against.</li>
-                            <li><b>Optional:</b> <span class="mono">password, department, year_level</span>. Leave <span class="mono">password</span> blank and each person is emailed a one-time link to choose their own; type one only if you will hand it over yourself.</li>
-                        </ul>
+                        <p class="fmt-cols"><span class="fmt-label">Required</span><span class="fmt-col">first_name</span><span class="fmt-col">last_name</span><span class="fmt-col">email</span><span class="fmt-col">role</span></p>
+                        <p class="fmt-cols"><span class="fmt-label">Optional</span><span class="fmt-col">student_id</span><span class="fmt-col">program_code</span><span class="fmt-col">department</span><span class="fmt-col">year_level</span><span class="fmt-col">curriculum_year</span><span class="fmt-col">password</span></p>
+                        <p class="fmt-note">Leave an ID blank and it is assigned for you. Every role except admin needs a <span class="mono">program_code</span>. Leave <span class="mono">password</span> blank and each person is e-mailed a link to choose their own. An admin row needs an <span class="mono">employee_id</span> (SYS-…) and a username.</p>
                     </div>
                 </div>
 
@@ -652,12 +658,9 @@
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                     <div>
                         <strong>File format</strong>
-                        <ul class="notice-list">
-                            <li><b>Columns:</b> <span class="mono">student_id, first_name, last_name, program_code, email</span> are required. <span class="mono">year_level</span> (1 to 4) is optional: give it for students who are not first-years, so the Registrar and Department can see who needs grades uploaded.</li>
-                            <li><b>student_id</b> is 8 digits. <b>program_code</b> is the programme's code (for example BSIT).</li>
-                            <li><b>email</b> is the address EDP has on file. A setup link will be sent there, not to what the student types.</li>
-                            <li>A student ID that is already on the list is updated with the new details. Nobody is removed by an upload.</li>
-                        </ul>
+                        <p class="fmt-cols"><span class="fmt-label">Required</span><span class="fmt-col">student_id</span><span class="fmt-col">first_name</span><span class="fmt-col">last_name</span><span class="fmt-col">program_code</span><span class="fmt-col">email</span></p>
+                        <p class="fmt-cols"><span class="fmt-label">Optional</span><span class="fmt-col">year_level</span><span class="fmt-col">curriculum_year</span></p>
+                        <p class="fmt-note"><span class="mono">student_id</span> is 8 digits. <span class="mono">program_code</span> is the programme's code, for example BSIT. <span class="mono">email</span> is the address EDP has on file; the setup link goes there. <span class="mono">year_level</span> (1 to 4) is for students who are not first-years. <span class="mono">curriculum_year</span> (for example 2024) is the curriculum the student started under; blank means the active one. Uploading again updates matching IDs and removes nobody.</p>
                     </div>
                 </div>
 
@@ -980,7 +983,7 @@
 
                                 <label for="pw-new">New password</label>
                                 <input type="password" id="pw-new" autocomplete="new-password" maxlength="72">
-                                <p class="prof-hint">At least 8 characters, including a special character (! @ # $ %).</p>
+                                <p class="prof-hint">At least 8 characters, with a letter, a number and a special character (! @ # $ %).</p>
 
                                 <label for="pw-confirm">Confirm new password</label>
                                 <input type="password" id="pw-confirm" autocomplete="new-password" maxlength="72">

@@ -31,6 +31,29 @@ let AUTH_UID = null;
 let ADMIN    = null;
 let STAFF    = [];
 let PROGRAMS = [];                 // [{ id, code, name }]
+let CURRICULA = null;              // Map: programme id -> Set of curriculum years that exist (null until loaded)
+
+/* The curriculum years that exist for each programme (prospectus.academic_year), read once. A file or a form that names
+   a year with no curriculum is refused before anything is saved. */
+const CURRICULUM_BY_ID = new Map();   // prospectus id -> { year, active } of the published curricula
+async function loadCurricula(force = false) {
+    if (CURRICULA && !force) return CURRICULA;
+    const map = new Map();
+    if (PREVIEW) {
+        for (const p of PROGRAMS) map.set(p.id, new Set([2023, 2024]));
+    } else {
+        // Only published curricula can be given to a student: a draft is for the Department and Faculty to see (db/105).
+        const { data, error } = await supabase.from('prospectus').select('id, program_id, academic_year, is_active').not('published_at', 'is', null);
+        if (error) console.warn('curricula load failed:', error.message);
+        for (const r of data ?? []) {
+            CURRICULUM_BY_ID.set(r.id, { year: r.academic_year, active: !!r.is_active });
+            if (!map.has(r.program_id)) map.set(r.program_id, new Set());
+            if (r.academic_year != null) map.get(r.program_id).add(Number(r.academic_year));
+        }
+    }
+    CURRICULA = map;
+    return map;
+}
 let PROGRAMS_READY = false;        // false until the program table loads
 let EDITING_PROGRAM_FOR = null;    // { staffId, role } whose programme is open for editing
 let STUDENTS = [];
@@ -157,7 +180,7 @@ function setText(id, value, className) {
 }
 
 function fullName(p) {
-    return [p?.first_name, p?.last_name].filter(Boolean).join(' ');
+    return [p?.first_name, p?.middle_name, p?.last_name].filter(Boolean).join(' ');
 }
 
 function escapeHtml(s) {
@@ -170,7 +193,7 @@ function showMsg(boxId, text, type = 'error') {
     const box = $(boxId);
     if (!box) return;
     box.textContent = text;
-    box.className = 'msg ' + type;
+    box.className = text ? 'msg ' + type : 'msg';   // an empty message hides the box, instead of showing an empty red bar
 }
 
 function daysAgo(iso) {
@@ -493,7 +516,7 @@ async function loadStudents(force = false) {
 
     const { data, error } = await supabase
         .from('university_student')
-        .select('id, first_name, last_name, student_id, email, program_id, is_approved, approval_status, created_at')
+        .select('id, first_name, last_name, student_id, email, program_id, prospectus_id, is_approved, approval_status, created_at')
         .order('created_at', { ascending: false });
 
     if (error) {
@@ -501,6 +524,7 @@ async function loadStudents(force = false) {
         return;
     }
 
+    await loadCurricula();
     STUDENTS = data ?? [];
     renderStudentStats();
     renderStudents();
@@ -1063,6 +1087,7 @@ function renderStudents() {
                         <th>Student ID</th>
                         <th>Name</th>
                         <th>Programme</th>
+                        <th>Curriculum</th>
                         <th>Email</th>
                         <th>Status</th>
                         <th>EDP list</th>
@@ -1079,13 +1104,15 @@ function renderStudents() {
                             <td class="mono">${escapeHtml(s.student_id || '—')}</td>
                             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
                             <td>${escapeHtml(PROGRAMS.find(p => p.id === s.program_id)?.code || '—')}</td>
+                            <td>${curriculumCell(s)}</td>
                             <td class="dim">${escapeHtml(s.email || '—')}</td>
                             <td><span class="pill ${badge.kind}">${escapeHtml(badge.label)}</span></td>
                             <td>${edpPill(s)}</td>
                             <td class="dim">${daysAgo(s.created_at)}</td>
-                            <td>${acctActionCell('student', s, state)}</td>
+                            <td>${acctActionCell('student', s, state)}${curriculumButton(s)}</td>
                         </tr>
-                        ${acctPanelRow('student', s, state, 8)}`;
+                        ${acctPanelRow('student', s, state, 9)}
+                        ${curriculumPanelRow(s, 9)}`;
                     }).join('')}
                 </tbody>
             </table>
@@ -1102,6 +1129,62 @@ function renderStudents() {
 
     ensureStudentEdpStatus(shown);
 }
+
+/* ---- Curriculum of a student ----
+   Chosen when the account is created; afterwards only the System Administrator can change it (db/106), and every
+   change goes to the audit log. Only published curricula are offered: a draft is never given to a student. */
+let CURR_OPEN = null;    // student uuid whose Change box is open
+
+function curriculumCell(s) {
+    const c = CURRICULUM_BY_ID.get(s.prospectus_id);
+    return c ? `${c.year}–${Number(c.year) + 1}${c.active ? '' : ' <span class="dim">(older)</span>'}` : '<span class="dim">—</span>';
+}
+
+const curriculumButton = (s) => s.program_id && (s.approval_status ?? 'pending') === 'approved'
+    ? ` <button type="button" class="btn-small" data-curr-open="${escapeHtml(String(s.id))}" aria-expanded="${CURR_OPEN === s.id}">Curriculum</button>` : '';
+
+function curriculumPanelRow(s, colspan) {
+    if (CURR_OPEN !== s.id) return '';
+    const years = [...(CURRICULA?.get(s.program_id) ?? [])].sort((a, b) => b - a);
+    const now = CURRICULUM_BY_ID.get(s.prospectus_id)?.year;
+    return `<tr class="acct-panel"><td colspan="${colspan}"><div class="curr-change">
+        <label class="dim" for="curr-pick">Move ${escapeHtml(fullName(s))} to</label>
+        <select id="curr-pick">${years.map(y => `<option value="${y}"${Number(y) === Number(now) ? ' selected' : ''}>${y}–${y + 1}</option>`).join('')}</select>
+        <button type="button" class="btn-accent btn-small" data-curr-save="${escapeHtml(String(s.id))}">Save</button>
+        <button type="button" class="btn-small" data-curr-cancel>Cancel</button>
+        <p class="dim curr-note">Only published curricula are listed. The change is written to the audit log, and the student's progress and degree audit use the new curriculum.</p>
+        <p class="curr-msg" id="curr-msg" role="status"></p></div></td></tr>`;
+}
+
+async function saveCurriculum(id) {
+    const s = STUDENTS.find(x => String(x.id) === String(id));
+    const pick = $('curr-pick');
+    const msg = $('curr-msg');
+    if (!s || !pick) return;
+    const year = Number(pick.value);
+    if (!year) { if (msg) msg.textContent = 'This programme has no published curriculum.'; return; }
+    if (year === Number(CURRICULUM_BY_ID.get(s.prospectus_id)?.year)) { if (msg) msg.textContent = 'The student is already on that curriculum.'; return; }
+    try {
+        if (!PREVIEW) {
+            const { data, error } = await supabase.rpc('set_student_curriculum', { p_student_id: s.student_id, p_year: year });
+            if (error) throw new Error(error.message);
+            s.prospectus_id = data;
+        }
+        CURR_OPEN = null;
+        showMsg('student-msg', `${fullName(s)} is now on the ${year}–${year + 1} curriculum. The change is in the audit log.`, 'success');
+        renderStudents();
+    } catch (err) {
+        if (msg) msg.textContent = 'Could not change it. ' + err.message;
+    }
+}
+
+$('student-body')?.addEventListener('click', (e) => {
+    const open = e.target.closest('[data-curr-open]');
+    if (open) { CURR_OPEN = CURR_OPEN === open.dataset.currOpen ? null : open.dataset.currOpen; renderStudents(); return; }
+    if (e.target.closest('[data-curr-cancel]')) { CURR_OPEN = null; renderStudents(); return; }
+    const save = e.target.closest('[data-curr-save]');
+    if (save) saveCurriculum(save.dataset.currSave);
+});
 
 /* Is each student on the EDP list (db/086)? Asked only for the page on screen, then the table is drawn
    again with the badges. Forgotten whenever the list changes. A failed lookup shows no badge. */
@@ -1143,9 +1226,12 @@ async function createAccount() {
 
     const first      = CurriculogicNameRules.clean($('a-first-name').value);
     const last       = CurriculogicNameRules.clean($('a-last-name').value);
+    // Only a student has a middle name on record (staff tables have no such column).
+    const middle     = $('a-role').value === 'student' ? CurriculogicNameRules.clean($('a-middle-name')?.value) : '';
     const email      = CurriculogicEmailRules.clean($('a-email').value);
     const studentId  = $('a-student-id')?.value.trim() ?? '';
     const yearLevel  = $('a-year-level')?.value ?? '';
+    const curriculumYear = $('a-curriculum-year')?.value ?? '';
     const role       = $('a-role').value;
     const password   = $('a-password').value;
     const confirm    = $('a-confirm').value;
@@ -1162,6 +1248,8 @@ async function createAccount() {
     if (firstProblem) return showMsg(boxId, firstProblem);
     const lastProblem = CurriculogicNameRules.problem(last, 'last name');
     if (lastProblem) return showMsg(boxId, lastProblem);
+    const middleProblem = CurriculogicNameRules.middleProblem(middle);
+    if (middleProblem) return showMsg(boxId, middleProblem);
     if (!email)     return showMsg(boxId, 'Enter an email address.');
     const emailProblem = CurriculogicEmailRules.problem(email);
     if (emailProblem) return showMsg(boxId, emailProblem);
@@ -1202,6 +1290,7 @@ async function createAccount() {
                 id: Date.now().toString(),
                 role,
                 first_name: first,
+                middle_name: middle || null,
                 last_name: last,
                 email,
                 employee_id: 'EMP-(assigned on save)',
@@ -1249,11 +1338,30 @@ async function createAccount() {
             return showMsg(boxId, 'Could not create account. ' + error.message);
         }
 
+        // The middle name, when one was typed (create_user_account does not take it; db/104 sets it afterwards).
+        let middleNote = '';
+        if (role === 'student' && middle) {
+            const { error: mnErr } = await supabase.rpc('set_student_middle_name',
+                { p_student_id: data?.student_id ?? studentId, p_middle: middle });
+            if (mnErr) middleNote = ` The middle name could not be saved: ${mnErr.message}`;
+        }
+
+        // The curriculum the student started under, when one was chosen (the account starts on the active one).
+        let curriculumNote = '';
+        if (role === 'student' && curriculumYear) {
+            const { error: cyErr } = await supabase.rpc('set_student_curriculum',
+                { p_student_id: data?.student_id ?? studentId, p_year: Number(curriculumYear) });
+            curriculumNote = cyErr
+                ? ` The curriculum ${curriculumYear} could not be set: ${cyErr.message}`
+                : ` Curriculum ${curriculumYear} was set.`;
+        }
+
         clearCreateForm();
-        const assigned = data?.employee_id ? ` Employee ID: ${data.employee_id}.`
+        let assigned = data?.employee_id ? ` Employee ID: ${data.employee_id}.`
             : (role === 'student' && !studentId && data?.student_id)
                 ? ` Student ID ${data.student_id} was assigned (they sign in with uc-${data.student_id}).`
                 : '';
+        assigned += curriculumNote + middleNote;
         if (sendLink) {
             // The account exists whatever happens next, so a failed email is
             // reported on its own and never as a failed creation.
@@ -1291,15 +1399,28 @@ function updateSignInMode() {
     const sub = $('a-signin-sub');
     if (sub) {
         sub.textContent = typed
-            ? 'At least 8 characters with a special character (! @ # $ %). Admin accounts need 12. They will be asked to choose their own at first sign-in.'
+            ? 'At least 8 characters with a letter, a number and a special character (! @ # $ %). Admin accounts need 12. They will be asked to choose their own at first sign-in.'
             : 'The person is emailed a one-time link to choose their own password. You never see or type it.';
     }
 }
 
 document.querySelectorAll('input[name="a-signin"]').forEach(r => r.addEventListener('change', updateSignInMode));
 
+/* The choices of the Curriculum box: the active curriculum, or any year that exists for the chosen programme. */
+async function fillCurriculumYears() {
+    const sel = $('a-curriculum-year');
+    if (!sel) return;
+    const code = resolveProgramCode($('a-program')?.value ?? '').value;
+    const prog = PROGRAMS.find(p => p.code === code);
+    const years = prog ? [...((await loadCurricula()).get(prog.id) ?? [])].sort((a, b) => b - a) : [];
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">The active curriculum</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+    if (years.map(String).includes(keep)) sel.value = keep;
+}
+$('a-program')?.addEventListener('change', fillCurriculumYears);
+
 function clearCreateForm() {
-    ['a-first-name', 'a-last-name', 'a-email', 'a-employee-id', 'a-student-id', 'a-department', 'a-password', 'a-confirm']
+    ['a-first-name', 'a-middle-name', 'a-last-name', 'a-email', 'a-employee-id', 'a-student-id', 'a-department', 'a-password', 'a-confirm']
         .forEach(id => { const el = $(id); if (el) el.value = ''; });
 
         const dp = $('a-declared-path');
@@ -1324,7 +1445,10 @@ function updateRoleFields() {
     const isStudent = $('a-role').value === 'student';
     $('a-employee-id-wrap').hidden     = isStudent;
     $('a-student-id-wrap').hidden      = !isStudent;
+    $('a-middle-name-wrap').hidden     = !isStudent;
     $('a-year-level-wrap').hidden      = !isStudent;
+    $('a-curriculum-year-wrap').hidden = !isStudent;
+    fillCurriculumYears();
     $('a-declared-path-wrap').hidden   = !isStudent;
     $('a-program-wrap').hidden         = false;
     // A student's department is not used; their programme is what matters.
@@ -1384,8 +1508,8 @@ document.querySelectorAll('#view-accounts input').forEach((input) => {
    ============================================================ */
 
 const BULK_HEADERS = [
-    'first_name', 'last_name', 'email', 'role',
-    'employee_id', 'student_id', 'program_code', 'department', 'year_level', 'password', 'username'
+    'first_name', 'middle_name', 'last_name', 'email', 'role',
+    'employee_id', 'student_id', 'program_code', 'department', 'year_level', 'curriculum_year', 'password', 'username'
 ];
 
 const VALID_ROLES = ['student', 'faculty', 'registrar', 'department', 'admin'];
@@ -1415,6 +1539,7 @@ function initBulkUpload() {
 
     // File input
     $('bulk-file')?.addEventListener('change', handleBulkFile);
+    bindBulkTable();
 
     // Role and programme filters
     const rerenderOnFilterChange = () => {
@@ -1464,12 +1589,12 @@ function downloadBulkTemplate() {
     // An admin sample appears only when admin is chosen on purpose.
     const selectedRole = $('bulk-role-filter')?.value || 'all';
     const SAMPLE_ROWS = {
-        faculty:    { first_name: 'Juan', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: '', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
-        registrar:  { first_name: 'Maria', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: '', student_id: '', program_code: sampleProgram, department: 'Office of the Registrar', year_level: '', password: '', username: '' },
-        department: { first_name: 'Pedro', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: '', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
-        student:    { first_name: 'Althea', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '24001187', program_code: sampleProgram, department: '', year_level: '2', password: '', username: '' },
+        faculty:    { first_name: 'Juan', middle_name: '', last_name: 'Dela Cruz', email: 'juan.delacruz@uc.edu.ph', role: 'faculty', employee_id: '', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
+        registrar:  { first_name: 'Maria', middle_name: '', last_name: 'Santos', email: 'maria.santos@uc.edu.ph', role: 'registrar', employee_id: '', student_id: '', program_code: sampleProgram, department: 'Office of the Registrar', year_level: '', password: '', username: '' },
+        department: { first_name: 'Pedro', middle_name: '', last_name: 'Reyes', email: 'pedro.reyes@uc.edu.ph', role: 'department', employee_id: '', student_id: '', program_code: sampleProgram, department: sampleCollege, year_level: '', password: '', username: '' },
+        student:    { first_name: 'Althea', middle_name: 'Reyes', last_name: 'Villanueva', email: 'althea.villanueva@uc.edu.ph', role: 'student', employee_id: '', student_id: '24001187', program_code: sampleProgram, department: '', year_level: '2', password: '', username: '' },
         // An admin belongs to no programme, whatever is chosen above.
-        admin:      { first_name: 'Alex', last_name: 'Rivera', email: 'alex.rivera@uc.edu.ph', role: 'admin', employee_id: 'SYS-ADMIN02', student_id: '', program_code: '', department: '', year_level: '', password: '', username: 'alex.rivera' },
+        admin:      { first_name: 'Alex', middle_name: '', last_name: 'Rivera', email: 'alex.rivera@uc.edu.ph', role: 'admin', employee_id: 'SYS-ADMIN02', student_id: '', program_code: '', department: '', year_level: '', password: '', username: 'alex.rivera' },
     };
     const rows = CurriculogicBulkAccounts.sampleRoles(selectedRole).map(role => SAMPLE_ROWS[role]);
 
@@ -1479,6 +1604,7 @@ function downloadBulkTemplate() {
     // Set column widths for readability
     ws['!cols'] = [
         { wch: 15 },  // first_name
+        { wch: 16 },  // middle_name
         { wch: 20 },  // last_name
         { wch: 30 },  // email
         { wch: 12 },  // role
@@ -1487,6 +1613,7 @@ function downloadBulkTemplate() {
         { wch: 14 },  // program_code
         { wch: 30 },  // department
         { wch: 12 },  // year_level
+        { wch: 16 },  // curriculum_year
         { wch: 15 },  // password
         { wch: 15 },  // username
     ];
@@ -1535,6 +1662,8 @@ async function handleBulkFile(e) {
         const rows = await readBulkFile(file);
         bulkProgress(t.update('check', 0, plural(rows.length, 'row')));
         await yieldToUi();
+        await loadCurricula();
+        await loadExistingAccounts();
         validateBulkRows(rows, file.name);
         bulkStatus('done', `${plural(rows.length, 'row')} read and checked${rows.sheetNote ? ' (' + rows.sheetNote + ')' : ''}`, t.finish().percent);
     } catch (err) {
@@ -1593,112 +1722,180 @@ async function readBulkFile(file) {
     return parsed;
 }
 
-function validateBulkRows(rows, fileName) {
-    PENDING_BULK_RAW = rows;
+/* ---------- bulk upload: one check for every row, used by the review table ---------- */
+
+let BULK_RESULTS = [];           // one entry per row of PENDING_BULK_RAW: { ok, base, why }
+let BULK_EXISTING = null;        // accounts that already exist: { emails, studentIds, names }
+
+/* A name without case, accents or extra spaces, so "JOSÉ  Cruz" and "jose cruz" are the same name. */
+const bulkNameKey = (first, last, middle = '') => [first, middle, last]
+    .map(s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim())
+    .join('|');
+
+/* The accounts that exist now, read once per file, so a row that repeats an e-mail, a student ID or a student's
+   name is marked before anything is saved. The database refuses duplicates as well; this only says so earlier. */
+async function loadExistingAccounts() {
+    BULK_EXISTING = { emails: new Set(), studentIds: new Set(), names: new Map() };
+    if (PREVIEW) return;
+    const addEmail = (e) => { if (e) BULK_EXISTING.emails.add(String(e).trim().toLowerCase()); };
+    try {
+        for (let from = 0; ; from += 1000) {
+            const { data, error } = await supabase.from('university_student')
+                .select('student_id, first_name, middle_name, last_name, email').range(from, from + 999);
+            if (error) throw error;
+            for (const s of data ?? []) {
+                addEmail(s.email);
+                if (s.student_id) BULK_EXISTING.studentIds.add(s.student_id);
+                BULK_EXISTING.names.set(bulkNameKey(s.first_name, s.last_name, s.middle_name), s.student_id || 'an existing student');
+            }
+            if ((data ?? []).length < 1000) break;
+        }
+        for (const table of ['faculty_staff', 'registrar_staff', 'department_staff', 'system_administrator']) {
+            const { data } = await supabase.from(table).select('email').limit(5000);
+            for (const s of data ?? []) addEmail(s.email);
+        }
+    } catch (err) {
+        console.warn('Existing accounts could not be read; the database still refuses duplicates:', err.message);
+    }
+}
+
+/* Checks every row and returns one result per row, in the same order: { ok, base, why }.
+   A row with a problem is never created, whatever the person does on the page. */
+function checkBulkRows(rows) {
     const selectedProgram = $('bulk-program-filter')?.value || 'all';
     const selectedRole = $('bulk-role-filter')?.value || 'all';
-    const ok = [];
-    const bad = [];
-    const seenEmails = new Set();
-    const seenEmployeeIds = new Set();
-    const seenStudentIds = new Set();
+    const results = [];
+    const seenEmails = new Map();       // e-mail -> line of its first row
+    const seenEmployeeIds = new Map();
+    const seenStudentIds = new Map();
+    const seenNames = new Map();        // name key -> line of its first row
 
     for (const r of rows) {
         const first = CurriculogicNameRules.clean(r.first_name);
         const last = CurriculogicNameRules.clean(r.last_name);
+        const middle = CurriculogicNameRules.clean(r.middle_name);
         const email = CurriculogicEmailRules.clean(r.email);
-        const role = (r.role || '').toLowerCase();
-        const employeeId = (r.employee_id || '').toUpperCase();
-        const studentId = (r.student_id || '').replace(/[\s-]/g, '');
-        const department = r.department || '';
-        const yearLevel = r.year_level ? parseInt(r.year_level) : null;
-        // A blank password column means "email a setup link" (db/072): the
-        // person chooses their own and nobody has to be told one. A typed one
-        // is still accepted, for when email is not set up.
+        const role = String(r.role || '').trim().toLowerCase();
+        const employeeId = String(r.employee_id || '').trim().toUpperCase();
+        const studentId = String(r.student_id || '').replace(/[\s-]/g, '');
+        const department = String(r.department || '').trim();
+        const yearText = String(r.year_level ?? '').trim();
+        const yearLevel = yearText ? parseInt(yearText, 10) : null;
+        // A blank password column means "email a setup link" (db/072): the person chooses their own and nobody has to
+        // be told one. A typed one is still accepted, for when email is not set up.
         const password = String(r.password ?? '').trim();
-        const viaLink  = password === '';
-        const username = r.username || '';
+        const viaLink = password === '';
+        const username = String(r.username || '').trim();
 
-        const base = { line: r.__line, first, last, email, role, employeeId, studentId, programCode: '', department, yearLevel, password, viaLink, username };
+        const base = { line: r.__line, first, middle, last, email, role, employeeId, studentId, programCode: '', department, yearLevel, curriculumYear: null, password, viaLink, username };
+        const fail = (why, extra = {}) => { results.push({ ok: false, base: { ...base, ...extra }, why }); };
 
-        // Basic validation
         const firstProblem = first ? CurriculogicNameRules.problem(first, 'first name') : 'Missing first name.';
-        if (firstProblem) { bad.push({ ...base, why: firstProblem }); continue; }
+        if (firstProblem) { fail(firstProblem); continue; }
         const lastProblem = last ? CurriculogicNameRules.problem(last, 'last name') : 'Missing last name.';
-        if (lastProblem) { bad.push({ ...base, why: lastProblem }); continue; }
-        if (!email) { bad.push({ ...base, why: 'Missing email.' }); continue; }
+        if (lastProblem) { fail(lastProblem); continue; }
+        const middleProblem = CurriculogicNameRules.middleProblem(middle);
+        if (middleProblem) { fail(middleProblem); continue; }
+        if (middle && role && role !== 'student') { fail('A middle name is only kept for students. Leave it blank for this role.'); continue; }
+        if (!email) { fail('Missing email.'); continue; }
         const emailProblem = CurriculogicEmailRules.problem(email);
-        if (emailProblem) { bad.push({ ...base, why: emailProblem }); continue; }
-        if (!VALID_ROLES.includes(role)) { bad.push({ ...base, why: `"${role}" is not a valid role.` }); continue; }
+        if (emailProblem) { fail(emailProblem); continue; }
+        if (!role) { fail('Choose a role.'); continue; }
+        if (!VALID_ROLES.includes(role)) { fail(`"${role}" is not a valid role.`); continue; }
 
-        // With a programme chosen above the upload, a row for any other
-        // programme is rejected here, with the reason, rather than skipped
-        // later without a word. A row that leaves its programme blank takes
-        // the chosen one.
+        // With a role or programme chosen above the upload, a row for another one is rejected here, with the reason.
         const roleCheck = CurriculogicBulkAccounts.roleGate(selectedRole, role);
-        if (roleCheck.error) { bad.push({ ...base, why: roleCheck.error }); continue; }
+        if (roleCheck.error) { fail(roleCheck.error); continue; }
 
         const gate = CurriculogicBulkAccounts.programmeGate(selectedProgram, role, r.program_code);
-        if (gate.error) { bad.push({ ...base, programCode: String(r.program_code || '').trim().toUpperCase(), why: gate.error }); continue; }
+        if (gate.error) { fail(gate.error, { programCode: String(r.program_code || '').trim().toUpperCase() }); continue; }
         if (!viaLink) {
             const pwProblem = CurriculogicPasswordRules.problem(password, role);
-            if (pwProblem) { bad.push({ ...base, why: pwProblem }); continue; }
+            if (pwProblem) { fail(pwProblem); continue; }
         }
 
-        // Role-specific validation
         if (role === 'student') {
             // A blank student_id is fine: the database issues the number.
             if (studentId) {
-                if (!/^\d{8}$/.test(studentId)) { bad.push({ ...base, why: 'Student ID must be 8 digits, or left blank to be assigned automatically.' }); continue; }
-                if (seenStudentIds.has(studentId)) { bad.push({ ...base, why: 'Duplicate student ID in file.' }); continue; }
-                seenStudentIds.add(studentId);
+                if (!/^\d{8}$/.test(studentId)) { fail('Student ID must be 8 digits, or left blank to be assigned automatically.'); continue; }
+                if (seenStudentIds.has(studentId)) { fail(`Duplicate student ID in file (same as line ${seenStudentIds.get(studentId)}).`); continue; }
+                if (BULK_EXISTING?.studentIds.has(studentId)) { fail('A student with this ID already exists.'); continue; }
             }
+            if (yearText && !/^[1-4]$/.test(yearText)) { fail('Year level must be 1 to 4, or left blank.'); continue; }
         }
 
-        // Every role except admin belongs to exactly one programme
-        // (db/030) -- a student's decides their curriculum, and a staff
-        // role's is what that programme's per-role account cap
-        // (_provision_account) is checked against.
+        // Every role except admin belongs to exactly one programme (db/030).
         if (role !== 'admin') {
             const pc = resolveProgramCode(gate.value ?? (r.program_code || ''));
-            if (pc.error) { bad.push({ ...base, why: pc.error }); continue; }
+            if (pc.error) { fail(pc.error); continue; }
             base.programCode = pc.value;
         }
 
-        // Free-text label only now (db/030 retired the department-text-to-
-        // college matching that used to link faculty to programmes).
+        // The curriculum a student started under: blank means the active one; a year must exist for the programme.
+        const cyText = String(r.curriculum_year ?? '').trim();
+        if (cyText) {
+            if (role !== 'student') { fail('Curriculum year is only for students.'); continue; }
+            const cy = CurriculogicExpectedStudents.parseCurriculumYear(cyText);
+            if (cy.error) { fail(cy.error); continue; }
+            const prog = PROGRAMS.find(p => p.code === base.programCode);
+            const have = prog ? CURRICULA?.get(prog.id) : null;
+            if (CURRICULA && (!have || !have.has(cy.value))) {
+                fail(`No curriculum for ${cy.value} exists for ${base.programCode} (published: ${have ? [...have].sort().join(', ') : 'none'}).`); continue;
+            }
+            base.curriculumYear = cy.value;
+        }
+
+        // A free-text label only (db/030 retired the department-text-to-college matching).
         const dep = resolveDepartment(role, department);
-        if (dep.error) { bad.push({ ...base, why: dep.error }); continue; }
+        if (dep.error) { fail(dep.error); continue; }
         base.department = dep.value;
 
         if (['faculty', 'registrar', 'department', 'admin'].includes(role)) {
             if (role === 'admin') {
-                if (!/^SYS-[A-Z0-9]{3,12}$/.test(employeeId)) { bad.push({ ...base, why: 'An admin needs an employee ID that starts with SYS- (for example SYS-ADMIN02).' }); continue; }
+                if (!/^SYS-[A-Z0-9]{3,12}$/.test(employeeId)) { fail('An admin needs an employee ID that starts with SYS- (for example SYS-ADMIN02).'); continue; }
             } else if (employeeId) {
-                bad.push({ ...base, why: 'Leave employee_id blank for faculty, registrar and department staff. It is assigned automatically.' }); continue;
+                fail('Leave employee_id blank for faculty, registrar and department staff. It is assigned automatically.'); continue;
             }
             if (employeeId) {
-                if (seenEmployeeIds.has(employeeId)) { bad.push({ ...base, why: 'Duplicate employee ID in file.' }); continue; }
-                seenEmployeeIds.add(employeeId);
+                if (seenEmployeeIds.has(employeeId)) { fail(`Duplicate employee ID in file (same as line ${seenEmployeeIds.get(employeeId)}).`); continue; }
             }
         }
 
-        if (role === 'admin' && !username) { 
-            bad.push({ ...base, why: 'Username is required for admin accounts.' }); continue; 
+        if (role === 'admin' && !username) { fail('Username is required for admin accounts.'); continue; }
+
+        // The same e-mail, or the same name, twice: in this file or already in the system.
+        if (seenEmails.has(email)) { fail(`Duplicate email in file (same as line ${seenEmails.get(email)}).`); continue; }
+        if (BULK_EXISTING?.emails.has(email)) { fail('An account with this e-mail already exists.'); continue; }
+        const nameKey = (role === 'student' ? 's|' : 't|') + bulkNameKey(first, last, middle);
+        if (seenNames.has(nameKey)) { fail(`Same name as line ${seenNames.get(nameKey)}. Check for a repeated row or a typo; two people with the same name cannot be created from one file.`); continue; }
+        if (role === 'student' && BULK_EXISTING?.names.has(bulkNameKey(first, last, middle))) {
+            fail(`A student with this name already exists (${BULK_EXISTING.names.get(bulkNameKey(first, last, middle))}). If this is a different person, create the account by hand.`); continue;
         }
 
-        // Check duplicates within the file
-        if (seenEmails.has(email)) { bad.push({ ...base, why: 'Duplicate email in file.' }); continue; }
-        seenEmails.add(email);
-
-        ok.push(base);
+        if (studentId) seenStudentIds.set(studentId, r.__line);
+        if (employeeId) seenEmployeeIds.set(employeeId, r.__line);
+        seenEmails.set(email, r.__line);
+        seenNames.set(nameKey, r.__line);
+        results.push({ ok: true, base });
     }
-
-    PENDING_BULK = ok;
-    PENDING_BULK_BAD = bad;
-    PENDING_BULK_FILE = fileName;
-    renderBulkPreview(ok, bad, fileName);
+    return results;
 }
+
+/* Re-checks every row (after a cell was edited, a row removed, or a filter changed) and keeps the lists the
+   "Create" button uses in step with what the table shows. */
+function refreshBulkResults() {
+    BULK_RESULTS = checkBulkRows(PENDING_BULK_RAW);
+    PENDING_BULK = BULK_RESULTS.filter(x => x.ok).map(x => x.base);
+    PENDING_BULK_BAD = BULK_RESULTS.filter(x => !x.ok).map(x => ({ ...x.base, why: x.why }));
+}
+
+function validateBulkRows(rows, fileName) {
+    PENDING_BULK_RAW = rows;
+    PENDING_BULK_FILE = fileName;
+    refreshBulkResults();
+    renderBulkPreview(PENDING_BULK, PENDING_BULK_BAD, fileName);
+}
+
 
 /* Mirrors the Role dropdown: every programme that currently exists in
    the system, listed as soon as PROGRAMS loads -- not only the ones
@@ -1717,74 +1914,141 @@ function refreshBulkProgramFilter() {
     if (codes.includes(current)) sel.value = current;
 }
 
+const BULK_COLUMNS = [
+    ['first_name', 'First name', 'w-name'], ['middle_name', 'Middle name', 'w-name'], ['last_name', 'Last name', 'w-name'], ['email', 'Email', 'w-email'],
+    ['role', 'Role', 'w-role'], ['program_code', 'Programme', 'w-short'], ['student_id', 'Student ID', 'w-id'],
+    ['year_level', 'Year', 'w-tiny'], ['curriculum_year', 'Curriculum', 'w-short'], ['department', 'Department', 'w-name'],
+    ['password', 'Password', 'w-name'], ['employee_id', 'Employee ID', 'w-id'], ['username', 'Username', 'w-name'],
+];
+
+/* The choices of a row's Curriculum box: the active curriculum, plus every year that exists for THAT row's programme.
+   A year typed in the file that does not exist stays visible (marked) so the row's problem makes sense; the person
+   can then pick a real one. */
+function bulkCurriculumOptions(r) {
+    const selectedProgram = $('bulk-program-filter')?.value || 'all';
+    const typed = String(r.program_code ?? '').trim() || (selectedProgram !== 'all' ? selectedProgram : '');
+    const code = typed ? resolveProgramCode(typed).value : '';
+    const prog = PROGRAMS.find(p => p.code === code);
+    const years = prog ? [...(CURRICULA?.get(prog.id) ?? [])].sort((a, b) => b - a) : [];
+    const current = String(r.curriculum_year ?? '').trim();
+    const extra = current && !years.map(String).includes(current)
+        ? `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} (not published)</option>` : '';
+    return '<option value="">The active curriculum</option>'
+        + years.map(y => `<option value="${y}"${String(y) === current ? ' selected' : ''}>${y}</option>`).join('')
+        + extra;
+}
+
+/* The editable review table: every row of the file, every column, a status for each row. Rows with a problem are
+   marked and say what is wrong; they are skipped when the accounts are created, and the rest are saved. */
 function renderBulkPreview(ok, bad, fileName) {
     const box = $('bulk-preview');
     if (!box) return;
 
-    const roleFilter = $('bulk-role-filter')?.value || 'all';
-    const programFilter = $('bulk-program-filter')?.value || 'all';
-    const filteredOk = ok
-        .filter(r => roleFilter === 'all' || r.role === roleFilter)
-        .filter(r => programFilter === 'all' || r.programCode === programFilter);
-
+    const rows = PENDING_BULK_RAW;
     box.innerHTML = `
-        <div class="notice ${bad.length ? 'pending' : 'info'}">
-            <i class="fa-solid ${bad.length ? 'fa-triangle-exclamation' : 'fa-circle-info'}" aria-hidden="true"></i>
-            <div>
-                <strong>${ok.length} account${ok.length === 1 ? '' : 's'} ready${bad.length ? `, ${bad.length} rejected` : ''}</strong>
-                <span class="dim"> · ${escapeHtml(fileName)}</span>
-            </div>
-        </div>`;
+        <div class="notice info" id="bulk-summary"></div>
+        <p class="dim bulk-help">Change anything in the table to fix a typo or fill a blank. Each row is checked again as you type.
+            Rows marked <b>Needs a fix</b> are not saved; the other rows are.</p>
+        <div class="table-wrap bulk-grid-wrap">
+            <table class="data-table bulk-grid">
+                <thead><tr><th>#</th><th>Status</th>${BULK_COLUMNS.map(c => `<th>${c[1]}</th>`).join('')}<th></th></tr></thead>
+                <tbody>${rows.map((r, i) => `
+                    <tr data-bulk-row="${i}">
+                        <td class="num">${escapeHtml(String(r.__line ?? i + 2))}</td>
+                        <td class="bulk-status" data-bulk-status="${i}"></td>
+                        ${BULK_COLUMNS.map(([key, label, cls]) => key === 'curriculum_year'
+                            ? `<td><select class="${cls}" data-bulk-cell="${key}" aria-label="${escapeHtml(label)}, row ${i + 1}">${bulkCurriculumOptions(r)}</select></td>`
+                            : key === 'role'
+                            ? `<td><select class="${cls}" data-bulk-cell="${key}" aria-label="${escapeHtml(label)}, row ${i + 1}">
+                                    <option value="">Choose…</option>
+                                    ${VALID_ROLES.map(v => `<option value="${v}"${String(r.role ?? '').trim().toLowerCase() === v ? ' selected' : ''}>${v}</option>`).join('')}
+                               </select></td>`
+                            : `<td><input type="text" class="${cls}" data-bulk-cell="${key}" value="${escapeHtml(String(r[key] ?? ''))}"
+                                    aria-label="${escapeHtml(label)}, row ${i + 1}" autocomplete="off" spellcheck="false" maxlength="254"></td>`).join('')}
+                        <td><button type="button" class="btn-small" data-bulk-remove="${i}" title="Remove this row" aria-label="Remove row ${i + 1}">
+                            <i class="fa-solid fa-trash" aria-hidden="true"></i></button></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+        <button class="btn-accent" id="commit-bulk" style="margin-top:var(--s3);"></button>
+        <p class="dim" id="bulk-skip-note" style="margin-top:var(--s2);"></p>`;
+    updateBulkStatus();
+}
 
-    if (bad.length) {
-        box.innerHTML += `
-            <h3 class="group-head" style="margin-top:var(--s3);">Rejected rows</h3>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead><tr><th>Line</th><th>Name</th><th>Email</th><th>Role</th><th>Reason</th></tr></thead>
-                    <tbody>${bad.slice(0, 10).map(b => `
-                        <tr>
-                            <td class="num">${b.line}</td>
-                            <td>${escapeHtml(b.first)} ${escapeHtml(b.last)}</td>
-                            <td class="mono">${escapeHtml(b.email)}</td>
-                            <td><span class="pill info">${escapeHtml(b.role)}</span></td>
-                            <td>${escapeHtml(b.why)}</td>
-                        </tr>
-                    `).join('')}</tbody>
-                </table>
-                ${bad.length > 10 ? `<p class="dim" style="margin-top:var(--s2);">and ${bad.length - 10} more</p>` : ''}
-            </div>`;
+/* Writes the status of every row, the summary above the table and the label of the Create button.
+   Only text and classes change, so the cell being typed in keeps its cursor. */
+function updateBulkStatus() {
+    const box = $('bulk-preview');
+    if (!box) return;
+    BULK_RESULTS.forEach((res, i) => {
+        const tr = box.querySelector(`tr[data-bulk-row="${i}"]`);
+        const cell = box.querySelector(`[data-bulk-status="${i}"]`);
+        if (!tr || !cell) return;
+        tr.classList.toggle('bulk-row-bad', !res.ok);
+        cell.innerHTML = res.ok
+            ? '<span class="pill ok">Ready</span>'
+            : `<span class="pill bad">Needs a fix</span><div class="bulk-why">${escapeHtml(res.why)}</div>`;
+    });
+
+    const ready = PENDING_BULK.length;
+    const problems = PENDING_BULK_BAD.length;
+    const summary = $('bulk-summary');
+    if (summary) {
+        summary.className = 'notice ' + (problems ? 'pending' : 'info');
+        summary.innerHTML = `
+            <i class="fa-solid ${problems ? 'fa-triangle-exclamation' : 'fa-circle-info'}" aria-hidden="true"></i>
+            <div><strong>${plural(ready, 'account')} ready${problems ? `, ${problems} need${problems === 1 ? 's' : ''} a fix` : ''}</strong>
+            <span class="dim"> · ${escapeHtml(PENDING_BULK_FILE)}</span></div>`;
     }
-
-    if (ok.length) {
-        box.innerHTML += `
-            <h3 class="group-head" style="margin-top:var(--s3);">Ready to create (${filteredOk.length})</h3>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Program</th><th>ID</th><th>Sign-in</th></tr></thead>
-                    <tbody>${filteredOk.slice(0, 10).map(r => `
-                        <tr>
-                            <td>${escapeHtml(r.first)} ${escapeHtml(r.last)}</td>
-                            <td class="mono">${escapeHtml(r.email)}</td>
-                            <td><span class="pill ${r.role === 'student' ? 'info' : r.role === 'admin' ? 'bad' : 'waiting'}">${escapeHtml(r.role)}</span></td>
-                            <td class="mono">${escapeHtml(r.programCode || '—')}</td>
-                            <td class="mono">${escapeHtml(r.studentId || r.employeeId || r.username || '—')}</td>
-                            <td class="${r.viaLink ? '' : 'mono '}dim">${r.viaLink ? 'Setup link by email' : escapeHtml(r.password)}</td>
-                        </tr>
-                    `).join('')}</tbody>
-                </table>
-                ${filteredOk.length > 10 ? `<p class="dim" style="margin-top:var(--s2);">and ${filteredOk.length - 10} more</p>` : ''}
-            </div>
-            <button class="btn-accent" id="commit-bulk" style="margin-top:var(--s3);">
-                <i class="fa-solid fa-check" aria-hidden="true"></i>
-                <span>Create ${filteredOk.length} account${filteredOk.length === 1 ? '' : 's'}</span>
-            </button>`;
+    const btn = $('commit-bulk');
+    if (btn) {
+        btn.disabled = ready === 0;
+        btn.innerHTML = `<i class="fa-solid fa-check" aria-hidden="true"></i> <span>Create ${plural(ready, 'account')}</span>`;
     }
+    setText('bulk-skip-note', problems
+        ? `${plural(problems, 'row')} with a problem will be skipped, not saved. Fix them above first if you want them created.`
+        : '');
+}
 
-    $('commit-bulk')?.addEventListener('click', () => commitBulk(fileName, bad));
+/* One listener for the whole table: typing in a cell, removing a row, pressing Create. */
+function bindBulkTable() {
+    const box = $('bulk-preview');
+    if (!box || box.dataset.bound) return;
+    box.dataset.bound = '1';
+
+    const onEdit = (e) => {
+        const cell = e.target.closest('[data-bulk-cell]');
+        if (!cell) return;
+        const i = Number(cell.closest('tr')?.dataset.bulkRow);
+        if (!Number.isInteger(i) || !PENDING_BULK_RAW[i]) return;
+        PENDING_BULK_RAW[i][cell.dataset.bulkCell] = cell.value;
+        if (cell.dataset.bulkCell === 'program_code') {
+            const sel = cell.closest('tr').querySelector('[data-bulk-cell="curriculum_year"]');
+            if (sel) sel.innerHTML = bulkCurriculumOptions(PENDING_BULK_RAW[i]);
+        }
+        refreshBulkResults();
+        updateBulkStatus();
+    };
+    box.addEventListener('input', onEdit);
+    box.addEventListener('change', onEdit);
+
+    box.addEventListener('click', (e) => {
+        const remove = e.target.closest('[data-bulk-remove]');
+        if (remove) {
+            PENDING_BULK_RAW.splice(Number(remove.dataset.bulkRemove), 1);
+            refreshBulkResults();
+            renderBulkPreview(PENDING_BULK, PENDING_BULK_BAD, PENDING_BULK_FILE);
+            return;
+        }
+        if (e.target.closest('#commit-bulk')) commitBulk(PENDING_BULK_FILE, PENDING_BULK_BAD);
+    });
 }
 
 async function commitBulk(fileName, bad) {
+    // Check every row once more, right now: a row with a problem is never created, however the page got here.
+    refreshBulkResults();
+    const skipped = [...PENDING_BULK_BAD];
     if (PENDING_BULK.length === 0) return;
 
     const roleFilter = $('bulk-role-filter')?.value || 'all';
@@ -1864,12 +2128,24 @@ async function commitBulk(fileName, bad) {
             // database default holds.
             if (row.programCode) params.p_program_code = row.programCode;
 
-            const { error } = await supabase.rpc('create_user_account', params);
+            const { data, error } = await supabase.rpc('create_user_account', params);
 
             if (error) {
                 failed.push({ ...row, why: error.message });
             } else {
                 success.push(row);
+                // The middle name, when the row has one (create_user_account does not take it; db/104).
+                if (row.role === 'student' && row.middle) {
+                    const { error: mnErr } = await supabase.rpc('set_student_middle_name',
+                        { p_student_id: data?.student_id ?? row.studentId, p_middle: row.middle });
+                    if (mnErr) row.curriculumNote = (row.curriculumNote ? row.curriculumNote + ' ' : '') + 'Middle name not saved: ' + mnErr.message;
+                }
+                // The curriculum the student started under, when the row names one (the account starts on the active one).
+                if (row.role === 'student' && row.curriculumYear) {
+                    const { error: cyErr } = await supabase.rpc('set_student_curriculum',
+                        { p_student_id: data?.student_id ?? row.studentId, p_year: row.curriculumYear });
+                    if (cyErr) row.curriculumNote = cyErr.message;
+                }
             }
         } catch (err) {
             failed.push({ ...row, why: err.message });
@@ -1948,6 +2224,18 @@ async function commitBulk(fileName, bad) {
                         `).join('')}</tbody>
                     </table>
                 </div>` : ''}
+            ${skipped.length ? `
+                <h3 class="group-head" style="margin-top:var(--s3);">Not saved: these rows had a problem (${skipped.length})</h3>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Line</th><th>Name</th><th>Email</th><th>Problem</th></tr></thead>
+                        <tbody>${skipped.map(b => `
+                            <tr><td class="num">${escapeHtml(String(b.line ?? ''))}</td>
+                                <td>${escapeHtml(b.first)} ${escapeHtml(b.last)}</td>
+                                <td class="mono">${escapeHtml(b.email)}</td>
+                                <td>${escapeHtml(b.why)}</td></tr>`).join('')}</tbody>
+                    </table>
+                </div>` : ''}
             ${failed.length ? `
                 <h3 class="group-head" style="margin-top:var(--s3);">Failed</h3>
                 <div class="table-wrap">
@@ -1982,7 +2270,8 @@ async function commitBulk(fileName, bad) {
     PENDING_BULK_FILE = '';
 
     const msg = `${success.length} account${success.length === 1 ? '' : 's'} created.`;
-    showMsg('bulk-msg', failed.length ? msg + ` ${failed.length} failed.` : msg, 'success');
+    const notes = (failed.length ? ` ${failed.length} failed.` : '') + (skipped.length ? ` ${skipped.length} row${skipped.length === 1 ? '' : 's'} skipped because of a problem.` : '');
+    showMsg('bulk-msg', msg + notes, 'success');
 }
 
 async function saveBulkHistory(fileName, successCount, failedCount) {
@@ -2598,7 +2887,7 @@ async function loadEdpList() {
     for (let from = 0; ; from += 1000) {
         const { data, error } = await supabase
             .from('expected_student')
-            .select('student_id, first_name, last_name, program_id, email, year_level, updated_at')
+            .select('student_id, first_name, middle_name, last_name, program_id, email, year_level, curriculum_year, updated_at')
             .order('student_id')
             .range(from, from + 999);
         if (error) {
@@ -2658,6 +2947,7 @@ function renderEdpList() {
                         <th>Name</th>
                         <th>Programme</th>
                         <th>Year</th>
+                        <th>Curriculum</th>
                         <th>Email on file</th>
                         <th>Account</th>
                         <th></th>
@@ -2670,17 +2960,19 @@ function renderEdpList() {
                         <td><strong>${escapeHtml(fullName(s))}</strong></td>
                         <td>${escapeHtml(s.program_code || '—')}</td>
                         <td>${s.year_level ? escapeHtml(String(s.year_level)) : '<span class="dim">—</span>'}</td>
+                        <td>${s.curriculum_year ? escapeHtml(String(s.curriculum_year)) : '<span class="dim">Active</span>'}</td>
                         <td class="dim">${escapeHtml(s.email)}</td>
-                        <td>${registered.has(s.student_id) ? '<span class="pill ok">Registered</span>' : '<span class="pill waiting">Not yet</span>'}</td>
+                        <td>${registered.has(s.student_id) ? '<span class="pill ok">Registered</span>' : '<span class="pill waiting">Not yet</span>'}${EDP_ARMED === s.student_id && registered.has(s.student_id) ? '<div class="dim edp-keep">Already has an account. It stays.</div>' : ''}</td>
                         <td>
                             <button type="button" class="btn-small" data-edp-delete="${escapeHtml(s.student_id)}">
-                                ${EDP_ARMED === s.student_id ? 'Click again to remove' : 'Remove'}
+                                ${EDP_ARMED === s.student_id ? 'Click again to remove from list' : 'Remove from list'}
                             </button>
                         </td>
                     </tr>`).join('')}
                 </tbody>
             </table>
         </div>
+        <p class="dim edp-note">Removing a student only takes them off this list, so they can no longer register on their own. An account that already exists is not affected. To stop an account, use Stop on the Students page.</p>
         ${pages > 1 ? `
         <div class="pager">
             <span class="dim">${from + 1}–${from + shown.length} of ${list.length}</span>
@@ -2721,9 +3013,9 @@ async function onEdpBodyClick(e) {
 
 function downloadEdpTemplate() {
     const code = PROGRAMS[0]?.code ?? '';
-    const rows = [{ student_id: '24001187', first_name: 'Althea', last_name: 'Villanueva', program_code: code, email: 'althea.villanueva@uc.edu.ph', year_level: '2' }];
+    const rows = [{ student_id: '24001187', first_name: 'Althea', middle_name: 'Reyes', last_name: 'Villanueva', program_code: code, email: 'althea.villanueva@uc.edu.ph', year_level: '2', curriculum_year: '2023' }];
     const ws = XLSX.utils.json_to_sheet(rows, { header: CurriculogicExpectedStudents.COLUMNS });
-    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 32 }, { wch: 12 }];
+    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 14 }, { wch: 32 }, { wch: 12 }, { wch: 16 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'EDP list');
     XLSX.writeFile(wb, 'edp-student-list-template.xlsx');
@@ -2761,7 +3053,8 @@ async function handleEdpFile(e) {
         const rows = await readEdpFile(file);
         edpProgress(t.update('check', 0, plural(rows.length, 'row')));
         await yieldToUi();
-        const { ok, bad } = CurriculogicExpectedStudents.checkRows(rows, PROGRAMS, edpIds());
+        const curricula = await loadCurricula();
+        const { ok, bad } = CurriculogicExpectedStudents.checkRows(rows, PROGRAMS, edpIds(), new Map(EDP.map(s => [String(s.email ?? '').trim().toLowerCase(), s.student_id])), curricula);
         EDP_OK = ok; EDP_BAD = bad; EDP_FILE = file.name;
         renderEdpPreview();
         edpStatus('done', `${plural(rows.length, 'row')} read and checked${rows.sheetNote ? ' (' + rows.sheetNote + ')' : ''}`, t.finish().percent);
@@ -2879,8 +3172,8 @@ async function commitEdpList() {
 
     const now = new Date().toISOString();
     const records = EDP_OK.map(r => ({
-        student_id: r.studentId, first_name: r.first, last_name: r.last,
-        program_id: r.programId, email: r.email, year_level: r.yearLevel, updated_at: now,
+        student_id: r.studentId, first_name: r.first, middle_name: r.middle, last_name: r.last,
+        program_id: r.programId, email: r.email, year_level: r.yearLevel, curriculum_year: r.curriculumYear, updated_at: now,
     }));
 
     try {
@@ -3052,7 +3345,20 @@ async function createEdpAccounts() {
                 p_program_code: row.program_code,
                 p_declared_path: 'existing',
             });
-            if (error) failed.push({ ...row, why: error.message }); else success.push(row);
+            if (error) { failed.push({ ...row, why: error.message }); }
+            else {
+                success.push(row);
+                // The middle name the list gives (create_user_account does not take it; db/104).
+                if (row.middle_name) {
+                    const { error: mnErr } = await supabase.rpc('set_student_middle_name', { p_student_id: row.student_id, p_middle: row.middle_name });
+                    if (mnErr) console.warn('Middle name not saved for', row.student_id, mnErr.message);
+                }
+                // The curriculum the student started under, when the list says one (the account starts on the active one).
+                if (row.curriculum_year) {
+                    const { error: cyErr } = await supabase.rpc('set_student_curriculum', { p_student_id: row.student_id, p_year: row.curriculum_year });
+                    if (cyErr) row.curriculumNote = cyErr.message;
+                }
+            }
         } catch (err) {
             failed.push({ ...row, why: err.message });
         }
