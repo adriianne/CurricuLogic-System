@@ -240,9 +240,214 @@ function lastCleanup(rows, nowMs = Date.now()) {
     };
 }
 
+/* ---- the activity chart and the colours on the Activity table ---- */
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const dayKey = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+
+/*
+ * How many activity rows fall on each of the last `days` days (today included), oldest first, for the bar chart.
+ * Days are the viewer's own calendar days. A row with no readable time is left out.
+ *   -> [{ key: '2026-10-28', label: 'Wed', dayNumber: 28, full: 'Wed, Oct 28', count,
+ *         kinds: { Changed: 30, Added: 2 },          what was done that day, by plain word
+ *         startIso, endIso }]                        the day as exact instants, to filter the table by
+ */
+function perDay(rows, nowMs = Date.now(), days = 7) {
+    const out = [];
+    for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(nowMs);
+        d.setHours(12, 0, 0, 0);
+        d.setDate(d.getDate() - i);
+        const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+        out.push({
+            key: dayKey(d.getTime()),
+            label: d.toLocaleDateString('en', { weekday: 'short' }),
+            dayNumber: d.getDate(),
+            full: d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }),
+            count: 0,
+            kinds: {},
+            startIso: start.toISOString(),
+            endIso: next.toISOString(),
+        });
+    }
+    const slot = new Map(out.map(o => [o.key, o]));
+    for (const r of rows ?? []) {
+        const t = parseTime(r?.created_at);
+        if (!Number.isFinite(t)) continue;
+        const s = slot.get(dayKey(t));
+        if (!s) continue;
+        s.count += 1;
+        const kind = actionLabel(r.action);
+        s.kinds[kind] = (s.kinds[kind] ?? 0) + 1;
+    }
+    return out;
+}
+
+/* The sentence under the chart when a day is picked: "Thu, Oct 29: 33 changes (30 changed, 2 added, 1 deleted)." */
+function dayNote(day) {
+    if (!day) return '';
+    if (!day.count) return `No changes on ${day.full}.`;
+    const parts = Object.entries(day.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k.toLowerCase()}`);
+    return `${day.full}: ${day.count} ${day.count === 1 ? 'change' : 'changes'} (${parts.join(', ')}).`;
+}
+
+/*
+ * A tidy top for the chart's scale: whole numbers only, at most 5 steps above zero.
+ *   axisMax(33) -> { max: 40, step: 10, ticks: [0, 10, 20, 30, 40] }      axisMax(3) -> { max: 3, step: 1, ticks: [0, 1, 2, 3] }
+ */
+function axisMax(highest) {
+    const n = Math.max(1, Math.ceil(Number(highest) || 0));
+    let step = 1;
+    if (n > 5) {
+        const mag = Math.pow(10, Math.floor(Math.log10(n)));
+        step = [0.1, 0.2, 0.5, 1, 2, 5, 10].map(f => Math.max(1, Math.round(f * mag))).find(st => Math.ceil(n / st) <= 5) ?? mag * 10;
+    }
+    const max = Math.ceil(n / step) * step;
+    const ticks = [];
+    for (let t = 0; t <= max; t += step) ticks.push(t);
+    return { max, step, ticks };
+}
+
+/*
+ * One short line for the Activity table, from changesOf(row): the first field that changed, and how many more there are.
+ *   -> { text: 'approval_status: pending → approved +2 more', total: 3 }      total = every field in the entry
+ *   -> { text: '', total: 0 } when the entry recorded no fields
+ */
+function changeSummary(changes) {
+    const fields = changes?.fields ?? [];
+    if (!fields.length) return { text: '', total: 0 };
+    const total = fields.length + (changes.more ?? 0);
+    const first = fields[0];
+    const extra = total - 1;
+    return { text: first.field + ': ' + first.from + ' → ' + first.to + (extra > 0 ? ' +' + extra + ' more' : ''), total };
+}
+
+/* ---- the User status page ---- */
+
+const USER_ROLES = ['student', 'faculty', 'registrar', 'department'];
+const USER_STATES = ['active', 'stopped', 'pending', 'declined'];
+const ROLE_ORDER = { student: 0, faculty: 1, registrar: 2, department: 3 };
+
+/*
+ * One row per account for the table, from the lists the page already has.
+ *   students / staff   rows as the Admin pages read them (staff rows carry their own `role`)
+ *   signIns            Map of 'role:id' -> a time (text or milliseconds) for when that account last signed in
+ *   stateOf(role, row) 'active' | 'stopped' | 'pending' | 'declined' (accountstop.js decides)
+ * Newest sign-in first; accounts that never signed in come last, by name.
+ *   -> [{ key, role, id, name, ident, email, programId, state, lastSignIn (ms or null), createdAt }]
+ */
+function buildUsers({ students = [], staff = [], signIns = new Map(), stateOf }) {
+    const nameOf = (r) => [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || 'Unnamed';
+    const make = (role, r) => {
+        const key = role + ':' + r.id;
+        const t = signIns.has(key) ? parseTime(signIns.get(key)) : NaN;
+        return {
+            key, role, id: r.id, name: nameOf(r),
+            ident: (role === 'student' ? r.student_id : r.employee_id) ?? '',
+            email: r.email ?? '',
+            programId: r.program_id ?? null,
+            state: stateOf(role, r),
+            lastSignIn: Number.isFinite(t) ? t : null,
+            createdAt: r.created_at ?? null,
+        };
+    };
+    const rows = [
+        ...students.map(r => make('student', r)),
+        ...staff.filter(r => USER_ROLES.includes(r.role)).map(r => make(r.role, r)),
+    ];
+    return rows.sort((a, b) => {
+        if ((a.lastSignIn === null) !== (b.lastSignIn === null)) return a.lastSignIn === null ? 1 : -1;
+        if (a.lastSignIn !== b.lastSignIn && a.lastSignIn !== null) return b.lastSignIn - a.lastSignIn;
+        return (ROLE_ORDER[a.role] - ROLE_ORDER[b.role]) || a.name.localeCompare(b.name);
+    });
+}
+
+/* How many accounts of each kind are in each state. -> { student: { active, stopped, pending, declined, total }, ..., all: {...} } */
+function statusCounts(rows) {
+    const blank = () => ({ active: 0, stopped: 0, pending: 0, declined: 0, total: 0 });
+    const out = { all: blank() };
+    for (const r of USER_ROLES) out[r] = blank();
+    for (const row of rows ?? []) {
+        const bucket = out[row.role];
+        if (!bucket || !USER_STATES.includes(row.state)) continue;
+        for (const b of [bucket, out.all]) { b[row.state] += 1; b.total += 1; }
+    }
+    return out;
+}
+
+/* The table's filters: a role ('' for all), a state ('' for all) and words that must all appear in the name, ID or email. */
+function filterUsers(rows, { role = '', state = '', term = '' } = {}) {
+    const words = String(term).toLowerCase().split(/\s+/).filter(Boolean);
+    return (rows ?? []).filter((r) => {
+        if (role && r.role !== role) return false;
+        if (state && r.state !== state) return false;
+        if (!words.length) return true;
+        const hay = (r.name + ' ' + r.ident + ' ' + r.email).toLowerCase();
+        return words.every(w => hay.includes(w));
+    });
+}
+
+/*
+ * What the User status filters become when a card, a pill or the Active accounts tile is pressed.
+ *   current  { role, state }    what the filters are now ('' means any)
+ *   pick     { role, state }    what the pressed thing stands for
+ * Pressing the same thing twice goes back to showing everything.
+ *   -> { role, state }
+ */
+function toggleUserFilter(current, pick) {
+    const cur = { role: current?.role ?? '', state: current?.state ?? '' };
+    const want = { role: pick?.role ?? '', state: pick?.state ?? '' };
+    return cur.role === want.role && cur.state === want.state ? { role: '', state: '' } : want;
+}
+
+/* The sentence under the filters when a card or tile is in use: 'Showing 26 active Student accounts.' */
+function userFilterNote(filter, shown, total) {
+    const role = filter?.role ?? '', state = filter?.state ?? '';
+    if (!role && !state) return '';
+    const kind = role ? role.charAt(0).toUpperCase() + role.slice(1) : '';
+    // 'active Student', 'stopped Faculty', 'Student' or 'active', then 'account' or 'accounts'.
+    const what = [state, kind].filter(Boolean).join(' ');
+    return 'Showing ' + shown + ' ' + what + (shown === 1 ? ' account' : ' accounts') + ' (of ' + total + ').';
+}
+
+/* The last sign-in as the table words it: "3 hours ago", or "Never signed in". */
+function signInText(ms, nowMs = Date.now()) {
+    if (ms === null || ms === undefined || !Number.isFinite(Number(ms))) return { text: 'Never signed in', never: true };
+    return { text: agoLabel(new Date(Number(ms)).toISOString(), nowMs), never: false };
+}
+
+/* The colour of an action pill: green for new things, amber for changes, red for removals, blue for the rest. */
+function actionTone(action) {
+    switch (String(action ?? '').split('_')[0]) {
+        case 'PROVISION':
+        case 'INSERT':   return 'ok';
+        case 'UPDATE':   return 'waiting';
+        case 'DELETE':   return 'bad';
+        default:         return 'info';
+    }
+}
+
+/* Up to two capital letters for a person's avatar: "Juan Dela Cruz" -> "JD", "Removed account" -> "RA". */
+function initials(name) {
+    const parts = String(name ?? '').replace(/\(.*?\)/g, ' ').match(/\p{L}[\p{L}'’-]*/gu) ?? [];
+    if (!parts.length) return '?';
+    const first = parts[0][0];
+    const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+    return (first + last).toUpperCase();
+}
+
+/* "Juan Dela Cruz (Student)" -> { name: 'Juan Dela Cruz', role: 'Student' }; a plain label has no role. */
+function splitPerson(label) {
+    const m = String(label ?? '').match(/^(.*?)\s*\(([^()]*)\)\s*$/);
+    return m ? { name: m[1], role: m[2] } : { name: String(label ?? ''), role: '' };
+}
+
 return {
     actionLabel, tableLabel, roleLabel, changesOf, shown, maskEmail,
     parseTime, agoLabel, durationLabel, curaSummary, statusPill, lastCleanup,
+    perDay, dayNote, axisMax, changeSummary, actionTone, initials, splitPerson,
+    buildUsers, statusCounts, filterUsers, signInText, toggleUserFilter, userFilterNote, USER_ROLES, USER_STATES,
     CLEANUP_LATE_HOURS,
 };
 
