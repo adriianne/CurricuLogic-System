@@ -4575,6 +4575,7 @@ function initGrades() {
         // field is better than a wrong default.
         renderPeriodOptions();
         renderSubjectOptions();
+        loadSectionOptions();
         gradeState.ready = true;
     }
     loadGradeHistory();
@@ -4772,6 +4773,7 @@ $('grade-file-clear')?.addEventListener('click', () => {
 
 // A term is needed before a file can be checked, and the result depends on it.
 $('g-period')?.addEventListener('change', () => {
+    loadSectionOptions();
     renderGradeFileCard();
     if (gradeState.lastFile && previewShowing()) processGradeFile(gradeState.lastFile);
 });
@@ -4821,6 +4823,95 @@ $('g-subject')?.addEventListener('change', () => {
     if (gradeState.lastFile && previewShowing()) processGradeFile(gradeState.lastFile);
 });
 
+/* ---- Section (EDP code) ----
+   A section is one row of the schedule (subject_offering): its EDP code names the subject, the section and the term at
+   once. Choosing one fills the subject, limits the class list to the students approved for THAT section, and rejects any
+   row of a student who is not in it. With no section chosen nothing changes: the file names its own students. */
+gradeState.sections = [];
+gradeState.section = null;            // { id, edp, code, title, label } once one is chosen
+gradeState.sectionStudents = null;    // Set of padded student IDs approved in that section
+
+const sectionLabel = (o) =>
+    [o.edp_code, o.subject?.code, o.section, o.schedule_days].filter(Boolean).join(' \u00b7 ');
+
+async function loadSectionOptions() {
+    const sel = $('g-section');
+    if (!sel) return;
+    gradeState.section = null;
+    gradeState.sectionStudents = null;
+    const subSel = $('g-subject');
+    if (subSel) subSel.disabled = false;
+
+    const [yearStr, termStr] = String($('g-period')?.value || '').split('-');
+    const year = Number(yearStr), term = Number(termStr);
+    let list = [];
+    if (PREVIEW) {
+        list = [{ id: 'o1', edp_code: '61004', section: 'BSIT-1A', schedule_days: 'MW', academic_year: 2023, term: 1,
+                  subject: { code: 'CC-COMPROG12', title: 'Computer Programming 2' } }];
+    } else if (Number.isInteger(year) && [1, 2, 3].includes(term)) {
+        const { data, error } = await supabase.from('subject_offering')
+            .select('id, edp_code, section, meeting_type, schedule_days, academic_year, term, subject:subject_id(code, title)')
+            .eq('academic_year', year).eq('term', term).order('edp_code');
+        if (error) console.warn('Sections could not be read:', error.message);
+        list = (data ?? []).filter(o => o.edp_code && o.subject);
+    }
+    gradeState.sections = list;
+    const none = Number.isInteger(year) && !list.length;
+    sel.innerHTML = '<option value="">Any section: my file names its students</option>'
+        + list.map(o => `<option value="${escapeHtml(String(o.id))}">${escapeHtml(sectionLabel(o))}</option>`).join('')
+        + (none ? '<option value="" disabled>No sections are posted for this term</option>' : '');
+    $('grade-classlist') && ($('grade-classlist').disabled = !($('g-subject')?.value));
+}
+
+$('g-section')?.addEventListener('change', () => {
+    const o = gradeState.sections.find(x => String(x.id) === $('g-section').value);
+    gradeState.sectionStudents = null;
+    const subSel = $('g-subject');
+    if (!o) {
+        gradeState.section = null;
+        if (subSel) { subSel.disabled = false; subSel.value = ''; }
+    } else {
+        gradeState.section = { id: o.id, edp: o.edp_code, code: o.subject.code, title: o.subject.title, label: sectionLabel(o) };
+        // The subject of the section may not be in the picker (it lists the active curriculum): add it.
+        if (!(gradeState.subjectChoices ?? []).some(s => s.code === o.subject.code)) {
+            gradeState.subjectChoices = [...(gradeState.subjectChoices ?? []), { code: o.subject.code, title: o.subject.title }];
+            subSel.insertAdjacentHTML('beforeend',
+                `<option value="${escapeHtml(o.subject.code)}">${escapeHtml(o.subject.code)} \u2014 ${escapeHtml(o.subject.title ?? '')}</option>`);
+        }
+        subSel.value = o.subject.code;
+        subSel.disabled = true;
+    }
+    const btn = $('grade-classlist');
+    if (btn) btn.disabled = !subSel?.value;
+    renderGradeFileCard();
+    if (gradeState.lastFile && previewShowing()) processGradeFile(gradeState.lastFile);
+});
+
+/* The students approved for one section: the plan items that name this offering, in plans the adviser approved. */
+async function fetchSectionClassList(offeringId) {
+    if (PREVIEW) return [{ student_id: '24001187', first_name: 'Althea', last_name: 'Villanueva' }];
+    const { data, error } = await supabase
+        .from('request_item')
+        .select('request!inner(status, registrar_status, requested_year, requested_term, student:student_id(student_id, first_name, last_name))')
+        .eq('offering_id', offeringId)
+        .neq('status', 'rejected')
+        .in('request.status', ['approved', 'partially_approved']);
+    if (error) throw new Error('Could not read the section list. ' + error.message);
+    return (data ?? [])
+        .filter(row => window.CurriculogicRequestStatus.finalApproved(row.request))
+        .map(row => row.request?.student)
+        .filter(Boolean);
+}
+
+async function loadSectionStudents() {
+    if (!gradeState.section) return null;
+    if (!gradeState.sectionStudents) {
+        const people = await fetchSectionClassList(gradeState.section.id);
+        gradeState.sectionStudents = new Set(people.map(p => padStudentId(p.student_id)));
+    }
+    return gradeState.sectionStudents;
+}
+
 /* The students whose enrollment in this subject, for this term, was approved
    by the adviser. This is a lookup, not a guess: the approved requests are
    the system's record of who is taking what. */
@@ -4867,20 +4958,21 @@ $('grade-classlist')?.addEventListener('click', async () => {
 
     showMsg('grade-msg', '');
     try {
-        const people = await fetchClassList(subject, year, term);
+        const section = gradeState.section;
+        const people = section ? await fetchSectionClassList(section.id) : await fetchClassList(subject, year, term);
         const aoa = window.GradeFile.classListRows(subject, people);
 
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         ws['!cols'] = [{ wch: 12 }, { wch: 28 }, { wch: 18 }, { wch: 8 }, { wch: 10 }];
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Class list');
-        XLSX.writeFile(wb, `class-list-${subject.code}-${year}-${term}.xlsx`.replace(/\s+/g, ''));
+        XLSX.writeFile(wb, (section ? `class-list-EDP${section.edp}-${subject.code}-${year}-${term}.xlsx` : `class-list-${subject.code}-${year}-${term}.xlsx`).replace(/\s+/g, ''));
 
         const n = aoa.length - 1;
         showMsg('grade-msg', n
-            ? `Class list downloaded: ${n} student${n === 1 ? '' : 's'} with an approved enrollment in ${subject.code}. Fill in the grades and upload it here.`
+            ? `Class list downloaded: ${n} student${n === 1 ? '' : 's'} with an approved enrollment in ${section ? subject.code + ', section EDP ' + section.edp : subject.code}. Fill in the grades and upload it here.`
             : `No approved enrollments were found for ${subject.code} in that term, so the sheet has only the headings. ` +
-              'If students are enrolled, the Registrar may not have approved their requests yet.',
+              'If students are enrolled, the adviser may not have approved their plans yet.',
             n ? 'success' : 'error');
     } catch (err) {
         showMsg('grade-msg', err.message);
@@ -4914,6 +5006,9 @@ async function validateGrades(rows, fileName, report = () => {}) {
     }
 
     const ok = [], bad = [], skipped = [];
+    // A section chosen on the page limits the file to the students approved for it.
+    const section = gradeState.section;
+    const sectionIds = section ? await loadSectionStudents() : null;
     // A subject chosen on the page applies to the whole file (see the Subject card).
     const chosenSubject = $('g-subject')?.value || '';
     const seenAttempts = new Map();   // student+subject+term -> first line, to catch a repeat in one file
@@ -4956,6 +5051,9 @@ async function validateGrades(rows, fileName, report = () => {}) {
         }
         const student = students.get(cleanId);
         if (!student) { bad.push({ ...base, why: `ID "${cleanId}" not registered.` }); continue; }
+        if (sectionIds && !sectionIds.has(cleanId)) {
+            bad.push({ ...base, why: `Not in section EDP ${section.edp} (${section.label}): no approved enrollment. Check the ID, or choose "Any section".` }); continue;
+        }
 
         if (!rawCode) { bad.push({ ...base, why: 'No subject code.' }); continue; }
         const cleanCode = normCode(rawCode);
@@ -5587,8 +5685,8 @@ const programName = (row) =>
     window.CurriculogicPrograms?.nameOf(row?.program_id, PREVIEW ? 'BS Information Technology' : '—') ?? '—';
 
 const recordPill = (s) => s.record_verified
-    ? '<span class="pill ok">Verified</span>'
-    : '<span class="pill waiting">Pending</span>';
+    ? '<span class="pill ok">Grades on file</span>'
+    : '<span class="pill waiting">Waiting for grades</span>';
 
 const longDate = (iso) => {
     const d = new Date(iso);
@@ -5694,8 +5792,8 @@ function renderStudentChips() {
     if (!box) return;
     const defs = [
         ['all',      'All',                   COUNTS.total],
-        ['verified', 'Verified records',      COUNTS.verified],
-        ['pending',  'Awaiting verification', Math.max(0, COUNTS.total - COUNTS.verified)],
+        ['verified', 'Grades on file',      COUNTS.verified],
+        ['pending',  'Waiting for grades', Math.max(0, COUNTS.total - COUNTS.verified)],
     ];
     box.innerHTML = defs.map(([key, label, n]) => `
         <button type="button" class="stu-chip${LIST.filter === key ? ' on' : ''}" data-student-filter="${key}"

@@ -656,6 +656,12 @@
         <div class="card-body">
             <div class="form-grid">
                 <div class="field">
+                    <label for="g-section">Section (EDP code) <span class="opt">optional</span></label>
+                    <select id="g-section">
+                        <option value="">Any section: my file names its students</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label for="g-subject">Subject for this file</label>
                     <select id="g-subject">
                         <option value="">Not needed: my file has a subject column</option>
@@ -676,6 +682,11 @@
                 subject is rejected. <strong>Download class list</strong> gives a sheet for the
                 chosen subject and term, already filled with the students whose enrollment was
                 approved, so only the grades are left to type.
+            </p>
+            <p class="hint">
+                <strong>By section:</strong> choose a section (its EDP code) for the term above. The subject is filled in for
+                you, <strong>Download class list</strong> then lists only the students approved for that section, and a row for
+                any other student is rejected. Leave it on "Any section" for past grades or students enrolled elsewhere.
             </p>
         </div>
     </section>
@@ -1046,7 +1057,7 @@
             <div class="field" style="margin-bottom: var(--s2);">
                 <label for="pw-new">New password</label>
                 <input type="password" id="pw-new" autocomplete="new-password" maxlength="72">
-                <p class="pw-hint">At least 8 characters, including a special character (! @ # $ %).</p>
+                <p class="pw-hint">At least 8 characters, with a letter, a number and a special character (! @ # $ %).</p>
             </div>
             <div class="field" style="margin-bottom: var(--s3);">
                 <label for="pw-confirm">Confirm new password</label>
