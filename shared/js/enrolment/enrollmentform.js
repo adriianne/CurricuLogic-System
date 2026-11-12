@@ -14,6 +14,8 @@
 //   EnrollmentForm.build({ items })            -> { rows, totalUnits, section }
 //   EnrollmentForm.html(data)                  -> a full printable page
 //   EnrollmentForm.printApprovedRequest(supabase, requestId, { programName })   (the Faculty adviser, the Registrar and the student)
+//   EnrollmentForm.printApprovedRequests(supabase, [requestId, ...], { programName })   several plans in one print job (the adviser, the Registrar)
+//   EnrollmentForm.htmlMany([data, ...])       -> one printable page holding every form
 //   EnrollmentForm.showHistory(supabase, requestId, element)   writes "Printed 3 times. Last: ..." into the element (db/092)
 //
 // Every print is recorded (log_form_print, db/092): who printed it and when, so a lost or reprinted form can be traced.
@@ -373,9 +375,30 @@ function print(data) {
     setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 600);
 }
 
-/* Prints the form of an APPROVED plan, with the subjects the adviser approved. Returns { ok: true } or
-   { ok: false, error } in words fit for the page. */
-async function printApprovedRequest(supabase, requestId, helpers = {}) {
+/* Several students' forms in one print job: every form keeps its own two pages, one after the other. */
+function htmlMany(list) {
+    const forms = (list ?? []).filter(d => d?.student);
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Enrollment forms (${forms.length})</title>
+<style>${CSS}</style></head><body>
+${forms.map(d => page1(d, build({ items: d.items })) + page2(d)).join('')}
+</body></html>`;
+}
+
+function printMany(list) {
+    const forms = (list ?? []).filter(d => d?.student);
+    if (!forms.length) return console.error('EnrollmentForm: nothing to print');
+    const w = window.open('', '_blank', 'width=900,height=1100');
+    if (!w) return alert('The print window was blocked. Allow pop-ups for this site.');
+    w.document.write(htmlMany(forms));
+    w.document.close();
+    w.onload = () => { w.focus(); w.print(); };
+    setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 900);
+}
+
+/* Loads what the form of an APPROVED plan needs, with the subjects the adviser approved. Returns
+   { ok: true, data, requestId } or { ok: false, error } in words fit for the page. */
+async function loadApprovedForm(supabase, requestId, helpers = {}) {
     if (!supabase) return { ok: false, error: 'Could not open the print view.' };
 
     const load = (itemCols) => supabase
@@ -424,17 +447,49 @@ async function printApprovedRequest(supabase, requestId, helpers = {}) {
     }));
 
     const programs = window.CurriculogicPrograms;
-    print({
-        student: req.student,
-        items,
-        term: { number: req.requested_term, year: req.requested_year },
-        ref: window.CurriculogicRequestRef?.format(req.id, req.created_at) ?? '',
-        program: { name: helpers.programName ? helpers.programName(req.student) : (programs?.nameOf(req.student.program_id, '') ?? '') },
-    });
-    // The record of this print (db/092). A failure here must never stop the form from printing.
-    try { await supabase.rpc('log_form_print', { p_request_id: req.id }); } catch (e) { /* the form is already open */ }
+    return {
+        ok: true,
+        requestId: req.id,
+        data: {
+            student: req.student,
+            items,
+            term: { number: req.requested_term, year: req.requested_year },
+            ref: window.CurriculogicRequestRef?.format(req.id, req.created_at) ?? '',
+            program: { name: helpers.programName ? helpers.programName(req.student) : (programs?.nameOf(req.student.program_id, '') ?? '') },
+        },
+    };
+}
+
+/* The record of a print (db/092). A failure here must never stop the form from printing. */
+async function logPrint(supabase, requestId) {
+    try { await supabase.rpc('log_form_print', { p_request_id: requestId }); } catch (e) { /* the form is already open */ }
+}
+
+/* Prints the form of one APPROVED plan. Returns { ok: true } or { ok: false, error }. */
+async function printApprovedRequest(supabase, requestId, helpers = {}) {
+    const got = await loadApprovedForm(supabase, requestId, helpers);
+    if (!got.ok) return got;
+    print(got.data);
+    await logPrint(supabase, got.requestId);
     return { ok: true };
 }
+
+/* Prints the forms of several APPROVED plans in one print job, in the order given. A plan that cannot be printed
+   (not approved any more, nothing approved on it) is left out and counted, never stopping the others.
+   Returns { ok, printed, skipped, error } in words fit for the page. */
+async function printApprovedRequests(supabase, requestIds, helpers = {}) {
+    const ids = [...new Set((requestIds ?? []).map(Number).filter(Number.isFinite))];
+    if (!ids.length) return { ok: false, printed: 0, skipped: 0, error: 'Choose at least one plan to print.' };
+    const loaded = [];
+    for (const id of ids) loaded.push(await loadApprovedForm(supabase, id, helpers));
+    const good = loaded.filter(x => x.ok);
+    const skipped = loaded.length - good.length;
+    if (!good.length) return { ok: false, printed: 0, skipped, error: loaded[0]?.error || 'Nothing could be printed.' };
+    printMany(good.map(x => x.data));
+    await Promise.all(good.map(x => logPrint(supabase, x.requestId)));
+    return { ok: true, printed: good.length, skipped, error: '' };
+}
+
 
 const WHO = { student: 'the student', faculty: 'the adviser', registrar: 'the Registrar' };
 
@@ -467,5 +522,5 @@ async function showHistory(supabase, requestId, element) {
     }
 }
 
-return { build, html, print, printApprovedRequest, idBoxes, timeText, revisedAt, historyText, showHistory };
+return { build, html, htmlMany, print, printMany, printApprovedRequest, printApprovedRequests, idBoxes, timeText, revisedAt, historyText, showHistory };
 }));

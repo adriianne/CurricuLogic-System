@@ -307,9 +307,14 @@ describe('the record of prints (db/092)', () => {
 
     test('printing records itself, and a failure to record never blocks the print', () => {
         const js = read('shared/js/enrolment/enrollmentform.js');
-        assert.ok(js.includes("supabase.rpc('log_form_print', { p_request_id: req.id })"));
+        assert.ok(js.includes("supabase.rpc('log_form_print', { p_request_id: requestId })"));
         assert.match(js, /try \{ await supabase\.rpc\('log_form_print'[^\n]*catch \(e\)/);
-        assert.ok(js.indexOf('print({') < js.indexOf("rpc('log_form_print'"), 'the form opens first, the record is written after');
+        // one plan: the form opens first, the record is written after
+        const one = js.slice(js.indexOf('async function printApprovedRequest('), js.indexOf('async function printApprovedRequests('));
+        assert.ok(one.indexOf('print(got.data)') < one.indexOf('logPrint('), 'the form opens first, the record is written after');
+        // several plans: one print job, then one record for each plan
+        const many = js.slice(js.indexOf('async function printApprovedRequests('), js.indexOf('const WHO ='));
+        assert.ok(many.indexOf('printMany(') < many.indexOf('logPrint('), 'the forms open first, the records are written after');
     });
 
     test('Faculty, Registrar and the student page each show the line', () => {
@@ -326,5 +331,38 @@ describe('the record of prints (db/092)', () => {
         assert.ok(sql.includes('is_adviser_of_request(p_request_id)'));
         assert.ok(sql.includes('is_registrar_of_student(v_student)'));
         assert.ok(sql.includes("'PRINT_ENROLLMENT_FORM'"));
+    });
+});
+
+describe('several forms in one print job', () => {
+    const read = (p) => fs.readFileSync(new URL('../' + p, import.meta.url), 'utf8');
+    const second = { ...student, first_name: 'Mauve', last_name: 'Lin', student_id: '24021984' };
+    const data = (st, ref) => ({ student: st, items, term: { number: 1, year: 2026 }, program: { name: 'BS Information Technology' }, ref });
+
+    test('every student gets both pages of the form, one after the other', () => {
+        const out = Form.htmlMany([data(student, 'CL-2026-000021'), data(second, 'CL-2026-000020')]);
+        assert.equal((out.match(/class="page/g) || []).length, 4);
+        assert.ok(out.includes('CL-2026-000020') && out.includes('CL-2026-000021'));
+        assert.ok(out.indexOf('CL-2026-000021') < out.indexOf('CL-2026-000020'), 'in the order given');
+    });
+
+    test('the title says how many forms there are, and one student alone still works', () => {
+        assert.ok(Form.htmlMany([data(student, 'a'), data(second, 'b')]).includes('Enrollment forms (2)'));
+        assert.equal((Form.htmlMany([data(student, 'a')]).match(/class="page/g) || []).length, 2);
+    });
+
+    test('an entry without a student is left out', () => {
+        assert.equal((Form.htmlMany([null, {}, data(student, 'a')]).match(/class="page/g) || []).length, 2);
+    });
+
+    test('nothing chosen: a clear message, and nothing is loaded', async () => {
+        const r = await Form.printApprovedRequests({}, []);
+        assert.equal(r.ok, false);
+        assert.match(r.error, /Choose at least one/);
+    });
+
+    test('Faculty and Registrar print the chosen plans through the shared function', () => {
+        assert.ok(read('features/registrar/registrardashboard.js').includes('printApprovedRequests'));
+        assert.ok(read('features/faculty/facultydashboard.js').includes('printApprovedRequests'));
     });
 });

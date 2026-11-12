@@ -96,7 +96,7 @@
     width: 100%;
     min-height: 118px;
     padding: 1.5rem 1rem;
-    margin-top: auto;
+    margin-top: 0.75rem;
     border: 1.5px dashed #CBD5E1;
     border-radius: 8px;
     background: #F8FAFC;
@@ -142,7 +142,7 @@
     justify-content: center;
     gap: 0.5rem;
     width: 100%;
-    margin-top: auto;
+    margin-top: 0.75rem;
     padding: 0.7rem 1rem;
 }
 
