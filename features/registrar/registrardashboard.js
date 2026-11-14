@@ -157,8 +157,10 @@ async function loadProspectus() {
     // Every published version, active or older: a student may still be on an
     // older curriculum. Drafts are the department's work in progress and are
     // never requested (see ProspectusGrid.mountVersions).
+    // Follows the header programme switch: one programme's versions, or every programme this Registrar covers.
     await window.ProspectusGrid.mountVersions(supabase, {
         select: sel, body, title: $('pros-title'),
+        programId: PROGRAM_SCOPE === 'all' ? null : PROGRAM_SCOPE,
     });
 }
 
@@ -467,7 +469,7 @@ function localCounts() {
 
 async function loadCounts() {
     if (PREVIEW || !supabase) return localCounts();
-    const head = () => supabase.from('university_student').select('id', { count: 'exact', head: true });
+    const head = () => scopeStudents(supabase.from('university_student').select('id', { count: 'exact', head: true }));
     const [total, pend, appr, decl, ver] = await Promise.all([
         head(),
         head().or(PENDING_FILTER),
@@ -516,10 +518,10 @@ async function loadStudents() {
 
     const [counts, res] = await Promise.all([
         loadCounts(),
-        supabase
+        scopeStudents(supabase
             .from('university_student')
             .select(SELECT_COLS)
-            .or(PENDING_FILTER)
+            .or(PENDING_FILTER))
             .order('created_at', { ascending: true })
             .limit(PENDING_LIMIT),
     ]);
@@ -620,7 +622,8 @@ function renderDashboardSummary() {
     }
 
     const P = window.CurriculogicPrograms;
-    setText('hero-eyebrow', ['Registrar', P?.codeOf(REGISTRAR?.program_id, ''), P?.collegeOf(REGISTRAR?.program_id, '') || REGISTRAR?.department].filter(Boolean).join(' \u00b7 '));
+    const covered = coveredProgramIds().map(id => P?.codeOf(id, '')).filter(Boolean);
+    setText('hero-eyebrow', ['Registrar', covered.join(', '), P?.collegeOf(REGISTRAR?.program_id, '') || REGISTRAR?.department].filter(Boolean).join(' \u00b7 '));
     setText('hero-line', DS.sentence([
         unverified > 0 && DS.count(unverified, 'approved student') + ' waiting for grades',
     ], ADVISING_COUNT > 0 ? 'Nothing is waiting for you. ' + DS.count(ADVISING_COUNT, 'approved plan') + ' ready.' : 'Nothing is waiting for you right now.'));
@@ -968,7 +971,7 @@ async function fetchStudentPage() {
         return { rows: all.slice(from, to + 1), total: all.length };
     }
 
-    let q = supabase.from('university_student').select(SELECT_COLS, { count: 'exact' });
+    let q = scopeStudents(supabase.from('university_student').select(SELECT_COLS, { count: 'exact' }));
     if (LIST.filter === 'approved')   q = q.eq('approval_status', 'approved');
     if (LIST.filter === 'pending')    q = q.or(PENDING_FILTER);
     if (LIST.filter === 'declined')   q = q.eq('approval_status', 'declined');
@@ -1646,24 +1649,52 @@ const statusLabel = (s) =>
 /* The programme this account is assigned to, shown in the header next to the
    term (same field as the Department header). Static: it only changes when an
    admin reassigns the account. */
+/* Every programme this Registrar covers (db/110), the main one first. Falls back to the main programme alone. */
+let REGISTRAR_PROGRAM_IDS = [];
+
+/* What the header programme switch has chosen: 'all' (every programme this Registrar covers) or one programme id. It
+   scopes the Approved plans list, the Students list and the dashboard numbers. The database rules already limit
+   everything to the programmes covered, so 'all' needs no filter. */
+let PROGRAM_SCOPE = 'all';
+let PROGRAM_SWITCH = null;
+const scopeStudents = (q) => (PROGRAM_SCOPE === 'all' ? q : q.eq('program_id', PROGRAM_SCOPE));
+function coveredProgramIds() {
+    const main = REGISTRAR?.program_id;
+    const ids = REGISTRAR_PROGRAM_IDS.length ? [...REGISTRAR_PROGRAM_IDS] : (main != null ? [main] : []);
+    return ids.sort((a, b) => (b === main) - (a === main));
+}
+
+async function loadOwnPrograms() {
+    if (PREVIEW || !supabase || !REGISTRAR?.id) return;
+    const { data, error } = await supabase.from('registrar_program').select('program_id').eq('registrar_id', REGISTRAR.id);
+    if (error) return console.warn('own programmes failed:', error.message);
+    REGISTRAR_PROGRAM_IDS = (data ?? []).map(r => r.program_id);
+}
+
 function paintProgramField() {
     const field = document.getElementById('topbar-program');
     if (!field) return;
-    const id = REGISTRAR?.program_id;
     const P = window.CurriculogicPrograms;
-    const code = id == null ? '' : P?.codeOf(id, '');
-    field.value = code
-        ? `${code} — ${P.nameOf(id, '')}`
-        : (PREVIEW ? 'BSIT — BS Information Technology' : 'No programme assigned');
-    field.title = field.value;
+    const ids = coveredProgramIds();
+    const codes = ids.map(id => P?.codeOf(id, '')).filter(Boolean);
+    const names = ids.map(id => P?.nameOf(id, '')).filter(Boolean);
 
-    // The same programme on the Profile page.
-    setText('d-program', field.value);
+    // One programme reads "BSIT — BS Information Technology"; several read "BSIT, BSED, BSHM" (names in the tooltip).
+    field.value = codes.length === 1
+        ? `${codes[0]} — ${names[0] || ''}`
+        : codes.length > 1
+            ? codes.join(', ')
+            : (PREVIEW ? 'BSIT — BS Information Technology' : 'No programme assigned');
+    field.title = codes.length > 1 ? names.map((n, i) => `${codes[i]} — ${n}`).join('\n') : field.value;
+
+    // The same programmes on the Profile page.
+    setText('d-program', codes.length > 1 ? names.map((n, i) => `${codes[i]} — ${n}`).join('; ') : field.value);
     const pill = $('prof-program-pill');
     if (pill) {
-        pill.textContent = code || (PREVIEW ? 'BSIT' : '');
+        pill.textContent = codes.length ? codes.join(', ') : (PREVIEW ? 'BSIT' : '');
         pill.hidden = !pill.textContent;
     }
+    refreshProgramSwitch();
 }
 
 const termLabel = (t) => ({ 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' })[t] || '—';
@@ -1819,6 +1850,33 @@ function planFacts(req) {
     };
 }
 
+/* The header switch: shown only when the Registrar covers more than one programme. Choosing a programme re-scopes the
+   page. */
+function refreshProgramSwitch() {
+    const P = window.CurriculogicPrograms;
+    if (!PROGRAM_SWITCH && window.CurriculogicProgramSwitch) {
+        PROGRAM_SWITCH = window.CurriculogicProgramSwitch.create({
+            wrap: document.getElementById('topbar-program-wrap'),
+            key: 'registrar',
+            onChange: (value) => { PROGRAM_SCOPE = value; applyProgramScope(); },
+        });
+    }
+    if (!PROGRAM_SWITCH) return;
+    PROGRAM_SCOPE = PROGRAM_SWITCH.setOptions(coveredProgramIds().map(id => ({
+        id, code: P?.codeOf(id, '') || String(id), name: P?.nameOf(id, '') || '',
+    })));
+}
+
+/* A new choice: fresh numbers, the student list from page 1, the plans list filtered again. */
+async function applyProgramScope() {
+    await loadStudents();
+    if (LIST.loaded) { LIST.page = 1; loadStudentList(); }
+    await loadAdvisingCount();
+    ADV_PAGE = 1;
+    renderAdvisingList();
+    if (parseHash().name === 'prospectus') loadProspectus();   // any other visit rebuilds it for the new choice
+}
+
 function filteredPlans() {
     const q = ($('adv-search')?.value || '').trim().toLowerCase();
     const termSel = $('adv-term')?.value || 'all';
@@ -1828,6 +1886,7 @@ function filteredPlans() {
 
     const list = ADV_PLANS.filter((r) => {
         if (termSel !== 'all' && planTermKey(r) !== termSel) return false;
+        if (PROGRAM_SCOPE !== 'all' && Number(r.student?.program_id) !== PROGRAM_SCOPE) return false;
         if (statusSel === 'approved' && r.status !== 'approved') return false;
         if (statusSel === 'partial' && r.status !== 'partially_approved') return false;
         if (refId !== null) return Number(r.id) === refId;
@@ -1859,8 +1918,10 @@ function fillTermFilter() {
         if (!seen.has(k)) seen.set(k, `${termLabel(r.requested_term)} ${r.requested_year || ''}`.trim());
     });
     const keys = [...seen.keys()].sort().reverse();
+    const keep = sel.value;
     sel.innerHTML = '<option value="all">All terms</option>' +
         keys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(seen.get(k))}</option>`).join('');
+    if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
     if (!ADV_TERM_SET) {
         ADV_TERM_SET = true;
         if (ADV_DEFAULT_TERM && seen.has(ADV_DEFAULT_TERM)) sel.value = ADV_DEFAULT_TERM;
@@ -1892,10 +1953,12 @@ function renderAdvisingList() {
     if (!queue) return;
 
     const list = filteredPlans();
-    const partial = ADV_PLANS.filter(r => r.status === 'partially_approved').length;
+    // The totals follow the programme switch, like the list does: "1 of 1" for a programme with one plan, not "of 16".
+    const inScope = PROGRAM_SCOPE === 'all' ? ADV_PLANS : ADV_PLANS.filter(r => Number(r.student?.program_id) === PROGRAM_SCOPE);
+    const partial = inScope.filter(r => r.status === 'partially_approved').length;
     if (countEl) {
-        countEl.textContent = ADV_PLANS.length
-            ? `${list.length} of ${ADV_PLANS.length} · ${partial} partly approved`
+        countEl.textContent = inScope.length
+            ? `${list.length} of ${inScope.length} · ${partial} partly approved`
             : '';
     }
 
@@ -2005,7 +2068,7 @@ $('adv-queue')?.addEventListener('click', (e) => {
     }
 });
 
-async function loadAdvisingQueue() {
+async function loadAdvisingQueue({ quiet = false } = {}) {
     const queue = $('adv-queue');
     if (!queue) return;
 
@@ -2037,6 +2100,7 @@ async function loadAdvisingQueue() {
 
     if (error) {
         console.warn('loadAdvisingQueue failed:', error.message);
+        if (quiet) return;   // an automatic refresh never replaces a list that is showing with an error
         queue.innerHTML = `
             <div class="empty">
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
@@ -2053,8 +2117,30 @@ async function loadAdvisingQueue() {
     const cfg = await window.CurriculogicTerm?.load();
     ADV_DEFAULT_TERM = cfg ? `${cfg.term}|${cfg.year}` : null;
     fillTermFilter();
-    ADV_PAGE = 1;
+    if (!quiet) ADV_PAGE = 1;   // an automatic refresh keeps the page, filters and ticked plans where they were
     renderAdvisingList();
+}
+
+/* Keeps the plans list and the dashboard count current without reloading the page: every minute while the tab is
+   showing, and straight away when the Registrar comes back to it. The list itself is reloaded only while the list is
+   on screen (not while a plan is open). */
+const ADVISING_REFRESH_MS = 60 * 1000;
+let ADVISING_REFRESH_BUSY = false;
+async function refreshAdvising() {
+    if (PREVIEW || !supabase || !REGISTRAR || document.hidden || ADVISING_REFRESH_BUSY) return;
+    ADVISING_REFRESH_BUSY = true;
+    try {
+        await loadAdvisingCount();
+        const { name, param } = parseHash();
+        if (name === 'advising' && !param && $('adv-sub-detail')?.hidden) await loadAdvisingQueue({ quiet: true });
+    } finally {
+        ADVISING_REFRESH_BUSY = false;
+    }
+}
+function startAdvisingRefresh() {
+    if (PREVIEW) return;
+    setInterval(refreshAdvising, ADVISING_REFRESH_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAdvising(); });
 }
 
 async function loadAdvisingDetail(requestId) {
@@ -2212,11 +2298,14 @@ async function loadAdvisingCount() {
     if (!supabase) return;
 
     // Approved plans, not counting the old ones the Registrar sent back.
-    const { count, error } = await supabase
+    // With one programme chosen, count only plans whose student is in it (an inner join on the student).
+    let countQuery = supabase
         .from('request')
-        .select('id', { count: 'exact', head: true })
+        .select(PROGRAM_SCOPE === 'all' ? 'id' : 'id, student:student_id!inner(program_id)', { count: 'exact', head: true })
         .in('status', ['approved', 'partially_approved'])
         .or('registrar_status.is.null,registrar_status.neq.rejected');
+    if (PROGRAM_SCOPE !== 'all') countQuery = countQuery.eq('student.program_id', PROGRAM_SCOPE);
+    const { count, error } = await countQuery;
 
     if (error) {
         console.warn('advising count failed:', error.message);
@@ -2357,11 +2446,13 @@ async function printUcForm(requestId) {
 
     // Looked up, not typed: each student's line names their own degree.
     await window.CurriculogicPrograms?.load(supabase);
+    await loadOwnPrograms();
     paintProgramField();
     loadPhoto();
 
     await loadStudents();
     await loadAdvisingCount();
+    startAdvisingRefresh();
     route();
 })();
 
