@@ -93,19 +93,6 @@
         }
         .act-go:hover { background: var(--indigo-dark); }
         .act-go:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        /* Dashboard cards that open the matching page */
-        .stat-link { display: block; text-decoration: none; color: inherit; cursor: pointer;
-                     transition: transform 0.15s ease, box-shadow 0.15s ease; }
-        .stat-link:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); }
-        .stat-link:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
-        .stat-go { display: block; margin-top: 0.35rem; font-size: 0.75rem; font-weight: 600; color: var(--indigo); }
-        .stat-go i { font-size: 0.65rem; margin-left: 0.15rem; transition: transform 0.15s ease; }
-        .stat-link:hover .stat-go i { transform: translateX(3px); }
-        @media (prefers-reduced-motion: reduce) {
-            .stat-link, .stat-go i { transition: none; }
-            .stat-link:hover { transform: none; }
-        }
     </style>
 </head>
 <body class="theme-paper" data-idle-role="faculty_staff">
@@ -133,6 +120,7 @@
             </a>
             <a href="#requests" data-view="requests">
                 <i class="fa-solid fa-inbox" aria-hidden="true"></i> Advising requests
+                <span class="nav-count" id="nav-requests" hidden aria-live="polite">0</span>
             </a>
             <a href="#prospectus" data-view="prospectus">
                 <i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Prospectus
@@ -617,6 +605,7 @@
 <script src="../../shared/js/app/idlesignout.js"></script>
 <script src="../../shared/js/app/systemconfig.js"></script>
 <script src="../../shared/js/app/programs.js"></script>
+<script src="../../shared/js/app/programswitch.js"></script>
 <script src="../../shared/js/enrolment/requeststatus.js"></script>
 <script src="../../shared/engine/engine.js"></script>
 <script src="../../shared/js/records/recordgrades.js"></script>
@@ -626,6 +615,9 @@
 <script src="../../shared/js/enrolment/requestref.js"></script>
 <script src="../../shared/js/enrolment/advisingslip.js"></script>
 <script src="../../shared/js/schedule/scheduleconflicts.js"></script>
+<script src="../../shared/js/enrolment/systemcheck.js"></script>
+<script src="../../shared/js/enrolment/planoverview.js"></script>
+<script src="../../shared/js/enrolment/rejectreason.js"></script>
 <script src="../../shared/js/enrolment/enrollmentform.js"></script>
 <script src="../../shared/js/accounts/passwordrules.js"></script>
 <script src="../../shared/js/app/forcepasswordchange.js"></script>

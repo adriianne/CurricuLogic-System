@@ -156,7 +156,11 @@ async function loadProspectusPage() {
             '<p>The curriculum is not loaded in preview.</p></div>';
         return;
     }
-    await window.ProspectusGrid.mountVersions(supabase, { select: sel, body, title: $('pros-title') });
+    // Follows the header programme switch: one programme's versions, or every programme this adviser covers.
+    await window.ProspectusGrid.mountVersions(supabase, {
+        select: sel, body, title: $('pros-title'),
+        programId: PROGRAM_SCOPE === 'all' ? null : PROGRAM_SCOPE,
+    });
 }
 
 function route() {
@@ -217,24 +221,78 @@ function ordinal(n) {
 /* The programme this account is assigned to, shown in the header next to the
    term (same field as the Department header). Static: it only changes when an
    admin reassigns the account. */
+/* Every programme this adviser covers (db/107), the main one first. Falls back to the main programme alone. */
+let FACULTY_PROGRAM_IDS = [];
+
+/* What the header programme switch has chosen: 'all' (every programme this adviser covers) or one programme id. It
+   scopes the Students list, the requests and approved plans, and the dashboard numbers. The database rules already
+   limit everything to the programmes covered, so 'all' needs no filter. */
+let PROGRAM_SCOPE = 'all';
+let PROGRAM_SWITCH = null;
+const scopeStudents = (q) => (PROGRAM_SCOPE === 'all' ? q : q.eq('program_id', PROGRAM_SCOPE));
+const inScope = (req) => PROGRAM_SCOPE === 'all' || Number(req.student?.program_id) === PROGRAM_SCOPE;
+
+function refreshProgramSwitch() {
+    const P = window.CurriculogicPrograms;
+    if (!PROGRAM_SWITCH && window.CurriculogicProgramSwitch) {
+        PROGRAM_SWITCH = window.CurriculogicProgramSwitch.create({
+            wrap: document.getElementById('topbar-program-wrap'),
+            key: 'faculty',
+            onChange: (value) => { PROGRAM_SCOPE = value; applyProgramScope(); },
+        });
+    }
+    if (!PROGRAM_SWITCH) return;
+    PROGRAM_SCOPE = PROGRAM_SWITCH.setOptions(coveredProgramIds().map(id => ({
+        id, code: P?.codeOf(id, '') || String(id), name: P?.nameOf(id, '') || '',
+    })));
+}
+
+/* A new choice: fresh numbers, the student list from page 1, the requests and approved plans filtered again. */
+async function applyProgramScope() {
+    await loadStudents();
+    if (LIST.loaded) { LIST.page = 1; loadStudentList(); }
+    loadRequestCount();
+    loadRequestQueue();
+    loadApprovedPlans();
+    if (parseHash().name === 'prospectus') loadProspectusPage();   // any other visit rebuilds it for the new choice
+}
+function coveredProgramIds() {
+    const main = FACULTY?.program_id;
+    const ids = FACULTY_PROGRAM_IDS.length ? [...FACULTY_PROGRAM_IDS] : (main != null ? [main] : []);
+    return ids.sort((a, b) => (b === main) - (a === main));
+}
+
+async function loadOwnPrograms() {
+    if (PREVIEW || !supabase || !FACULTY?.id) return;
+    const { data, error } = await supabase.from('faculty_program').select('program_id').eq('faculty_id', FACULTY.id);
+    if (error) return console.warn('own programmes failed:', error.message);
+    FACULTY_PROGRAM_IDS = (data ?? []).map(r => r.program_id);
+}
+
 function paintProgramField() {
     const field = document.getElementById('topbar-program');
     if (!field) return;
-    const id = FACULTY?.program_id;
     const P = window.CurriculogicPrograms;
-    const code = id == null ? '' : P?.codeOf(id, '');
-    field.value = code
-        ? `${code} — ${P.nameOf(id, '')}`
-        : (PREVIEW ? 'BSIT — BS Information Technology' : 'No programme assigned');
-    field.title = field.value;
+    const ids = coveredProgramIds();
+    const codes = ids.map(id => P?.codeOf(id, '')).filter(Boolean);
+    const names = ids.map(id => P?.nameOf(id, '')).filter(Boolean);
 
-    // The same programme on the Profile page.
-    setText('d-program', field.value);
+    // One programme reads "BSIT — BS Information Technology"; several read "BSIT, IS, AI" (names in the tooltip).
+    field.value = codes.length === 1
+        ? `${codes[0]} — ${names[0] || ''}`
+        : codes.length > 1
+            ? codes.join(', ')
+            : (PREVIEW ? 'BSIT — BS Information Technology' : 'No programme assigned');
+    field.title = codes.length > 1 ? names.map((n, i) => `${codes[i]} — ${n}`).join('\n') : field.value;
+
+    // The same programmes on the Profile page.
+    setText('d-program', codes.length > 1 ? names.map((n, i) => `${codes[i]} — ${n}`).join('; ') : field.value);
     const pill = $('prof-program-pill');
     if (pill) {
-        pill.textContent = code || (PREVIEW ? 'BSIT' : '');
+        pill.textContent = codes.length ? codes.join(', ') : (PREVIEW ? 'BSIT' : '');
         pill.hidden = !pill.textContent;
     }
+    refreshProgramSwitch();
 }
 
 function termLabel(t) {
@@ -470,7 +528,7 @@ function localCounts() {
 
 async function loadCounts() {
     if (PREVIEW || !supabase) return localCounts();
-    const head = () => supabase.from('university_student').select('id', { count: 'exact', head: true });
+    const head = () => scopeStudents(supabase.from('university_student').select('id', { count: 'exact', head: true }));
     const [total, ver] = await Promise.all([head(), head().eq('record_verified', true)]);
     return { total: total.count ?? 0, verified: ver.count ?? 0 };
 }
@@ -490,7 +548,7 @@ async function loadStudents() {
 
     const [counts, recent] = await Promise.all([
         loadCounts(),
-        supabase.from('university_student').select(STUDENT_COLS)
+        scopeStudents(supabase.from('university_student').select(STUDENT_COLS))
             .order('created_at', { ascending: false }).limit(5),
     ]);
 
@@ -534,7 +592,7 @@ async function fetchStudentPage() {
         return { rows: all.slice(from, to + 1), total: all.length };
     }
 
-    let q = supabase.from('university_student').select(STUDENT_COLS, { count: 'exact' });
+    let q = scopeStudents(supabase.from('university_student').select(STUDENT_COLS, { count: 'exact' }));
     if (LIST.filter === 'verified') q = q.eq('record_verified', true);
     if (LIST.filter === 'pending')  q = q.eq('record_verified', false);
     if (LIST.year !== 'all')        q = q.eq('year_level', Number(LIST.year));
@@ -863,7 +921,8 @@ function renderDashboardSummary() {
     }
 
     const P = window.CurriculogicPrograms;
-    setText('hero-eyebrow', ['Faculty adviser', P?.codeOf(FACULTY?.program_id, ''), P?.collegeOf(FACULTY?.program_id, '') || FACULTY?.department].filter(Boolean).join(' \u00b7 '));
+    const covered = coveredProgramIds().map(id => P?.codeOf(id, '')).filter(Boolean);
+    setText('hero-eyebrow', ['Faculty adviser', covered.join(', '), P?.collegeOf(FACULTY?.program_id, '') || FACULTY?.department].filter(Boolean).join(' \u00b7 '));
     setText('hero-line', DS.sentence([
         waiting > 0 && DS.count(waiting, 'plan') + ' waiting for your review',
         unverified > 0 && DS.count(unverified, 'student record') + ' not verified yet',
@@ -1408,7 +1467,7 @@ async function loadApprovedPlans() {
         .from('request')
         .select(
             'id, status, registrar_status, requested_term, requested_year, created_at, ' +
-            'student:student_id (id, first_name, last_name, student_id), request_item (status)')
+            'student:student_id (id, first_name, last_name, student_id, program_id), request_item (status)')
         .in('status', ['approved', 'partially_approved'])
         .order('created_at', { ascending: false })
         .limit(200);
@@ -1418,7 +1477,7 @@ async function loadApprovedPlans() {
         return;
     }
     const RS = window.CurriculogicRequestStatus;
-    AP_PLANS = (data ?? []).filter(r => (RS ? RS.finalApproved(r) : r.registrar_status !== 'rejected'));
+    AP_PLANS = (data ?? []).filter(r => (RS ? RS.finalApproved(r) : r.registrar_status !== 'rejected')).filter(inScope);
     const ids = new Set(AP_PLANS.map(r => Number(r.id)));
     [...AP_PICK].forEach(id => { if (!ids.has(id)) AP_PICK.delete(id); });
     renderApprovedPlans();
@@ -1506,7 +1565,7 @@ async function loadRequestQueue() {
         .from('request')
         .select(`
             id, status, requested_term, requested_year, created_at,
-            student:student_id (id, first_name, last_name, student_id, year_level),
+            student:student_id (id, first_name, last_name, student_id, year_level, program_id),
             request_item (
                 id, status,
                 subject:subject_id (units)
@@ -1521,7 +1580,7 @@ async function loadRequestQueue() {
         return;
     }
 
-    REQ_PENDING = requests ?? [];
+    REQ_PENDING = (requests ?? []).filter(inScope);
     renderRequestQueue();
 }
 
@@ -1630,10 +1689,10 @@ async function loadRequestDetail(requestId) {
     const { data: req, error } = await supabase
         .from('request')
         .select(`
-            id, status, registrar_status, requested_term, requested_year, created_at,
+            id, status, registrar_status, requested_term, requested_year, created_at, prospectus_id,
             student:student_id (id, first_name, last_name, student_id, year_level),
             request_item (
-                id, status, remarks, offering_id,
+                id, subject_id, status, remarks, offering_id,
                 subject:subject_id (code, title, units),
                 offering:offering_id (section, schedule_days, start_time, end_time, room)
             )
@@ -1683,10 +1742,21 @@ async function loadRequestDetail(requestId) {
 
     if (actionsEl) {
         if (undecided.length) {
+            // A subject with a warning (flagged, or clashing with another) cannot be approved, so "Approve all"
+            // covers only the subjects with no warning.
+            const warnN = window.CurriculogicSystemCheck
+                ? window.CurriculogicSystemCheck.blocked(undecided, window.ScheduleConflicts?.meetingsClash).ids.size
+                : 0;
+            // While any subject has a warning the button is off: reject those first (the reason box opens filled in),
+            // then it works for the rest. The tick on each ready row still approves that one subject.
+            const approveLabel = 'Approve all';
+            const approveTip = warnN
+                ? `${warnN} subject${warnN === 1 ? ' has' : 's have'} a warning and cannot be approved. Reject ${warnN === 1 ? 'it' : 'them'} first.`
+                : 'Approve every subject';
             actionsEl.innerHTML = `
-                <button class="btn-small" data-approve-all="${req.id}">
+                <button class="btn-small" data-approve-all="${req.id}" title="${escapeHtml(approveTip)}" ${warnN ? 'disabled' : ''}>
                     <i class="fa-solid fa-check" aria-hidden="true"></i>
-                    Approve all
+                    ${approveLabel}
                 </button>
                 <button class="btn-small" data-reject-all="${req.id}">
                     <i class="fa-solid fa-xmark" aria-hidden="true"></i>
@@ -1698,7 +1768,25 @@ async function loadRequestDetail(requestId) {
         }
     }
 
-    bodyEl.innerHTML = renderRequestTable(items);
+    // Above the table, everything the system found: while subjects are undecided, "all passed" or the list of every
+    // flagged subject and clash with its reason; once every subject is decided, what was decided and every reason on record.
+    const SC = window.CurriculogicSystemCheck;
+    const note = SC
+        ? (SC.noteHtml(items, window.ScheduleConflicts?.meetingsClash)
+            || SC.decisionHtml(items, { sentBack: window.CurriculogicRequestStatus?.sentBack(req) }))
+        : '';
+    // While the banner is up it already says what the longer note would, so only one of them is shown.
+    const finish = SC ? SC.finishHtml(items, window.ScheduleConflicts?.meetingsClash, req.id) : '';
+    bodyEl.innerHTML = (finish || note) + renderRequestTable(items);
+
+    // Under the table: the subjects the student already passed, mapped to the ones they asked for. Drawn after the
+    // table so a slow or failed lookup never holds the review up.
+    planOverviewHtml(req, items).then((overview) => {
+        if (overview && bodyEl.isConnected && $('req-detail-name')?.textContent === fullName(req.student)) {
+            bodyEl.querySelectorAll('.po').forEach(el => el.remove());   // one overview only, if the plan was redrawn meanwhile
+            bodyEl.insertAdjacentHTML('beforeend', overview);
+        }
+    });
 
     // The adviser's approval is final, so the adviser prints the enrollment
     // form once the plan is approved (see shared/js/enrolment/requeststatus.js). A plan
@@ -1742,6 +1830,12 @@ async function loadRequestDetail(requestId) {
    right. Every undecided row shows a small approve/reject pair inline;
    decided rows show their outcome. */
 function renderRequestTable(items) {
+    // Subjects with a warning cannot be approved: flagged by the system, or in a schedule clash with another
+    // undecided subject (shared/js/enrolment/systemcheck.js, and db/112 for flagged ones).
+    const blocked = window.CurriculogicSystemCheck
+        ? window.CurriculogicSystemCheck.blocked(items, window.ScheduleConflicts?.meetingsClash)
+        : { ids: new Set(), flagged: new Set(), clashing: new Set(), clashWith: new Map() };
+
     const rows = items.map(item => {
         const o = item.offering;
         const time = (o?.start_time && o?.end_time)
@@ -1766,8 +1860,23 @@ function renderRequestTable(items) {
                     <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                 </button>`;
 
+        // A subject with a warning gets a lock and only the reject button.
+        const lockedButtons = (why) => `
+                <span class="req-lock" title="${escapeHtml(why)}"><i class="fa-solid fa-lock" aria-hidden="true"></i></span>
+                <button class="btn-icon btn-xs" data-reject-item="${item.id}" title="Reject this subject">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>`;
+        const clashCodes = (blocked.clashWith.get(item.id) ?? []).join(', ');
+
         let statusHtml;
-        if (item.status === 'valid') {
+        if (item.status === 'valid' && blocked.clashing.has(item.id)) {
+            // Passed the system's checks, but its section overlaps another subject's: cannot be approved while both stand.
+            statusHtml = `
+                <span class="req-status is-flagged" title="Schedule clash with ${escapeHtml(clashCodes)}">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> clash
+                </span>${lockedButtons('Clashes with ' + clashCodes + '. Reject one of them first.')}
+                <span class="req-flag-reason">Schedule clash with ${escapeHtml(clashCodes)}. <strong>Cannot be approved until one of them is rejected.</strong></span>`;
+        } else if (item.status === 'valid') {
             // Labelled, so the engine's verdict is not mistaken for the
             // approve button sitting next to it.
             statusHtml = `<span class="req-status is-valid" title="${escapeHtml(item.remarks || 'All requirements met.')}">
@@ -1777,7 +1886,8 @@ function renderRequestTable(items) {
             statusHtml = `
                 <span class="req-status is-flagged" title="${escapeHtml(item.remarks || '')}">
                     <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> check
-                </span>${itemButtons}`;
+                </span>${lockedButtons('Flagged by the system. It can only be rejected.')}
+                <span class="req-flag-reason">${escapeHtml(item.remarks || 'Flagged by the system.')} <strong>Cannot be approved.</strong></span>`;
         } else if (item.status === 'approved') {
             // The adviser's note for this subject, if one was left when approving it.
             statusHtml = `<span class="req-status is-approved">
@@ -1820,6 +1930,61 @@ function renderRequestTable(items) {
         </div>`;
 }
 
+/* The "Overview" under the plan: what the student already passed, mapped to what they asked to take
+   (shared/js/enrolment/planoverview.js). Empty when the record or the curriculum cannot be read. */
+async function planOverviewHtml(req, items) {
+    const PO = window.CurriculogicPlanOverview;
+    const SC = window.CurriculogicSystemCheck;
+    const engine = window.CurricuLogicEngine;
+    if (!PO || !SC || !engine || !supabase || !req.student?.id || !req.prospectus_id) return '';
+    try {
+        const [records, kb] = await Promise.all([fetchRecords(req.student.id), kbFor(req.prospectus_id)]);
+        if (records === null || !kb.subjects.length) return '';
+        const clash = window.ScheduleConflicts?.meetingsClash;
+        const undecided = items.filter(i => i.status !== 'approved' && i.status !== 'rejected');
+        return PO.html(PO.build({
+            items, records, kb, engine,
+            blocked: SC.blocked(items, clash),
+            pairs: SC.clashPairs(undecided, clash),
+            request: { term: req.requested_term, year: req.requested_year },
+            termLabel,
+            studentId: req.student.id,
+            yearLevel: req.student.year_level,
+        }));
+    } catch (e) {
+        console.warn('plan overview failed:', e?.message ?? e);
+        return '';
+    }
+}
+
+/* The plan's undecided subjects with what the warning checks need (reason, subject, section and time). */
+const WARNING_COLS = 'id, status, remarks, subject:subject_id (code, title, units), offering:offering_id (section, schedule_days, start_time, end_time)';
+
+/* Why this subject cannot be approved right now, or null when it can. */
+async function approvalBlockedReason(requestId, itemId) {
+    const SC = window.CurriculogicSystemCheck;
+    if (!SC) return null;
+    const { data, error } = await supabase.from('request_item').select(WARNING_COLS).eq('request_id', requestId);
+    if (error || !data) return 'Could not check this subject. Please try again.';
+    const b = SC.blocked(data, window.ScheduleConflicts?.meetingsClash);
+    if (b.flagged.has(itemId)) return 'This subject was flagged by the system, so it cannot be approved. It can only be rejected.';
+    if (b.clashing.has(itemId)) {
+        return `This subject clashes with ${(b.clashWith.get(itemId) ?? []).join(', ')}. Reject one of them first.`;
+    }
+    return null;
+}
+
+/* What the reason box starts with when rejecting this subject: the system's warning about it, or '' when it has none
+   (or the plan could not be read: the adviser then just writes the reason). */
+async function warnedNoteForItem(itemId) {
+    const SC = window.CurriculogicSystemCheck;
+    if (!SC || !supabase) return '';
+    const { data: it } = await supabase.from('request_item').select('request_id').eq('id', itemId).maybeSingle();
+    if (!it) return '';
+    const { data } = await supabase.from('request_item').select(WARNING_COLS).eq('request_id', it.request_id);
+    return data ? SC.itemNote(data, itemId, window.ScheduleConflicts?.meetingsClash) : '';
+}
+
 async function reviewRequestItem(itemId, decision, note = null) {
     if (!supabase || !FACULTY) return;
 
@@ -1837,6 +2002,13 @@ async function reviewRequestItem(itemId, decision, note = null) {
     if (itemError || !item) {
         const box = parseHash().param ? 'req-detail-msg' : 'req-msg';
         return showMsg(box, 'Could not find that request item.');
+    }
+
+    // A subject with a warning cannot be approved, whatever the screen showed (it may be out of date): read the plan
+    // again and check. Flagged is also refused by the database (db/112); a clash is checked here only.
+    if (decision === 'approved') {
+        const stop = await approvalBlockedReason(item.request_id, itemId);
+        if (stop) return showMsg(parseHash().param ? 'req-detail-msg' : 'req-msg', stop);
     }
 
     // A rejection carries a reason the student sees. On approval any
@@ -1883,38 +2055,75 @@ async function reviewRequestItem(itemId, decision, note = null) {
     loadRequestCount();
 }
 
-// The database refuses a longer rejection reason (db/050). A prompt() box has
-// no length limit of its own, so the length is checked here, before saving.
+// The database refuses a longer reason (db/050). The "approve with a note" box has no length limit of its own,
+// so the length is checked here, before saving. (A rejection reason is checked by CurriculogicRejectReason.)
 const REMARK_MAX = 500;
 const remarkTooLong = (text) => (text && text.length > REMARK_MAX
     ? `That reason is ${text.length} characters. Please keep it under ${REMARK_MAX}.`
     : null);
 
+async function rejectWarnedSubjects(requestId) {
+    if (!supabase || !FACULTY) return;
+    const box = parseHash().param ? 'req-detail-msg' : 'req-msg';
+    const { data, error } = await supabase.from('request_item').select(WARNING_COLS)
+        .eq('request_id', requestId).not('status', 'in', '(approved,rejected)');
+    if (error || !data?.length) return showMsg(box, 'Nothing left to reject on that request.');
+
+    const SC = window.CurriculogicSystemCheck;
+    const b = SC.blocked(data, window.ScheduleConflicts?.meetingsClash);
+    const todo = data.filter(i => b.ids.has(i.id));
+    if (!todo.length || todo.length !== data.length) return showMsg(box, 'Some subjects can still be approved. Use "Approve ready" first.');
+
+    // Each reason opens filled in from what the system found for that subject. They are worked out before the first
+    // rejection, so they all describe the plan as the adviser saw it.
+    const clash = window.ScheduleConflicts?.meetingsClash;
+    const starts = new Map(todo.map(i => [i.id, SC.itemNote(data, i.id, clash)]));
+
+    for (let k = 0; k < todo.length; k++) {
+        const item = todo[k];
+        const reason = await window.CurriculogicRejectReason.ask({
+            title: todo.length > 1 ? `Reject ${k + 1} of ${todo.length}` : 'Reject this subject',
+            subtitle: [item.subject?.code, item.subject?.title].filter(Boolean).join(' \u00b7 '),
+            confirm: 'Reject subject',
+            initial: starts.get(item.id),
+        });
+        if (reason === null) return;      // stop here: the ones already rejected stay rejected, the rest wait
+        await reviewRequestItem(item.id, 'rejected', reason);
+    }
+}
+
 async function reviewRequestBulk(requestId, decision) {
     if (!supabase || !FACULTY) return;
 
-    let note = null;
-    if (decision === 'rejected') {
-        note = window.prompt(
-            'Reason for rejecting this plan?\n\n' +
-            'The student sees this. Be specific: which subject, what requirement.');
-        if (note === null) return;
-        if (!note.trim()) {
-            return showMsg('req-detail-msg', 'A reason is required when rejecting.');
-        }
-        note = note.trim();
-        const tooLong = remarkTooLong(note);
-        if (tooLong) return showMsg('req-detail-msg', tooLong);
-    }
-
-    const { data: items, error } = await supabase
+    const { data: found, error } = await supabase
         .from('request_item')
-        .select('id')
+        .select(WARNING_COLS)
         .eq('request_id', requestId)
         .not('status', 'in', '(approved,rejected)');
 
-    if (error || !items?.length) {
+    if (error || !found?.length) {
         return showMsg('req-detail-msg', 'Nothing to review on that request.');
+    }
+
+    let note = null;
+    if (decision === 'rejected') {
+        // A reason is required: the student sees it next to every subject not yet decided. When the system warned
+        // about some subjects, the box opens filled in with what it found.
+        note = await window.CurriculogicRejectReason.ask({
+            title: 'Reject this plan',
+            subtitle: 'The reason is shown for every subject you have not decided yet.',
+            confirm: 'Reject plan',
+            initial: window.CurriculogicSystemCheck.rejectNote(found, window.ScheduleConflicts?.meetingsClash),
+        });
+        if (note === null) return;
+    }
+
+    // Approving everything leaves out the subjects with a warning (flagged, or clashing): they can only be rejected.
+    const warn = window.CurriculogicSystemCheck.blocked(found, window.ScheduleConflicts?.meetingsClash).ids;
+    const items = decision === 'approved' ? found.filter(i => !warn.has(i.id)) : found;
+    if (!items.length) {
+        const n = warn.size;
+        return showMsg('req-detail-msg', `${n} subject${n === 1 ? ' has' : 's have'} a warning and cannot be approved. Reject ${n === 1 ? 'it' : 'them'} with a reason.`);
     }
 
     // One update for the whole set of undecided items, not one round trip
@@ -1932,15 +2141,17 @@ async function reviewRequestBulk(requestId, decision) {
         return showMsg('req-detail-msg', 'Could not save your decisions. Please try again.');
     }
     const ok = items.length;
+    const left = decision === 'approved' ? warn.size : 0;
+    const leftText = left ? ` ${left} subject${left === 1 ? ' has' : 's have'} a warning and can only be rejected.` : '';
 
     await finishReviewIfComplete(requestId);
 
     const { param } = parseHash();
     if (param) {
-        showMsg('req-detail-msg', `${ok} subject${ok === 1 ? '' : 's'} ${decision}.`, 'success');
+        showMsg('req-detail-msg', `${ok} subject${ok === 1 ? '' : 's'} ${decision}.${leftText}`, 'success');
         loadRequestDetail(param);
     } else {
-        showMsg('req-msg', `${ok} subject${ok === 1 ? '' : 's'} ${decision}.`, 'success');
+        showMsg('req-msg', `${ok} subject${ok === 1 ? '' : 's'} ${decision}.${leftText}`, 'success');
         loadRequestQueue();
     }
     loadRequestCount();
@@ -2070,18 +2281,31 @@ async function notifyStudentOfReview(requestId) {
     });
 }
 
+/* The count beside "Advising requests" in the menu: plans waiting for review. Hidden at zero. */
+function paintRequestBadge(n) {
+    const badge = $('nav-requests');
+    if (!badge) return;
+    badge.textContent = n > 99 ? '99+' : String(n);
+    badge.title = n + (n === 1 ? ' plan' : ' plans') + ' waiting for your review';
+    badge.hidden = !(n > 0);
+}
+
 async function loadRequestCount() {
     if (PREVIEW) {
         REQUEST_COUNT = 3;
         renderDashboardSummary();
         setStat('stat-requests', 3, 'stat-value');
         setStat('prof-stat-requests', 3);
+        paintRequestBadge(3);
         return;
     }
-    const { count, error } = await supabase
+    // With one programme chosen, count only requests whose student is in it (an inner join on the student).
+    let countQuery = supabase
         .from('request')
-        .select('id', { count: 'exact', head: true })
+        .select(PROGRAM_SCOPE === 'all' ? 'id' : 'id, student:student_id!inner(program_id)', { count: 'exact', head: true })
         .eq('status', 'submitted');
+    if (PROGRAM_SCOPE !== 'all') countQuery = countQuery.eq('student.program_id', PROGRAM_SCOPE);
+    const { count, error } = await countQuery;
 
     if (error) {
         console.warn('request count failed:', error.message);
@@ -2095,12 +2319,37 @@ async function loadRequestCount() {
     renderDashboardSummary();
     setStat('stat-requests', count ?? 0, 'stat-value');
     setStat('prof-stat-requests', count ?? 0);
+    paintRequestBadge(REQUEST_COUNT);
+}
+
+/* Keeps the count (and the queue, when it is open) current without reloading the page.
+   Checks every minute while the tab is showing, and straight away when the adviser comes back to the tab.
+   The queue list is reloaded only when the number changed and no plan is open, so a plan being read is never
+   swapped out from under the adviser. */
+const REQUEST_REFRESH_MS = 60 * 1000;
+let REFRESH_BUSY = false;
+async function refreshRequests() {
+    if (PREVIEW || !supabase || !FACULTY || document.hidden || REFRESH_BUSY) return;
+    REFRESH_BUSY = true;
+    try {
+        const before = REQUEST_COUNT;
+        await loadRequestCount();
+        const { name, param } = parseHash();
+        if (REQUEST_COUNT !== before && !REQUEST_FAILED && name === 'requests' && !param) loadRequestQueue();
+    } finally {
+        REFRESH_BUSY = false;
+    }
+}
+function startRequestRefresh() {
+    if (PREVIEW) return;
+    setInterval(refreshRequests, REQUEST_REFRESH_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshRequests(); });
 }
 
 /* One delegated handler on the whole requests section. Covers the queue
    (View cards) and the detail sub-view (per-row actions, bulk actions,
    print), since both live inside #view-requests. */
-$('view-requests')?.addEventListener('click', (e) => {
+$('view-requests')?.addEventListener('click', async (e) => {
     // View — opens the detail sub-view.
     const viewCard = e.target.closest('[data-view-request]');
     if (viewCard) {
@@ -2123,13 +2372,23 @@ $('view-requests')?.addEventListener('click', (e) => {
 
     const reject = e.target.closest('[data-reject-item]');
     if (reject) {
-        const reason = window.prompt('Reason for rejecting this subject?');
+        // A reason is required: without one the student only learns "Rejected" and not what to fix.
+        const row = reject.closest('tr');
+        const label = row ? [row.children[0]?.textContent, row.children[1]?.textContent].map(t => (t || '').trim()).filter(Boolean).join(' · ') : '';
+        const itemId = Number(reject.dataset.rejectItem);
+        const reason = await window.CurriculogicRejectReason.ask({
+            title: 'Reject this subject',
+            subtitle: label,
+            confirm: 'Reject subject',
+            initial: await warnedNoteForItem(itemId),
+        });
         if (reason === null) return;
-        const tooLong = remarkTooLong(reason.trim());
-        if (tooLong) return showMsg(parseHash().param ? 'req-detail-msg' : 'req-msg', tooLong);
-        return reviewRequestItem(
-            Number(reject.dataset.rejectItem), 'rejected', reason.trim() || null);
+        return reviewRequestItem(itemId, 'rejected', reason);
     }
+
+    // "Reject it now" in the banner: every subject still waiting has a warning, so reject each, one dialog apiece.
+    const rejectWarned = e.target.closest('[data-reject-warned]');
+    if (rejectWarned) return rejectWarnedSubjects(Number(rejectWarned.dataset.rejectWarned));
 
     const approveAll = e.target.closest('[data-approve-all]');
     if (approveAll) return reviewRequestBulk(Number(approveAll.dataset.approveAll), 'approved');
@@ -2207,10 +2466,12 @@ $('view-requests')?.addEventListener('click', (e) => {
 
     // Looked up, not typed: each student's line names their own degree.
     await window.CurriculogicPrograms?.load(supabase);
+    await loadOwnPrograms();
     paintProgramField();
 
     await loadStudents();
     loadRequestCount();
+    startRequestRefresh();
     route();
 })();
 
