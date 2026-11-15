@@ -2163,7 +2163,7 @@ async function fetchMyRequests() {
         .from('request')
         .select(`
             id, status, registrar_status, registrar_notes,
-            requested_term, requested_year, created_at,
+            requested_term, requested_year, created_at, updated_at,
             request_item(id, subject_id, status, remarks, offering_id, ${itemColumns}subject:subject_id(code, title, units))
         `)
         .eq('student_id', STUDENT_ROW_ID)
@@ -2209,6 +2209,8 @@ function computeSubjectLocks(myRequests) {
     const latestBySubject = new Map();
 
     for (const req of myRequests) {
+        // A plan the student took back (db/113) holds nothing: its subjects can be requested again.
+        if (req.status === 'withdrawn') continue;
         for (const item of req.request_item ?? []) {
             if (latestBySubject.has(item.subject_id)) continue;
             latestBySubject.set(item.subject_id, { req, item });
@@ -2707,6 +2709,73 @@ function requestStages(r) {
     return window.CurriculogicRequestStatus.stages(r);
 }
 
+/* ---- Withdraw a plan the adviser has not started on (db/113_withdraw_request.sql) ----
+   The rule lives in the database (withdraw_my_request): own request, still 'submitted', nothing decided. The button
+   only shows when requeststatus.js's canWithdraw agrees, and the database has the last word. */
+let WITHDRAW_DIALOG = null;
+function askWithdrawConfirm() {
+    if (!WITHDRAW_DIALOG) {
+        WITHDRAW_DIALOG = document.createElement('dialog');
+        WITHDRAW_DIALOG.className = 'rej-dlg';           // the same dialog look as the adviser's reject box
+        WITHDRAW_DIALOG.setAttribute('aria-labelledby', 'wd-title');
+        document.body.appendChild(WITHDRAW_DIALOG);
+    }
+    const dlg = WITHDRAW_DIALOG;
+    dlg.innerHTML = `
+        <form class="rej-form" novalidate>
+            <header class="rej-head">
+                <div><h2 id="wd-title">Withdraw this request?</h2>
+                    <p class="rej-sub">Your adviser will no longer see this plan.</p></div>
+                <button type="button" class="rej-x" data-wd-cancel aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </header>
+            <div class="rej-body">
+                <p class="rej-hint">The subjects in it are free again, so you can build a new plan and send it. The withdrawn request stays in your list as "Withdrawn".</p>
+            </div>
+            <footer class="rej-foot">
+                <button type="button" class="btn-small" data-wd-cancel>Keep it</button>
+                <button type="button" class="btn-small rej-ok" data-wd-ok>Withdraw</button>
+            </footer>
+        </form>`;
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = (v) => { if (done) return; done = true; if (dlg.open) dlg.close(); resolve(v); };
+        dlg.querySelectorAll('[data-wd-cancel]').forEach(b => b.addEventListener('click', () => finish(false)));
+        dlg.querySelector('[data-wd-ok]').addEventListener('click', () => finish(true));
+        dlg.querySelector('form').addEventListener('submit', (e) => e.preventDefault());
+        dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(false); }, { once: true });
+        dlg.addEventListener('close', () => finish(false), { once: true });
+        if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+    });
+}
+
+const WITHDRAW_WHY = {
+    not_found:        'This request could not be found.',
+    not_waiting:      'This request is no longer waiting for your adviser, so it cannot be withdrawn.',
+    already_reviewed: 'Your adviser has just started on this request, so it can no longer be withdrawn.',
+};
+
+async function withdrawRequest(requestId, btn) {
+    if (PREVIEW || !supabase || !Number.isInteger(requestId)) return;
+    const box = `withdraw-msg-${requestId}`;
+    showMsg(box, '');
+    if (!(await askWithdrawConfirm())) return;
+
+    if (btn) btn.disabled = true;
+    const { data, error } = await supabase.rpc('withdraw_my_request', { p_request_id: requestId });
+    if (error || !data?.ok) {
+        if (error) console.warn('withdraw failed:', error.message);
+        showMsg(box, error ? 'Could not withdraw the request. Please try again.' : (WITHDRAW_WHY[data?.reason] ?? 'Could not withdraw the request.'));
+        if (btn) btn.disabled = false;
+        // The page was out of date (the adviser has started, or it is already closed): show the real state.
+        if (!error) await loadRequestHistory();
+        return;
+    }
+    // Withdrawn: the plan page's locks follow the request list, so refresh what depends on it too.
+    SUBJECT_LOCKS = computeSubjectLocks(await fetchMyRequests());
+    await loadRequestHistory();
+    showMsg(`withdraw-msg-${requestId}`, '');
+}
+
 // request_item.status is 'valid'/'flagged' from the engine's own
 // verdict at submission, then becomes 'approved'/'rejected' once
 // Faculty actually reviews it -- the old check here only recognized
@@ -2725,6 +2794,9 @@ document.addEventListener('click', (e) => {
     // The university's own UC-Form 1A, so a student who lost the printed one can print it again.
     const formBtn = e.target.closest('[data-uc-form]');
     if (formBtn) printUcForm(formBtn);
+
+    const withdrawBtn = e.target.closest('[data-withdraw]');
+    if (withdrawBtn) withdrawRequest(Number(withdrawBtn.dataset.withdraw), withdrawBtn);
 });
 
 async function printUcForm(btn) {
@@ -3057,7 +3129,7 @@ function requestItemChip(status) {
     }
 }
 
-const REQ_PILL = { ok: 'ok', info: 'info', danger: 'bad' };   // requeststatus.js chip -> pill
+const REQ_PILL = { ok: 'ok', info: 'info', danger: 'bad', muted: 'muted' };   // requeststatus.js chip -> pill
 
 function requestTitle(r) {
     const y = Number(r.requested_year);
@@ -3070,6 +3142,8 @@ const longDate = (iso) => new Date(iso).toLocaleDateString('en-PH', { year: 'num
 /* The three steps of a request, and where it has got to. */
 function requestSteps(r) {
     const RS = window.CurriculogicRequestStatus;
+    // A plan the student took back never reached a decision: two steps, ending on "Withdrawn".
+    if (RS.withdrawn(r)) return [{ label: 'Submitted', cls: 'is-done' }, { label: 'Withdrawn', cls: 'is-current' }];
     let last = { label: 'Decision', cls: '' };
     if (RS.sentBack(r))                      last = { label: 'Sent back by the Registrar', cls: 'is-bad' };
     else if (r.status === 'rejected')        last = { label: 'Sent back', cls: 'is-bad' };
@@ -3131,6 +3205,35 @@ async function attachRequestSections(requests) {
    than what the picker just used to decide locks. Not capped: this is
    its own page, so the student's whole history is the point of visiting it.
    The newest request is open; older ones are folded away. */
+/* The Overview under each request on My requests (shared/js/enrolment/planoverview.js, the student's wording, no
+   grades): what the student has passed, mapped to what they asked for, with the status of each and what to do about a
+   subject that will be or was sent back. Uses the student's own record and the curriculum already on this page.
+   A failed lookup just means no map: the request itself is shown as before. */
+async function studentOverviews(requests) {
+    const out = new Map();
+    const PO = window.CurriculogicPlanOverview;
+    if (!PO || !window.CurricuLogicEngine || !STUDENT) return out;
+    try {
+        await loadRecords();
+        const kb = await loadKnowledgeBase(STUDENT);
+        if (!kb || !(kb.subjects ?? []).length) return out;
+        for (const r of requests) {
+            const items = r.request_item ?? [];
+            if (!items.length || r.status === 'withdrawn') continue;   // a withdrawn plan has no map to draw
+            out.set(r.id, PO.html(PO.build({
+                items, records: RECORDS, kb, engine: window.CurricuLogicEngine,
+                request: { term: r.requested_term, year: r.requested_year },
+                audience: 'student',
+                yearLevel: STUDENT.year_level,
+                termLabel: (t) => termLabel(t),
+            })));
+        }
+    } catch (e) {
+        console.warn('request overview failed:', e?.message ?? e);
+    }
+    return out;
+}
+
 async function loadRequestHistory() {
     const body = $('myrequests-body');
     if (!body || !STUDENT) return;
@@ -3144,6 +3247,7 @@ async function loadRequestHistory() {
 
     const requests = await fetchMyRequests();
     await attachRequestSections(requests);
+    const overviews = await studentOverviews(requests);
 
     const sum = $('myrequests-summary');
     if (!requests.length) {
@@ -3193,7 +3297,7 @@ async function loadRequestHistory() {
             <li class="${st.cls}"><span class="req-step-dot" aria-hidden="true"></span>${escapeHtml(st.label)}</li>`).join('');
 
         const rows = items.map(item => {
-            const chip = requestItemChip(item.status);
+            const chip = RS.withdrawn(r) ? { cls: 'muted', label: 'Withdrawn' } : requestItemChip(item.status);
             const sectionText = item._section ? fmtSection(item._section) : '';
             return `
                 <tr>
@@ -3245,6 +3349,8 @@ async function loadRequestHistory() {
                     </table>
                 </div>
 
+                ${overviews.get(r.id) ?? ''}
+
                 ${RS.finalApproved(r) ? `
                     <div class="req-sheet">
                         <button type="button" class="btn-accent" data-sheet="${r.id}">
@@ -3278,6 +3384,18 @@ async function loadRequestHistory() {
                 ${RS.waiting(r) ? `
                     <p class="req-foot"><i class="fa-regular fa-clock" aria-hidden="true"></i>
                         With your adviser. You will be notified when there is a decision.</p>` : ''}
+                ${RS.canWithdraw(r) ? `
+                    <div class="req-withdraw">
+                        <button type="button" class="btn-small btn-withdraw" data-withdraw="${r.id}">
+                            <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Withdraw this request
+                        </button>
+                        <span class="dim">Sent the wrong plan? You can take it back until your adviser starts on it.</span>
+                        <span class="msg" id="withdraw-msg-${r.id}" role="status"></span>
+                    </div>` : ''}
+                ${RS.withdrawn(r) ? `
+                    <p class="req-foot"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i>
+                        You withdrew this request${r.updated_at ? ' on ' + longDate(r.updated_at) : ''}. Your adviser will not see it.
+                        Its subjects are free to request again in <a href="#plan">Build your plan</a>.</p>` : ''}
             </div>
         </details>`;
     }).join('');

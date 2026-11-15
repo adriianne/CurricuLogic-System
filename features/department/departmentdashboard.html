@@ -82,9 +82,9 @@
             <span class="topbar-title" id="topbar-title">Dashboard</span>
             <span class="topbar-term" id="topbar-term">1st Sem · AY 2023–2024</span>
 
-            <!-- The programme this department account belongs to. Read-only:
-                 one account, one programme (db/030). Filled in by
-                 renderProgramSelector() in departmentdashboard.js. -->
+            <!-- The programme this department account works on. Read-only with one programme; a dean over
+                 several (db/114) gets a switch beside it instead. Filled in by renderProgramSelector()
+                 in departmentdashboard.js. -->
             <label class="topbar-program" id="dept-program-wrap">
                 <span class="topbar-program-label">Programme</span>
                 <input type="text" id="dept-program" class="topbar-program-field" value="—"
@@ -1117,8 +1117,10 @@
 <script src="../../shared/js/app/systemconfig.js"></script>
 <script src="../../shared/js/schedule/sectiondemand.js"></script>
 <script src="../../shared/js/schedule/scheduleconflicts.js"></script>
+<script src="../../shared/js/schedule/schedulecards.js"></script>
 <script src="../../shared/js/schedule/schedulesuggest.js"></script>
 <script src="../../shared/js/app/programs.js"></script>
+<script src="../../shared/js/app/programswitch.js"></script>
 <script src="../../shared/js/enrolment/requeststatus.js"></script>
 <script src="../../shared/js/records/gradefile.js"></script>
 <script src="../../shared/js/records/uploadprogress.js"></script>

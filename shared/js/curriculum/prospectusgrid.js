@@ -544,6 +544,20 @@ async function render(supabase, prospectusId, mountEl, statuses = null, offline 
 
 const MAX_CHIPS = 5;   // more versions than this fall back to the dropdown
 
+/* Versions of ONE programme (programId a number), or every version the person can read (null). A Faculty member or
+   Registrar who covers several programmes picks one in the header; this is how the Prospectus tab follows. */
+function versionsForScope(versions, programId) {
+    if (programId == null) return versions;
+    return versions.filter(v => Number(v.program_id) === Number(programId));
+}
+
+/* More than one programme in the list: each version then needs its programme code, or two "2023 · Active" look alike. */
+function spansProgrammes(versions) {
+    return new Set(versions.map(v => v.program_id)).size > 1;
+}
+
+const programmeCode = (v) => window.CurriculogicPrograms?.codeOf?.(v.program_id, '') || '';
+
 const yearText = (v) => `${v.academic_year}\u2013${v.academic_year + 1}`;
 
 /* "Active curriculum · published 12 Aug 2024 · 54 subjects · 176 units" */
@@ -576,11 +590,13 @@ function versionStats(rows) {
     return out;
 }
 
-function chipsHtml(versions, selectedId) {
+function chipsHtml(versions, selectedId, showCode) {
     return versions.map(v => {
         const on = v.id === selectedId;
+        const code = showCode ? programmeCode(v) : '';
         return `<button type="button" class="pv-chip${on ? ' on' : ''}" role="radio"
                 aria-checked="${on}" tabindex="${on ? 0 : -1}" data-version="${v.id}">
+            ${code ? `<span class="pv-prog">${esc(code)}</span>` : ''}
             <span class="pv-year">${esc(yearText(v))}</span>
             ${v.is_active ? '<span class="pv-tag"><span class="pv-dot" aria-hidden="true"></span>Active</span>' : ''}
         </button>`;
@@ -603,15 +619,20 @@ function chipsHtml(versions, selectedId) {
 
    Safe to call every time the page is opened: the list is built once, and the
    grid is drawn again. */
-const mounted = new WeakSet();
+const mounted = new Map();   // select element -> { programId, cleanup }
 
-async function mountVersions(supabase, { select, body, title }) {
+async function mountVersions(supabase, { select, body, title, programId = null }) {
     if (!select || !body) return;
     const empty = (heading, text = '') => {
         body.innerHTML = `<div class="empty"><h3>${heading}</h3>${text ? `<p>${text}</p>` : ''}</div>`;
     };
 
     if (!supabase) return empty('Preview mode', 'The curriculum is not loaded in preview.');
+
+    // A new programme choice rebuilds the picker from scratch; the same choice leaves it as it is.
+    const scope = programId == null ? null : Number(programId);
+    const already = mounted.get(select);
+    if (already && already.programId !== scope) { already.cleanup(); mounted.delete(select); }
 
     if (!mounted.has(select)) {
         const { data, error } = await supabase
@@ -625,12 +646,18 @@ async function mountVersions(supabase, { select, body, title }) {
             return empty('Could not load the curriculum versions');
         }
 
-        const versions = data ?? [];
+        const everything = data ?? [];
+        const versions = versionsForScope(everything, scope);
         if (!versions.length) {
+            if (scope != null && everything.length) {
+                if (title) title.textContent = window.CurriculogicPrograms?.nameOf(scope, 'Prospectus') ?? 'Prospectus';
+                return empty('No curriculum published for this programme', 'The department has not published a prospectus for it yet.');
+            }
             return empty('No curriculum published', 'The department has not published a prospectus yet.');
         }
+        const showCode = scope == null && spansProgrammes(versions);
 
-        const label = (v) => `${yearText(v)} \u00b7 ${v.is_active ? 'Active' : 'Older version'}`;
+        const label = (v) => `${showCode && programmeCode(v) ? programmeCode(v) + ' \u00b7 ' : ''}${yearText(v)} \u00b7 ${v.is_active ? 'Active' : 'Older version'}`;
         select.innerHTML = versions.map(v => `<option value="${v.id}">${label(v)}</option>`).join('');
         select.value = String((versions.find(v => v.is_active) ?? versions[0]).id);
 
@@ -663,7 +690,7 @@ async function mountVersions(supabase, { select, body, title }) {
             for (const l of select.labels ?? []) l.hidden = true;
         }
         const paintChips = () => {
-            if (chips) chips.innerHTML = chipsHtml(versions, Number(select.value));
+            if (chips) chips.innerHTML = chipsHtml(versions, Number(select.value), showCode);
         };
 
         const paintTitle = () => {
@@ -706,12 +733,22 @@ async function mountVersions(supabase, { select, body, title }) {
         paintTitle();
         paintMeta();
         paintChips();
-        mounted.add(select);
+        mounted.set(select, {
+            programId: scope,
+            cleanup() {
+                meta.remove();
+                if (chips) chips.remove();
+                select.hidden = false;
+                for (const l of select.labels ?? []) l.hidden = false;
+                select.onchange = null;
+                select.innerHTML = '';   // never leave the previous programme's versions behind
+            },
+        });
     }
 
     await render(supabase, Number(select.value), body);
 }
 
-window.ProspectusGrid = { render, mountVersions, versionMeta, versionStats, chipsHtml, panelHtml: (label, rows, rules, showSplit, statuses) => { STATUS = statuses; return panel(label, rows, rules, showSplit); }, progressHtml: (subjects, statuses) => { STATUS = statuses; return progressLine(subjects); } };
+window.ProspectusGrid = { render, mountVersions, versionsForScope, spansProgrammes, versionMeta, versionStats, chipsHtml, panelHtml: (label, rows, rules, showSplit, statuses) => { STATUS = statuses; return panel(label, rows, rules, showSplit); }, progressHtml: (subjects, statuses) => { STATUS = statuses; return progressLine(subjects); } };
 
 })();

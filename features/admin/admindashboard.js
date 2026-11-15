@@ -55,7 +55,6 @@ async function loadCurricula(force = false) {
     return map;
 }
 let PROGRAMS_READY = false;        // false until the program table loads
-let EDITING_PROGRAM_FOR = null;    // { staffId, role } whose programme is open for editing
 let STUDENTS = [];
 let PREVIEW  = false;
 
@@ -108,9 +107,15 @@ const VIEWS = {
 
 const shell = $('shell');
 
+/* #staff/faculty: the part after the slash is a choice for the page (here, which role to list), not a page. */
 function parseHash() {
-    const hash = window.location.hash.replace('#', '');
-    return hash in VIEWS ? hash : 'dashboard';
+    const name = window.location.hash.replace('#', '').split('/')[0];
+    return name in VIEWS ? name : 'dashboard';
+}
+
+const STAFF_ROLES = ['faculty', 'registrar', 'department'];
+function hashChoice() {
+    return window.location.hash.replace('#', '').split('/')[1] || null;
 }
 
 function showView(name) {
@@ -130,7 +135,13 @@ function showView(name) {
 
     shell?.classList.remove('nav-open');
 
-    if (name === 'staff')    loadStaff();
+    if (name === 'staff') {
+        // A dashboard tile opens this page for one role (#staff/faculty). Without a choice the filter stays as it was.
+        const choice = hashChoice();
+        const filter = $('staff-filter');
+        if (filter && STAFF_ROLES.includes(choice)) { filter.value = choice; STAFF_PAGE = 1; }
+        loadStaff();
+    }
     if (name === 'programs') loadPrograms();
     if (name === 'students') loadStudents();
     if (name === 'bulk')     initBulkUpload();
@@ -454,7 +465,11 @@ async function loadStaff(force = false) {
     if (PREVIEW) {
         STAFF = [...PREVIEW_STAFF];
         PROGRAMS = [{ id: 1, code: 'BSIT', name: 'BS Information Technology', college: 'College of Computer Studies' },
-                    { id: 2, code: 'BSCS', name: 'BS Computer Science', college: 'College of Computer Studies' }];
+                    { id: 2, code: 'BSCS', name: 'BS Computer Science', college: 'College of Computer Studies' },
+                    { id: 3, code: 'BSIS', name: 'BS Information Systems', college: 'College of Computer Studies' },
+                    { id: 4, code: 'BSAI', name: 'BS Artificial Intelligence', college: 'College of Computer Studies' },
+                    { id: 5, code: 'BSBA', name: 'BS Business Administration', college: 'College of Business' },
+                    { id: 6, code: 'BSA',  name: 'BS Accountancy', college: 'College of Business' }];
         PROGRAMS_READY = true;
         renderStats();
         renderStaff();
@@ -466,7 +481,7 @@ async function loadStaff(force = false) {
     // Each staff table carries its own program_id since db/030 -- no more
     // separate join-table query or per-faculty Set of programs. One
     // programme per account, same shape as university_student.
-    const [faculty, registrar, department, programs] = await Promise.all([
+    const [faculty, registrar, department, programs, facultyPrograms, registrarPrograms, departmentPrograms] = await Promise.all([
         supabase.from('faculty_staff')
             .select('id, first_name, last_name, email, employee_id, department, program_id, is_approved, created_at'),
         supabase.from('registrar_staff')
@@ -474,7 +489,32 @@ async function loadStaff(force = false) {
         supabase.from('department_staff')
             .select('id, first_name, last_name, email, employee_id, department, program_id, is_approved, created_at'),
         supabase.from('program').select('id, code, name, college, max_units, max_units_graduating, target_units').order('code'),
+        // Every programme a faculty member covers (db/107). Registrar and Department keep one.
+        supabase.from('faculty_program').select('faculty_id, program_id'),
+        // The same for a Registrar, with no college rule (db/110).
+        supabase.from('registrar_program').select('registrar_id, program_id'),
+        // And a Department account (a dean), related programmes only: one college (db/114).
+        supabase.from('department_program').select('department_id, program_id'),
     ]);
+
+    if (facultyPrograms.error) console.warn('faculty programmes load failed:', facultyPrograms.error.message);
+    if (registrarPrograms.error) console.warn('registrar programmes load failed:', registrarPrograms.error.message);
+    if (departmentPrograms.error) console.warn('department programmes load failed:', departmentPrograms.error.message);
+    const coverage = new Map();
+    for (const r of facultyPrograms.data ?? []) {
+        if (!coverage.has(r.faculty_id)) coverage.set(r.faculty_id, []);
+        coverage.get(r.faculty_id).push(r.program_id);
+    }
+    const registrarCoverage = new Map();
+    for (const r of registrarPrograms.data ?? []) {
+        if (!registrarCoverage.has(r.registrar_id)) registrarCoverage.set(r.registrar_id, []);
+        registrarCoverage.get(r.registrar_id).push(r.program_id);
+    }
+    const departmentCoverage = new Map();
+    for (const r of departmentPrograms.data ?? []) {
+        if (!departmentCoverage.has(r.department_id)) departmentCoverage.set(r.department_id, []);
+        departmentCoverage.get(r.department_id).push(r.program_id);
+    }
 
     if (faculty.error)  console.warn('faculty load failed:', faculty.error.message);
     if (registrar.error) console.warn('registrar load failed:', registrar.error.message);
@@ -487,9 +527,9 @@ async function loadStaff(force = false) {
     PROGRAMS = programs.data ?? [];
 
     STAFF = [
-        ...(faculty.data ?? []).map(s => ({ ...s, role: 'faculty' })),
-        ...(registrar.data ?? []).map(s => ({ ...s, role: 'registrar' })),
-        ...(department.data ?? []).map(s => ({ ...s, role: 'department' })),
+        ...(faculty.data ?? []).map(s => ({ ...s, role: 'faculty', programs: coverage.get(s.id) ?? (s.program_id != null ? [s.program_id] : []) })),
+        ...(registrar.data ?? []).map(s => ({ ...s, role: 'registrar', programs: registrarCoverage.get(s.id) ?? (s.program_id != null ? [s.program_id] : []) })),
+        ...(department.data ?? []).map(s => ({ ...s, role: 'department', programs: departmentCoverage.get(s.id) ?? (s.program_id != null ? [s.program_id] : []) })),
     ];
 
     refreshColleges();
@@ -905,115 +945,274 @@ function renderStaff() {
    same shape as a student's). For faculty specifically, this is also
    which students' advising requests reach them for review
    (is_adviser_of_student compares program_id directly). */
+/* Faculty (db/107) and Department (db/114) can cover several programmes of ONE college; Registrar (db/110) any programmes.
+   All three are edited in the same dialog. */
+const MULTI_ROLES = {
+    faculty:   { rpc: 'set_faculty_programs',   idArg: 'p_faculty_id',   table: 'faculty_staff',   oneCollege: true,  noun: 'faculty',   label: 'Faculty' },
+    registrar: { rpc: 'set_registrar_programs', idArg: 'p_registrar_id', table: 'registrar_staff', oneCollege: false, noun: 'registrar', label: 'Registrar' },
+    // A dean: a Department account over related programmes (one college), 1 Department account per programme.
+    department: { rpc: 'set_department_programs', idArg: 'p_department_id', table: 'department_staff', oneCollege: true, noun: 'department', label: 'Department' },
+};
+
+/* Every programme this account covers, main one first. */
+function staffProgramIds(s) {
+    const ids = MULTI_ROLES[s.role] && Array.isArray(s.programs) && s.programs.length
+        ? [...s.programs]
+        : (s.program_id != null ? [s.program_id] : []);
+    const code = (id) => String(PROGRAMS.find(p => p.id === id)?.code ?? '');
+    return ids.sort((a, b) => ((b === s.program_id) - (a === s.program_id)) || code(a).localeCompare(code(b)));
+}
+
 function staffProgramCell(s) {
     if (!PROGRAMS_READY) {
         return '<span class="dim" title="Programs could not be loaded">Not set up</span>';
     }
 
-    const editing = EDITING_PROGRAM_FOR?.staffId === s.id && EDITING_PROGRAM_FOR?.role === s.role;
-
-    if (editing) {
-        return `
-            <div class="prog-edit" data-staff="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">
-                <select class="prog-select">
-                    ${PROGRAMS.map(p => `
-                        <option value="${p.id}" ${p.id === s.program_id ? 'selected' : ''}>${escapeHtml(p.code)}</option>
-                    `).join('')}
-                </select>
-                <span class="prog-actions">
-                    <button type="button" class="btn-link" data-program-save="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">Save</button>
-                    <button type="button" class="btn-link" data-program-cancel>Cancel</button>
-                </span>
-            </div>`;
-    }
-
     const mine = PROGRAMS.find(p => p.id === s.program_id);
+    const covered = MULTI_ROLES[s.role] ? staffProgramIds(s).map(id => PROGRAMS.find(p => p.id === id)).filter(Boolean) : [];
 
-    // One row: the programme (a fixed-width pill, so every Edit lines up) and its Edit link.
+    // One row: the programme(s) (fixed-width pills, so every Edit lines up) and its Edit link.
+    // A faculty member can cover several; the main one comes first.
+    const SHOWN = 3;
+    const pillOf = (p, main) => `<span class="pill info${main ? ' is-main' : ''}" title="${escapeHtml(p.name)}${main ? ' (main)' : ''}">${escapeHtml(p.code)}</span>`;
+    const pills = covered.length
+        ? covered.slice(0, SHOWN).map(p => pillOf(p, covered.length > 1 && p.id === s.program_id)).join('') +
+          (covered.length > SHOWN
+              ? `<span class="pill-more" title="${escapeHtml(covered.slice(SHOWN).map(p => p.code + ' - ' + p.name).join('\n'))}">+${covered.length - SHOWN}</span>`
+              : '')
+        : (mine
+            ? `<span class="pill info" title="${escapeHtml(mine.name)}">${escapeHtml(mine.code)}</span>`
+            : '<span class="pill waiting" title="No programme assigned">None</span>');
     return `
         <div class="prog-cell">
-            ${mine
-                ? `<span class="pill info" title="${escapeHtml(mine.name)}">${escapeHtml(mine.code)}</span>`
-                : '<span class="pill waiting" title="No programme assigned">None</span>'}
-            <button type="button" class="btn-link" data-program-edit="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">Edit</button>
+            ${pills}
+            <button type="button" class="btn-link prog-edit-btn" data-program-edit="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}">
+                <i class="fa-solid fa-pen" aria-hidden="true"></i> Edit
+            </button>
         </div>`;
 }
 
-async function saveStaffProgram(staffId, role, newProgramId) {
-    const staff = STAFF.find(s => s.id === staffId && s.role === role);
-    if (!staff) { EDITING_PROGRAM_FOR = null; return renderStaff(); }
+/* Department: one programme, moved with a plain update after the same cap check the account form uses
+   (1 department head per programme). Returns { ok, error } like saveStaffPrograms. */
+async function saveSingleProgram(staff, role, programId) {
+    if (programId === staff.program_id) return { ok: true };
+    const done = () => { staff.program_id = programId; renderStaff(); };
 
-    if (newProgramId === staff.program_id) { EDITING_PROGRAM_FOR = null; return renderStaff(); }
+    if (PREVIEW || !supabase) {
+        done();
+        showMsg('staff-msg', 'Programme updated (preview only, not saved).', 'success');
+        return { ok: true };
+    }
+
+    const table = ROLE_TABLE[role];
+    const limit = ROLE_LIMIT[role];
+    const { count, error: countError } = await supabase
+        .from(table).select('id', { count: 'exact', head: true })
+        .eq('program_id', programId).neq('id', staff.id);
+    if (countError) {
+        console.warn('program count check failed:', countError.message);
+        return { ok: false, error: 'Could not check the programme cap. Please try again.' };
+    }
+    if ((count ?? 0) >= limit) {
+        const code = PROGRAMS.find(p => p.id === programId)?.code ?? 'This programme';
+        return { ok: false, error: `${code} already has the maximum of ${limit} ${role} account${limit === 1 ? '' : 's'}.` };
+    }
+
+    const { error } = await supabase.from(table).update({ program_id: programId }).eq('id', staff.id);
+    if (error) {
+        console.warn('staff program update failed:', error.message);
+        return { ok: false, error: 'Could not update the programme. Please try again.' };
+    }
+    done();
+    showMsg('staff-msg', 'Programme updated.', 'success');
+    return { ok: true };
+}
+
+/* Faculty and Registrar: the whole list is replaced through set_faculty_programs (db/107) or set_registrar_programs
+   (db/110), which check the per-programme cap (10 faculty, 2 registrars).
+   Returns { ok, error }. The dialog shows the error; the page shows the success line. */
+async function saveStaffPrograms(role, staffId, ids, main) {
+    const cfg = MULTI_ROLES[role];
+    const staff = cfg && STAFF.find(s => s.id === staffId && s.role === role);
+    if (!staff) return { ok: false, error: 'That account is no longer in the list.' };
+    if (!ids.length) return { ok: false, error: 'Choose at least one programme.' };
+    const wantMain = ids.includes(main) ? main : ids[0];
+    if (cfg.single) return saveSingleProgram(staff, role, wantMain);
 
     const done = () => {
-        staff.program_id = newProgramId;
-        EDITING_PROGRAM_FOR = null;
+        staff.programs = [...ids];
+        staff.program_id = wantMain;
         renderStaff();
     };
 
     if (PREVIEW || !supabase) {
         done();
-        return showMsg('staff-msg', 'Programme updated (preview only, not saved).', 'success');
+        showMsg('staff-msg', 'Programmes updated (preview only, not saved).', 'success');
+        return { ok: true };
     }
 
-    // Moving a staff member into a programme that is already at its cap
-    // is exactly as unwanted as creating a new account past it -- check
-    // the same limit here, against everyone else already in that
-    // programme (excluding this account's own current row).
-    const table = ROLE_TABLE[role];
-    const limit = ROLE_LIMIT[role];
-    if (table && limit) {
-        const { count, error: countError } = await supabase
-            .from(table)
-            .select('id', { count: 'exact', head: true })
-            .eq('program_id', newProgramId)
-            .neq('id', staffId);
-        if (countError) {
-            console.warn('program count check failed:', countError.message);
-            return showMsg('staff-msg', 'Could not check the programme cap. Please try again.');
-        }
-        if ((count ?? 0) >= limit) {
-            const progCode = PROGRAMS.find(p => p.id === newProgramId)?.code ?? 'This programme';
-            return showMsg('staff-msg',
-                `${progCode} already has the maximum of ${limit} ${role} account${limit === 1 ? '' : 's'}.`);
-        }
-    }
-
-    const { error } = await supabase.from(table)
-        .update({ program_id: newProgramId }).eq('id', staffId);
+    const { error } = await supabase.rpc(cfg.rpc, { [cfg.idArg]: staffId, p_program_ids: ids });
     if (error) {
-        console.warn('staff program update failed:', error.message);
-        return showMsg('staff-msg', 'Could not update the programme. Please try again.');
+        console.warn(role + ' programmes update failed:', error.message);
+        return { ok: false, error: /maximum of/.test(error.message) ? error.message : 'Could not update the programmes. Please try again.' };
     }
 
+    // The function keeps the current main programme if it is still covered, else takes the first. Move it if asked.
+    const keptMain = ids.includes(staff.program_id) ? staff.program_id : ids[0];
+    if (wantMain !== keptMain) {
+        const { error: mainError } = await supabase.from(cfg.table).update({ program_id: wantMain }).eq('id', staffId);
+        if (mainError) {
+            console.warn('main programme update failed:', mainError.message);
+            staff.programs = [...ids];
+            staff.program_id = keptMain;
+            renderStaff();
+            return { ok: false, error: 'The programmes were saved, but the main programme could not be changed.' };
+        }
+    }
     done();
-    showMsg('staff-msg', 'Programme updated.', 'success');
+    showMsg('staff-msg', 'Programmes updated.', 'success');
+    return { ok: true };
 }
+
+/* ---------- the programmes dialog (faculty, registrar and department) ----------
+   Tick every programme the person covers, grouped by college, and star the main one. A programme that already has its
+   full number of accounts (10 faculty, 2 registrars) is greyed out with "Full", so the cap is seen before saving, not
+   after. Faculty are limited to one college; a Registrar is not. */
+const PD = { staff: null, chosen: new Set(), main: null, start: '', search: '', busy: false };
+const pdOriginal = () => staffProgramIds(PD.staff);
+
+function pdCount(programId) {
+    return STAFF.filter(x => x.role === PD.staff.role && x.id !== PD.staff.id && staffProgramIds(x).includes(programId)).length;
+}
+
+const collegeKey = (p) => String(p?.college ?? '').trim().toLowerCase();
+
+/* The college the ticked programmes belong to; null while nothing is ticked, so any college can be started. */
+function pdCollege() {
+    for (const id of PD.chosen) {
+        const p = PROGRAMS.find(x => x.id === id);
+        if (p) return collegeKey(p);
+    }
+    return null;
+}
+
+function pdKey() { return [...PD.chosen].sort((a, b) => a - b).join(',') + '|' + PD.main; }
+
+function pdRender() {
+    const list = $('prog-dlg-list');
+    if (!list) return;
+    const term = PD.search.trim().toLowerCase();
+    const rows = PROGRAMS.filter(p => !term || (p.code + ' ' + p.name).toLowerCase().includes(term));
+    const colleges = [...new Set(rows.map(p => p.college || 'Other'))].sort((x, y) => x.localeCompare(y));
+
+    list.innerHTML = colleges.length ? colleges.map(c => `
+        <div class="prog-dlg-group">${escapeHtml(c)}</div>
+        ${rows.filter(p => (p.college || 'Other') === c).sort((x, y) => x.code.localeCompare(y.code)).map(p => {
+            const on = PD.chosen.has(p.id);
+            const used = pdCount(p.id);
+            const lock = MULTI_ROLES[PD.staff.role].oneCollege ? pdCollege() : null;
+            const cap = ROLE_LIMIT[PD.staff.role];
+            const otherCollege = !on && lock !== null && collegeKey(p) !== lock;
+            const full = !on && !otherCollege && used >= cap;
+            const isMain = on && PD.main === p.id;
+            return `
+            <div class="prog-dlg-row${on ? ' is-on' : ''}${full || otherCollege ? ' is-full' : ''}">
+                <label class="prog-dlg-pick">
+                    <input type="checkbox" data-pd-pick="${p.id}" ${on ? 'checked' : ''} ${full || otherCollege ? 'disabled' : ''}>
+                    <span class="prog-dlg-code">${escapeHtml(p.code)}</span>
+                    <span class="prog-dlg-name">${escapeHtml(p.name)}</span>
+                </label>
+                ${otherCollege ? '<span class="prog-dlg-full prog-dlg-other" title="Programmes covered together must be from one college">Different college</span>' : ''}
+                ${full ? `<span class="prog-dlg-full" title="${escapeHtml(p.code)} already has ${used} ${MULTI_ROLES[PD.staff.role].noun} account${used === 1 ? '' : 's'}">Full \u00b7 ${used} of ${cap}</span>` : ''}
+                ${on && !MULTI_ROLES[PD.staff.role].single ? `<button type="button" class="prog-dlg-star${isMain ? ' is-main' : ''}" data-pd-main="${p.id}"
+                        aria-pressed="${isMain}" title="${isMain ? 'Main programme' : 'Make this the main programme'}">
+                        <i class="fa-${isMain ? 'solid' : 'regular'} fa-star" aria-hidden="true"></i>${isMain ? ' Main' : ''}</button>` : ''}
+            </div>`;
+        }).join('')}`).join('')
+        : '<p class="prog-dlg-empty">No programme matches that search.</p>';
+
+    const n = PD.chosen.size;
+    $('prog-dlg-count').textContent = n ? `${n} selected` : 'Pick at least one programme';
+    $('prog-dlg-save').disabled = PD.busy || n === 0 || pdKey() === PD.start;
+}
+
+function openProgramDialog(staffId, role = 'faculty') {
+    const staff = MULTI_ROLES[role] && STAFF.find(s => s.id === staffId && s.role === role);
+    const dlg = $('prog-dialog');
+    if (!staff || !dlg) return;
+    PD.staff = staff;
+    PD.chosen = new Set(staffProgramIds(staff));
+    PD.main = PD.chosen.has(staff.program_id) ? staff.program_id : [...PD.chosen][0] ?? null;
+    PD.start = pdKey();
+    PD.search = '';
+    PD.busy = false;
+    $('prog-dlg-search').value = '';
+    $('prog-dlg-title').textContent = 'Programmes for ' + (fullName(staff) || 'this account');
+    $('prog-dlg-sub').textContent = [MULTI_ROLES[role].label, staff.employee_id].filter(Boolean).join(' \u00b7 ');
+    $('prog-dlg-hint-text').textContent = role === 'department'
+        ? 'A Department account (a dean) can cover related programmes only: all from one college. Each programme has one Department account. To move to another college, untick everything first.'
+        : MULTI_ROLES[role].oneCollege
+            ? 'An adviser can cover related programmes only: all from one college. To move to another college, untick everything first.'
+            : 'A registrar can cover any programmes, from any college.';
+    const msg = $('prog-dlg-msg'); msg.hidden = true; msg.textContent = '';
+    pdRender();
+    if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+}
+
+function closeProgramDialog() {
+    const dlg = $('prog-dialog');
+    if (!dlg) return;
+    if (typeof dlg.close === 'function') dlg.close(); else dlg.removeAttribute('open');
+    PD.staff = null;
+}
+
+$('prog-dlg-list')?.addEventListener('change', (e) => {
+    const box = e.target.closest('[data-pd-pick]');
+    if (!box) return;
+    const id = Number(box.dataset.pdPick);
+    if (box.checked && MULTI_ROLES[PD.staff.role].single) { PD.chosen = new Set([id]); PD.main = id; }
+    else if (box.checked) { PD.chosen.add(id); if (PD.main == null) PD.main = id; }
+    else {
+        PD.chosen.delete(id);
+        if (PD.main === id) PD.main = [...PD.chosen].sort((a, b) => a - b)[0] ?? null;
+    }
+    const msg = $('prog-dlg-msg'); msg.hidden = true;
+    pdRender();
+});
+$('prog-dlg-list')?.addEventListener('click', (e) => {
+    const star = e.target.closest('[data-pd-main]');
+    if (!star) return;
+    PD.main = Number(star.dataset.pdMain);
+    pdRender();
+});
+$('prog-dlg-search')?.addEventListener('input', (e) => { PD.search = e.target.value; pdRender(); });
+$('prog-dlg-close')?.addEventListener('click', closeProgramDialog);
+$('prog-dlg-cancel')?.addEventListener('click', closeProgramDialog);
+$('prog-dialog')?.addEventListener('click', (e) => { if (e.target === e.currentTarget) closeProgramDialog(); });
+$('prog-dlg-form')?.addEventListener('submit', (e) => e.preventDefault());
+$('prog-dlg-save')?.addEventListener('click', async () => {
+    if (!PD.staff || PD.busy) return;
+    PD.busy = true;
+    const btn = $('prog-dlg-save'); btn.disabled = true; btn.textContent = 'Saving\u2026';
+    const result = await saveStaffPrograms(PD.staff.role, PD.staff.id, [...PD.chosen], PD.main);
+    btn.textContent = 'Save changes';
+    PD.busy = false;
+    if (result.ok) return closeProgramDialog();
+    const msg = $('prog-dlg-msg');
+    msg.textContent = result.error; msg.hidden = false;
+    pdRender();
+});
 
 $('staff-body')?.addEventListener('click', (e) => {
     const pg = e.target.closest('[data-staff-page]');
     if (pg) {
         if (pg.disabled) return;
         STAFF_PAGE += pg.dataset.staffPage === 'next' ? 1 : -1;
-        EDITING_PROGRAM_FOR = null;
         return renderStaff();
     }
 
     const edit = e.target.closest('[data-program-edit]');
-    if (edit) {
-        EDITING_PROGRAM_FOR = { staffId: edit.dataset.programEdit, role: edit.dataset.role };
-        return renderStaff();
-    }
-
-    if (e.target.closest('[data-program-cancel]')) { EDITING_PROGRAM_FOR = null; return renderStaff(); }
-
-    const save = e.target.closest('[data-program-save]');
-    if (save) {
-        const box = save.closest('.prog-edit');
-        const chosen = Number(box.querySelector('.prog-select')?.value);
-        save.disabled = true;
-        return saveStaffProgram(save.dataset.programSave, save.dataset.role, chosen);
-    }
+    if (edit && MULTI_ROLES[edit.dataset.role]) return openProgramDialog(edit.dataset.programEdit, edit.dataset.role);
 });
 
 $('staff-search')?.addEventListener('input', () => { STAFF_PAGE = 1; renderStaff(); });
@@ -2432,8 +2631,8 @@ async function loadPrograms() {
 
     const [progs, faculty, registrar, department, studs, actives] = await Promise.all([
         supabase.from('program').select('id, code, name, college, max_units, max_units_graduating, target_units').order('code'),
-        supabase.from('faculty_staff').select('program_id'),
-        supabase.from('registrar_staff').select('program_id'),
+        supabase.from('faculty_program').select('program_id'),
+        supabase.from('registrar_program').select('program_id'),
         supabase.from('department_staff').select('program_id'),
         supabase.from('university_student').select('program_id'),
         supabase.from('prospectus').select('program_id').eq('is_active', true),
@@ -2501,7 +2700,7 @@ function renderPrograms() {
                         const editing = EDITING_PROGRAM === p.id;
                         // A role at its cap is worth a glance, not a blocker here --
                         // the cap itself is enforced at creation/reassignment time
-                        // (createAccount(), saveStaffProgram()); this is just a
+                        // (createAccount(), saveStaffPrograms()); this is just a
                         // quota readout.
                         const capCell = (n, limit) =>
                             `<span${n >= limit ? ' class="pill waiting" title="At the cap for this role"' : ''}>${n} / ${limit}</span>`;

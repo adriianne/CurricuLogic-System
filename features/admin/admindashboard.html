@@ -112,26 +112,30 @@
                 <div id="status-notice"></div>
 
                 <div class="stats">
-                    <div class="stat">
+                    <a class="stat stat-link" href="#staff/faculty">
                         <span class="stat-label">Faculty</span>
                         <span class="stat-value muted" id="stat-faculty">—</span>
                         <span class="stat-hint">Active accounts</span>
-                    </div>
-                    <div class="stat">
+                        <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                    </a>
+                    <a class="stat stat-link" href="#staff/registrar">
                         <span class="stat-label">Registrar</span>
                         <span class="stat-value muted" id="stat-registrar">—</span>
                         <span class="stat-hint">Active accounts</span>
-                    </div>
-                    <div class="stat">
+                        <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                    </a>
+                    <a class="stat stat-link" href="#staff/department">
                         <span class="stat-label">Department</span>
                         <span class="stat-value muted" id="stat-department">—</span>
                         <span class="stat-hint">Active accounts</span>
-                    </div>
-                    <div class="stat">
+                        <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                    </a>
+                    <a class="stat stat-link" href="#students">
                         <span class="stat-label">Students</span>
                         <span class="stat-value muted" id="stat-students">—</span>
                         <span class="stat-hint">Registered accounts</span>
-                    </div>
+                        <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                    </a>
                 </div>
 
                 <section class="card" id="term-card">
@@ -1034,6 +1038,34 @@
 <script src="../../shared/js/app/profilephoto.js"></script>
 <script src="../../shared/js/app/theme.js"></script>
 <script src="../../shared/js/records/systemlogs.js"></script>
+<dialog id="prog-dialog" class="prog-dlg" aria-labelledby="prog-dlg-title">
+    <form class="prog-dlg-form" id="prog-dlg-form" novalidate>
+        <header class="prog-dlg-head">
+            <div>
+                <h2 id="prog-dlg-title">Programmes</h2>
+                <p class="prog-dlg-sub" id="prog-dlg-sub"></p>
+            </div>
+            <button type="button" class="prog-dlg-x" id="prog-dlg-close" aria-label="Close">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+        </header>
+        <div class="prog-dlg-search">
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            <input type="search" id="prog-dlg-search" placeholder="Search programme" autocomplete="off" aria-label="Search programme">
+        </div>
+        <p class="prog-dlg-hint"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <span id="prog-dlg-hint-text">An adviser can cover related programmes only: all from one college. To move to another college, untick everything first.</span></p>
+        <div class="prog-dlg-list" id="prog-dlg-list"></div>
+        <p class="prog-dlg-msg" id="prog-dlg-msg" role="alert" hidden></p>
+        <footer class="prog-dlg-foot">
+            <span class="prog-dlg-count" id="prog-dlg-count"></span>
+            <span class="prog-dlg-btns">
+                <button type="button" class="btn-small" id="prog-dlg-cancel">Cancel</button>
+                <button type="button" class="btn-primary btn-small" id="prog-dlg-save" disabled>Save changes</button>
+            </span>
+        </footer>
+    </form>
+</dialog>
+
 <script src="admindashboard.js"></script>
 </body>
 </html>

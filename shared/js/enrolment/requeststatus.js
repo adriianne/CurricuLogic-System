@@ -38,6 +38,16 @@ const finalApproved = (r) => adviserApproved(r) && !sentBack(r);
 /* Still waiting for a decision. Only the adviser can be holding it now. */
 const waiting = (r) => r?.status === 'submitted';
 
+/* The student took the plan back before the adviser started on it (db/113). It is closed, and its subjects are free
+   to request again. */
+const withdrawn = (r) => r?.status === 'withdrawn';
+
+/* A student may withdraw a plan only while it is still waiting AND the adviser has decided nothing on it. This is the
+   same rule db/113 enforces; the page uses it only to decide whether to show the button. */
+const canWithdraw = (r) => waiting(r)
+    && !r?.registrar_status
+    && !(r?.request_item ?? []).some(i => i.status === 'approved' || i.status === 'rejected');
+
 /* The chips a request shows: { faculty, registrar }.
    `faculty` is the one real stage (kept under that name so existing markup
    works); `registrar` is null except for an old sent-back plan. */
@@ -47,6 +57,7 @@ function stages(r) {
         rejected:           { label: 'Rejected by adviser',            chip: 'danger' },
         approved:           { label: 'Approved for enrollment',        chip: 'ok'     },
         partially_approved: { label: 'Partly approved for enrollment', chip: 'ok'     },
+        withdrawn:          { label: 'Withdrawn',                      chip: 'muted'  },
     }[r?.status] ?? { label: r?.status ?? 'Sent', chip: 'info' };
 
     // An old plan the Registrar sent back is not approved for enrollment: say
@@ -59,6 +70,6 @@ function stages(r) {
     return { faculty, registrar: null };
 }
 
-return { adviserApproved, sentBack, finalApproved, waiting, stages };
+return { adviserApproved, sentBack, finalApproved, waiting, withdrawn, canWithdraw, stages };
 
 }));

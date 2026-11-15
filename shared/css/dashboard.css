@@ -550,10 +550,63 @@ dl:has(> .detail) { container: detail-list / inline-size; }
     border-radius: 999px;
 }
 
+/* Faculty: the "System check" note above a plan whose subjects all passed. */
+.sys-check {
+    margin: 0 0 var(--s2, 0.85rem);
+    padding: 0.75rem 1rem;
+    border: 1px solid #bbf7d0;
+    border-left: 4px solid var(--green);
+    border-radius: 10px;
+    background: #f0fdf4;
+    color: var(--ink);
+    font-size: 0.9rem;
+}
+.sys-check-title { font-weight: 700; color: var(--green); margin-bottom: 0.25rem; }
+.sys-check p { margin: 0.2rem 0; color: var(--slate); }
+.sys-check ul { list-style: none; margin: 0.35rem 0; padding: 0; }
+.sys-check li { padding: 0.1rem 0; }
+.sys-check li i { color: var(--green); margin-right: 0.35rem; }
+.sys-check-foot { font-size: 0.82rem; }
+.sys-finish { margin: 0 0 0.85rem; padding: 0.65rem 0.9rem; border: 1px solid #fde68a; border-left: 4px solid #d97706; border-radius: 10px; background: #fffbeb; color: var(--ink); font-size: 0.86rem; }
+.sys-finish-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem 1rem; }
+.sys-finish-title { display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; font-weight: 700; }
+.sys-finish-title .is-ok { color: var(--green, #0f8a5f); }
+.sys-finish-title .is-warn { color: #92400e; }
+.sys-finish-title i { margin-right: 0.3rem; }
+.sys-finish-list { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 0.15rem; color: var(--slate); }
+.sys-finish-list strong { color: var(--ink); }
+.sys-finish .sys-finish-btn { background: #b91c1c; border-color: #b91c1c; color: #fff; font-weight: 700; }
+.sys-finish .sys-finish-btn:hover { background: #991b1b; border-color: #991b1b; color: #fff; }
+.sys-check.is-attention { border-color: #fde68a; border-left-color: #d97706; background: #fffbeb; }
+.sys-check.is-attention .sys-check-title { color: #92400e; }
+.sys-issues { list-style: none; margin: 0.45rem 0; padding: 0; display: grid; gap: 0.45rem; }
+.sys-issues li { display: flex; gap: 0.6rem; align-items: flex-start; }
+.sys-issues li > i { margin-top: 0.2rem; width: 1rem; text-align: center; color: var(--slate); }
+.sys-issues li.is-warn > i { color: #d97706; }
+.sys-issues strong { font-weight: 700; }
+.sys-reason { display: block; margin-top: 0.1rem; color: var(--ink); }
+.sys-tag { display: inline-block; margin-top: 0.25rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.74rem; font-weight: 600; color: #92400e; background: rgba(217, 119, 6, 0.12); }
+.sys-tag.is-hard { color: #991b1b; background: rgba(185, 28, 28, 0.1); }
+.sys-record { padding-top: 0.15rem; border-top: 1px solid rgba(15, 23, 42, 0.08); margin-top: 0.6rem; }
+.sys-check.is-partial { border-color: #fde68a; border-left-color: #d97706; background: #fffbeb; }
+.sys-check.is-partial .sys-check-title { color: #92400e; }
+.sys-check.is-none { border-color: var(--line); border-left-color: var(--slate); background: var(--wash, rgba(15,23,42,0.04)); }
+.sys-check.is-none .sys-check-title { color: var(--slate); }
+/* These notes keep a pale background in both themes, so their ink must stay dark too (dark mode turns the
+   page's --ink / --slate / --green light, which made the text unreadable on the cream and mint boxes). */
+.sys-check:not(.is-none), .sys-finish { --ink: #1d1b16; --slate: #5c574c; --green: #0f8a5f; }
+
 .pill.ok      { background: #dcfce7; color: var(--green); }
 .pill.waiting { background: #fef3c7; color: #92400e; }
 .pill.bad     { background: #fee2e2; color: #b91c1c; }
 .pill.info    { background: #eef2ff; color: var(--indigo); }
+.pill.muted   { background: rgba(100, 116, 139, 0.16); color: var(--slate); }   /* Withdrawn: closed, not good or bad */
+.req-withdraw { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.75rem; margin-top: var(--s2); font-size: 0.82rem; }
+/* Red, so it is easy to see. The extra class beats the paper theme's generic button colours, which would blank the white text. */
+.req-withdraw .btn-small.btn-withdraw { background: #b91c1c; border-color: #b91c1c; color: #fff; font-weight: 700; }
+.req-withdraw .btn-small.btn-withdraw:hover:not(:disabled) { background: #991b1b; border-color: #991b1b; color: #fff; }
+.req-withdraw .btn-small.btn-withdraw:focus-visible { outline: 2px solid #b91c1c; outline-offset: 2px; }
+.req-withdraw .btn-small.btn-withdraw:disabled { opacity: 0.6; cursor: not-allowed; }
 
 
 /* Skeleton */
@@ -2677,6 +2730,46 @@ input[type="password"]::-ms-clear {
    someone can switch) is a control, so it stays. */
 @media (max-width: 560px) {
     .topbar-program-field { display: none; }
+    /* The programme switch is a control, so it stays, but it must not push the buttons off the screen (a registrar with
+       two programmes measured 481 px on a 375 px phone): it takes only the space the rest leaves, and its text is
+       cut with an ellipsis. */
+    .topbar:has(.pswitch:not([hidden])) { gap: 0.6rem; padding-left: 0.75rem; padding-right: 0.75rem; }
+    .topbar:has(.pswitch:not([hidden])) .pswitch { flex: 1 1 0; min-width: 0; justify-content: flex-end; }
+    .topbar .pswitch-btn { min-width: 0; max-width: 100%; padding: 0.3rem 0.5rem; gap: 0.4rem; }
+}
+
+/* Programme switch (Faculty and Registrar who cover several programmes): shared/js/app/programswitch.js. */
+.pswitch { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--slate); }
+.pswitch[hidden] { display: none; }
+.pswitch-label { font-weight: 600; }
+.pswitch-btn {
+    display: inline-flex; align-items: center; gap: 0.55rem; max-width: 16rem;
+    padding: 0.32rem 0.65rem; border: 1px solid var(--indigo); border-radius: 8px;
+    background: var(--surface, #fff); color: var(--indigo-dark); font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s;
+}
+.pswitch-btn:hover { background: rgba(79, 70, 229, 0.07); }
+.pswitch-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); }
+.pswitch-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pswitch-btn i { font-size: 0.62rem; transition: transform 0.15s; }
+.pswitch-btn[aria-expanded="true"] i { transform: rotate(180deg); }
+.pswitch-menu {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; min-width: 17rem; max-height: 18rem; overflow-y: auto;
+    margin: 0; padding: 0.3rem; list-style: none;
+    background: var(--surface, #fff); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 34px rgba(15, 23, 42, 0.2);
+}
+.pswitch-menu[hidden] { display: none; }
+.pswitch-opt { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem; border-radius: 7px; cursor: pointer; font-size: 0.84rem; color: var(--ink); }
+.pswitch-opt:hover, .pswitch-opt:focus { background: rgba(79, 70, 229, 0.09); outline: none; }
+.pswitch-opt.is-on { background: rgba(79, 70, 229, 0.12); }
+.pswitch-code { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; }
+.pswitch-opt:first-child .pswitch-code { font-family: inherit; }
+.pswitch-name { flex: 1; min-width: 0; color: var(--slate); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pswitch-opt i { margin-left: auto; color: var(--indigo); font-size: 0.75rem; }
+@media (max-width: 900px) {
+    .pswitch-label { display: none; }
+    .pswitch-btn { max-width: 11rem; }
+    .pswitch-menu { left: auto; right: 0; min-width: 14rem; }
 }
 
 
@@ -3155,6 +3248,32 @@ html[data-theme="dark"] .logs-role.is-picked { background: rgba(157, 151, 255, 0
 .my-req-table td { white-space: normal; vertical-align: top; }
 .my-req-table .req-code { display: inline-block; min-width: 7.5rem; }
 .my-req-table .req-item-title { font-weight: 500; }
+
+/* On a phone the subject table of a request used to scroll sideways inside its card, with Units and Status off the
+   screen. In a narrow card each subject becomes a small card of its own (the same idea as the adviser's request table):
+     CODE  Title, then the reason                 STATUS
+     Section ...
+     3 units                                                                                                      */
+.req-card-body { container: mreq / inline-size; }
+@container mreq (max-width: 640px) {
+    .req-card-body .table-wrap { overflow: visible; }
+    .my-req-table, .my-req-table tbody { display: block; width: 100%; }
+    .my-req-table thead { display: none; }
+    .my-req-table tbody tr {
+        display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 4px;
+        padding: 12px 0; border-bottom: 1px solid var(--line);
+    }
+    .my-req-table tbody tr:last-child { border-bottom: none; }
+    .my-req-table tbody td { display: block; min-width: 0; padding: 0; border: none; text-align: left; }
+    .my-req-table td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    .my-req-table td:nth-child(4) { grid-column: 2; grid-row: 1; align-self: start; }
+    .my-req-table td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; font-size: 0.82rem; overflow-wrap: anywhere; }
+    .my-req-table td:nth-child(2)::before { content: 'Section '; color: var(--slate); }
+    .my-req-table tbody td.num { grid-column: 1 / -1; grid-row: 3; font-size: 0.82rem; color: var(--slate); text-align: left; }
+    .my-req-table td.num::after { content: ' units'; }
+    .my-req-table .req-code { display: block; min-width: 0; }
+    .my-req-table .req-item-title { display: block; }
+}
 .req-item-note { display: block; margin-top: 0.25rem; font-size: 0.8rem; line-height: 1.5; color: var(--slate); }
 .req-item-note.is-bad { color: #b91c1c; }
 .req-item-section { min-width: 12rem; font-size: 0.8rem; }
@@ -3283,6 +3402,166 @@ html[data-theme="dark"] .logs-role.is-picked { background: rgba(157, 151, 255, 0
 .prog-edit .btn-link:hover { background: rgba(79, 70, 229, 0.08); border-color: transparent; }
 
 .prog-edit .prog-select { height: 2rem; min-width: 5.5rem; }
+
+/* Faculty can cover several programmes: a few pills in the row, the rest as "+N", and a dialog to edit them. */
+.prog-cell { flex-wrap: wrap; }
+.prog-cell .pill { min-width: 3.4rem; }
+.prog-cell .pill.is-main { font-weight: 800; box-shadow: inset 0 0 0 1.5px var(--indigo); }
+.pill-more { font-size: 0.74rem; font-weight: 700; color: var(--slate); padding: 0.15rem 0.45rem; border-radius: 999px; background: var(--wash, rgba(15,23,42,0.05)); cursor: default; }
+.prog-edit-btn { display: inline-flex; align-items: center; gap: 0.3rem; }
+.prog-edit-btn i { font-size: 0.7rem; }
+
+.prog-dlg {
+    width: min(34rem, calc(100vw - 2rem));
+    max-height: min(40rem, calc(100vh - 2rem));
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface, #fff);
+    color: var(--ink);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+    overflow: hidden;
+}
+.prog-dlg::backdrop { background: rgba(15, 23, 42, 0.45); }
+.prog-dlg[open] { display: flex; }
+.prog-dlg-form { display: flex; flex-direction: column; min-height: 0; width: 100%; }
+.prog-dlg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.15rem 1.25rem 0.6rem; }
+.prog-dlg-head h2 { margin: 0; font-family: var(--font-display, inherit); font-size: 1.2rem; font-weight: 600; letter-spacing: -0.01em; }
+.prog-dlg-sub { margin: 0.15rem 0 0; font-size: 0.8rem; color: var(--slate); }
+.prog-dlg-x { border: 0; background: transparent; color: var(--slate); width: 2rem; height: 2rem; border-radius: 8px; cursor: pointer; }
+.prog-dlg-x:hover { background: var(--wash, rgba(15,23,42,0.06)); color: var(--ink); }
+.prog-dlg-search { position: relative; padding: 0 1.25rem 0.6rem; }
+.prog-dlg-search i { position: absolute; left: 1.9rem; top: 50%; transform: translateY(-65%); font-size: 0.8rem; color: var(--faint-ink, var(--slate)); }
+.prog-dlg-search input { width: 100%; box-sizing: border-box; padding: 0.55rem 0.75rem 0.55rem 2.1rem; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 0.86rem; }
+.prog-dlg-list { flex: 1; min-height: 8rem; overflow-y: auto; padding: 0 0.75rem 0.5rem; border-top: 1px solid var(--line); }
+.prog-dlg-group { margin: 0.9rem 0.5rem 0.2rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint-ink, var(--slate)); }
+.prog-dlg-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.1rem 0.5rem; border-radius: 8px; }
+.prog-dlg-row:hover { background: var(--wash, rgba(15,23,42,0.04)); }
+.prog-dlg-row.is-on { background: rgba(79, 70, 229, 0.07); }
+.prog-dlg-pick { display: flex; align-items: center; gap: 0.6rem; flex: 1; min-width: 0; padding: 0.45rem 0; cursor: pointer; font-size: 0.86rem; }
+.prog-dlg-pick input { margin: 0; flex: none; }
+.prog-dlg-code { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; min-width: 3.4rem; }
+.prog-dlg-name { color: var(--slate); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prog-dlg-row.is-full .prog-dlg-pick { cursor: not-allowed; opacity: 0.55; }
+.prog-dlg-full { flex: none; font-size: 0.72rem; font-weight: 700; color: #92400e; background: #fef3c7; border-radius: 999px; padding: 0.15rem 0.55rem; }
+.prog-dlg-star { flex: none; border: 0; background: transparent; color: var(--faint-ink, var(--slate)); font: inherit; font-size: 0.76rem; font-weight: 700; padding: 0.25rem 0.5rem; border-radius: 999px; cursor: pointer; }
+.prog-dlg-star:hover { color: var(--indigo); background: rgba(79, 70, 229, 0.1); }
+.prog-dlg-star.is-main { color: var(--indigo); }
+.prog-dlg-hint { margin: 0; padding: 0.45rem 1.25rem; font-size: 0.76rem; line-height: 1.35; color: var(--slate); }
+.prog-dlg-hint i { margin-right: 0.3rem; color: var(--indigo); }
+.prog-dlg-other { color: var(--slate); background: var(--wash, rgba(15,23,42,0.06)); }
+.toolbar select[hidden] { display: none; }
+/* The reason dialog when a faculty adviser rejects a subject or a plan (shared/js/enrolment/rejectreason.js). */
+.rej-dlg {
+    width: min(33rem, calc(100vw - 2rem)); margin: auto; padding: 0; border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface, #fff); color: var(--ink); box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+}
+.rej-dlg::backdrop { background: rgba(15, 23, 42, 0.45); }
+.rej-form { display: flex; flex-direction: column; }
+.rej-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.15rem 1.25rem 0.5rem; }
+.rej-head h2 { margin: 0; font-family: var(--font-display, inherit); font-size: 1.2rem; font-weight: 600; letter-spacing: -0.01em; }
+.rej-sub { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--slate); }
+.rej-x { border: 0; background: transparent; color: var(--slate); width: 2rem; height: 2rem; border-radius: 8px; cursor: pointer; }
+.rej-x:hover { background: var(--wash, rgba(15,23,42,0.06)); color: var(--ink); }
+.rej-body { padding: 0.25rem 1.25rem 0.5rem; }
+.rej-hint { margin: 0 0 0.6rem; font-size: 0.8rem; color: var(--slate); }
+.rej-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.85rem; }
+.rej-chip {
+    border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink);
+    padding: 0.32rem 0.75rem; font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.rej-chip:hover { border-color: var(--indigo); color: var(--indigo); }
+.rej-chip[aria-pressed="true"] { background: rgba(79, 70, 229, 0.1); border-color: var(--indigo); color: var(--indigo-dark); }
+.rej-label { display: block; margin-bottom: 0.3rem; font-size: 0.78rem; font-weight: 700; color: var(--soft-ink, var(--ink)); }
+.rej-text {
+    width: 100%; box-sizing: border-box; padding: 0.6rem 0.7rem; border: 1px solid var(--line); border-radius: 8px;
+    background: transparent; color: var(--ink); font: inherit; font-size: 0.88rem; line-height: 1.4; resize: vertical;
+}
+.rej-text:focus { outline: none; border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+.rej-meta { display: flex; justify-content: space-between; gap: 1rem; min-height: 1.3rem; margin-top: 0.3rem; font-size: 0.76rem; }
+.rej-err { color: #b91c1c; }
+.rej-count { margin-left: auto; color: var(--slate); font-variant-numeric: tabular-nums; }
+.rej-count.is-over { color: #b91c1c; font-weight: 700; }
+.rej-foot { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.8rem 1.25rem; border-top: 1px solid var(--line); }
+/* Higher priority than the paper theme's generic button rule, which would otherwise blank the white text. */
+.rej-dlg .rej-foot .rej-ok { background: #b91c1c; border-color: #b91c1c; color: #fff; font-weight: 700; }
+.rej-dlg .rej-foot .rej-ok:hover { background: #991b1b; border-color: #991b1b; color: #fff; }
+.rej-dlg .rej-foot .rej-ok[disabled] { opacity: 0.45; cursor: not-allowed; }
+/* Flagged subjects: the reason under the row, the lock on a hard stop, and the override dialog. */
+.req-flag-reason { display: block; margin-top: 0.25rem; font-size: 0.78rem; line-height: 1.35; color: #92400e; }
+.req-lock { display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem; color: var(--slate); cursor: help; }
+/* Plan overview: passed subjects mapped to the requested ones (shared/js/enrolment/planoverview.js). */
+.po { margin-top: 1.25rem; padding: 1rem 1.1rem; border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #fff); }
+.po-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem; margin-bottom: 0.75rem; }
+.po-head strong { font-family: var(--font-display, inherit); font-size: 1.05rem; font-weight: 600; }
+.po-head span { font-size: 0.8rem; color: var(--slate); }
+.po-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint-ink, var(--slate)); }
+.po-legend i { font-size: 0.6rem; }
+/* The subject groups fill the width: two columns on a wide screen, one on a narrow one. Each group is a compact box
+   (the subjects already passed on top, the requested one below on a connector). */
+.po-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 25rem), 1fr)); gap: 0.85rem; align-items: start; }
+.po-row { padding: 0.7rem 0.75rem 0.8rem; border: 1px solid var(--line); border-radius: 12px; background: var(--wash, rgba(15, 23, 42, 0.025)); }
+.po-from { display: grid; gap: 0.4rem; }
+.po-group { display: grid; gap: 0.4rem; }
+.po-group.is-any { padding-left: 0.6rem; border-left: 3px solid var(--line); }
+.po-anyof, .po-and { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); }
+.po-and { text-align: center; }
+.po-none { padding: 0.55rem 0.7rem; font-size: 0.8rem; color: var(--slate); border: 1px dashed var(--line); border-radius: 10px; }
+.po-node { padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface, #fff); font-size: 0.82rem; }
+.po-code { font-weight: 700; }
+.po-title { font-weight: 500; color: var(--slate); }
+.po-meta { margin-top: 0.15rem; font-size: 0.76rem; color: var(--slate); }
+.po-node.is-passed { border-color: #bbf7d0; background: #f0fdf4; }
+.po-node.is-passed .po-meta { color: var(--green, #0f8a5f); font-weight: 600; }
+.po-node.is-together { border-color: #bfdbfe; background: #eff6ff; }
+.po-node.is-inprogress { border-color: #fde68a; background: #fffbeb; }
+.po-node.is-failed, .po-node.is-missing { border-style: dashed; border-color: #fca5a5; background: #fef2f2; }
+.po-node.is-failed .po-meta, .po-node.is-missing .po-meta { color: #b91c1c; font-weight: 600; }
+.po-pill { padding: 0.45rem 0.7rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+.po-pill.is-met { background: #f0fdf4; color: var(--green, #0f8a5f); }
+.po-pill.is-unmet { background: #fef2f2; color: #b91c1c; }
+/* The requested subject sits below, indented, on an elbow connector from the subject(s) above. */
+.po-to { position: relative; margin: 0.85rem 0 0 1.9rem; }
+.po-to::before { content: ''; position: absolute; left: -1.1rem; top: -0.85rem; width: 1.1rem; height: calc(50% + 0.85rem);
+    border-left: 2px solid var(--line); border-bottom: 2px solid var(--line); border-bottom-left-radius: 10px; }
+.po-to::after { content: ''; position: absolute; left: -0.5rem; top: 50%; transform: translateY(-50%);
+    border: 5px solid transparent; border-left: 8px solid var(--line); }
+.po-to.is-none::before { border-left-style: dotted; border-bottom-style: dotted; }
+.po-to.is-broken::before { border-color: #dc2626; border-left-style: dashed; border-bottom-style: dashed; }
+.po-to.is-broken::after { border-left-color: #dc2626; }
+.po-link-label { position: absolute; left: -1.85rem; top: -0.95rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #b91c1c; }
+.po-node.is-requested { border-left: 4px solid var(--green, #0f8a5f); }
+.po-node.is-requested.is-warn { border-left-color: #d97706; background: #fffbeb; border-color: #fde68a; }
+.po-node.is-requested.is-bad { border-left-color: var(--slate); background: var(--wash, rgba(15,23,42,0.04)); }
+.po-node.is-requested.is-done { border-left-color: var(--green, #0f8a5f); }
+.po-verdict { margin-top: 0.2rem; font-weight: 700; color: var(--green, #0f8a5f); }
+.po-node.is-warn .po-verdict { color: #92400e; }
+.po-node.is-bad .po-verdict { color: var(--slate); }
+.po-node.is-requested.is-wait { border-left-color: #3b82f6; }
+.po-node.is-wait .po-verdict { color: #1d4ed8; }
+.po-todo { margin-top: 0.35rem; padding: 0.4rem 0.55rem; border-radius: 8px; font-size: 0.78rem; background: rgba(79, 70, 229, 0.07); color: var(--ink); }
+.po-counts { font-size: 0.76rem; color: var(--slate); }
+.po-text { margin-top: 0.2rem; font-size: 0.78rem; color: var(--ink); }
+.po-stop { display: inline-block; margin-top: 0.3rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; color: #991b1b; background: rgba(185, 28, 28, 0.1); }
+.po-clash { margin: 0.2rem 0 0.7rem; padding: 0.55rem 0.8rem; border: 1px dashed #d97706; border-radius: 10px; background: #fffbeb; font-size: 0.8rem; color: #78350f; }
+.po-clash i { margin-right: 0.3rem; color: #d97706; }
+/* These cards keep a pale background in both themes, so their ink stays dark too (dark mode turns the page's
+   --ink / --slate / --green light, which made them unreadable). Cards on the theme's own surface are left alone. */
+.po-node.is-passed, .po-node.is-together, .po-node.is-inprogress, .po-node.is-failed, .po-node.is-missing,
+.po-node.is-requested.is-warn, .po-pill { --ink: #1d1b16; --slate: #5c574c; --green: #0f8a5f; }
+.po-node.is-passed, .po-node.is-together, .po-node.is-inprogress, .po-node.is-failed, .po-node.is-missing,
+.po-node.is-requested.is-warn { color: var(--ink); }
+.po-clash span { margin-left: 0.4rem; color: #92400e; font-weight: 600; }
+.po-foot { margin: 0.4rem 0 0; font-size: 0.76rem; color: var(--slate); }
+.prog-dlg-empty { margin: 1.2rem 0.75rem; color: var(--slate); font-size: 0.86rem; }
+.prog-dlg-msg { margin: 0; padding: 0.55rem 1.25rem; font-size: 0.82rem; color: #b91c1c; background: rgba(185, 28, 28, 0.08); border-top: 1px solid var(--line); }
+.prog-dlg-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 1.25rem; border-top: 1px solid var(--line); }
+.prog-dlg-count { font-size: 0.82rem; color: var(--slate); }
+.prog-dlg-btns { display: inline-flex; gap: 0.5rem; }
+.prog-dlg-btns .btn-primary[disabled] { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 520px) { .prog-dlg-name { display: none; } }
 
 /* Students list: 20 a page, with Previous / Next under the table. */
 .pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; margin-top: 0.9rem; font-size: 0.82rem; }
@@ -3984,6 +4263,19 @@ th.num .sort-btn { text-align: right; }
 .stats.is-slim { grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); }
 .stats.is-slim .stat { padding: 0.7rem 0.9rem; }
 .stats.is-slim .stat-value { font-size: 1.5rem; }
+
+/* A dashboard tile that opens the matching page: the whole tile is the link (every role). */
+.stat-link { display: block; text-decoration: none; color: inherit; cursor: pointer;
+             transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+.stat-link:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); border-color: var(--indigo); }
+.stat-link:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+.stat-go { display: block; margin-top: 0.35rem; font-size: 0.75rem; font-weight: 600; color: var(--indigo); }
+.stat-go i { font-size: 0.65rem; margin-left: 0.15rem; transition: transform 0.15s ease; }
+.stat-link:hover .stat-go i { transform: translateX(3px); }
+@media (prefers-reduced-motion: reduce) {
+    .stat-link, .stat-go i { transition: none; }
+    .stat-link:hover { transform: none; }
+}
 .dash-grid.is-queue { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 @media (max-width: 900px) { .dash-grid.is-queue { grid-template-columns: 1fr; } }
 

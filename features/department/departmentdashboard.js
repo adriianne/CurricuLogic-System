@@ -70,9 +70,10 @@ let PROGRAM_LIST = [];   // every programme, by code
 let PROGRAM      = null; // the one being worked on: { id, code, name, college }
 const PROGRAM_KEY = 'cl.dept.program';
 
-/* A department account belongs to one programme (db/030), so its list is
-   narrowed to that one and the selector stays hidden. The page is still
-   programme-scoped in that case: new work is created under that programme. */
+/* A department account has a MAIN programme (db/030) and, since db/114, may cover more programmes of the same
+   college (a dean). Its list is narrowed to those; with one the selector stays hidden, with several the header
+   shows a switch. The page is programme-scoped either way: it works on ONE programme at a time, and new work is
+   created under that programme. */
 let PINNED = false;
 const programScoped = () => PROGRAM_LIST.length > 1 || PINNED;
 
@@ -104,11 +105,27 @@ function saveProgramId(id) {
     try { localStorage.setItem(PROGRAM_KEY, String(id)); } catch (_) { /* private mode */ }
 }
 
-/* Called once at boot, before anything reads the variables above. */
-function initPrograms() {
+/* Pure. The programme ids this account covers: its list when it has one, else just its main programme. */
+function coveredIds(rows, mainId) {
+    const ids = [...new Set((rows ?? []).map(r => r.program_id).filter(id => id != null))];
+    if (mainId != null && !ids.includes(mainId)) ids.push(mainId);
+    return ids;
+}
+
+/* The programmes this account covers (db/114). If the list cannot be read, the main programme alone, as before. */
+async function loadCovered() {
+    if (PREVIEW || !supabase || !STAFF?.id) return coveredIds([], STAFF?.program_id ?? null);
+    const { data, error } = await supabase.from('department_program').select('program_id').eq('department_id', STAFF.id);
+    if (error) console.warn('department programmes load failed:', error.message);
+    return coveredIds(error ? [] : data, STAFF?.program_id ?? null);
+}
+
+/* Called once at boot, before anything reads the variables above. [covered] is the list from loadCovered(). */
+function initPrograms(covered = []) {
     PROGRAM_LIST = window.CurriculogicPrograms?.list() ?? [];
     if (STAFF?.program_id) {
-        PROGRAM_LIST = PROGRAM_LIST.filter(p => p.id === STAFF.program_id);
+        const ids = covered.length ? covered : [STAFF.program_id];
+        PROGRAM_LIST = PROGRAM_LIST.filter(p => ids.includes(p.id));
         PINNED = true;
     } else if (!PREVIEW) {
         // No programme assigned: there is nothing to work on, and the page
@@ -116,7 +133,8 @@ function initPrograms() {
         PROGRAM_LIST = [];
         PINNED = true;
     }
-    PROGRAM = pickProgram(PROGRAM_LIST, savedProgramId(), ALL_VERSIONS);
+    // The main programme is where a dean starts, until they choose another in the header.
+    PROGRAM = pickProgram(PROGRAM_LIST, savedProgramId() ?? STAFF?.program_id ?? null, ALL_VERSIONS);
     renderProgramSelector();
 }
 
@@ -142,15 +160,31 @@ function setVersions(all) {
     renderProgramSelector();
 }
 
-/* The topbar shows the programme this account works on. It is a read-only
-   field, not a chooser: a department account belongs to exactly one
-   programme, and the field follows whichever programme that is. */
+/* The topbar shows the programme this account works on. With one programme it is a read-only field. With several
+   (a dean, db/114) a switch replaces it: the page works on the ONE programme chosen, so there is no "All" entry.
+   Changing it saves the choice and reloads, so every list and count is read again for that programme. */
+let PROGRAM_SWITCH = null;
+
 function renderProgramSelector() {
     const field = $('dept-program');
     if (!field) return;
 
     field.value = PROGRAM ? `${PROGRAM.code} — ${PROGRAM.name}` : 'No programme assigned';
     field.title = field.value;
+
+    if (!PROGRAM_SWITCH && PROGRAM_LIST.length > 1 && window.CurriculogicProgramSwitch) {
+        PROGRAM_SWITCH = window.CurriculogicProgramSwitch.create({
+            wrap: $('dept-program-wrap'),
+            key: 'department',
+            allowAll: false,
+            onChange(value) {
+                if (typeof value !== 'number' || value === PROGRAM?.id) return;
+                saveProgramId(value);
+                window.location.reload();
+            },
+        });
+        PROGRAM_SWITCH.setOptions(PROGRAM_LIST, PROGRAM?.id);
+    }
 }
 
 /* What exists yet. Schedule and grade upload both write rows that
@@ -2161,9 +2195,10 @@ async function loadReadiness() {
     // This runs BEFORE the curriculum loads, so PROGRAM and PROGRAM_CODE are not
     // set yet: PROGRAM_CODE still holds its built-in default ('BSIT'). Counting
     // sections by that prefix is right for a BSIT department by accident, and
-    // always 0 for BSN or BSCRIM. The account's own programme is already known
-    // here (STAFF.program_id), so it is used instead.
-    const myProgramId = STAFF?.program_id ?? PROGRAM?.id ?? null;
+    // always 0 for BSN or BSCRIM. The programme being worked on is already known
+    // here (initPrograms ran at boot), so it is used instead. For a dean that is the
+    // one chosen in the header, not necessarily the main one.
+    const myProgramId = PROGRAM?.id ?? STAFF?.program_id ?? null;
     const myCode = window.CurriculogicPrograms?.codeOf(myProgramId, '') || PROGRAM?.code || PROGRAM_CODE;
     const scoped = programScoped() && myProgramId != null;
     const mine = (rows, keep) => scoped ? (rows ?? []).filter(keep) : (rows ?? []);
@@ -2596,7 +2631,7 @@ function bindScheduleTableInputs() {
 
     mount.addEventListener('input', (e) => {
         const field = e.target.closest('[data-field]');
-        const tr    = e.target.closest('tr[data-row]');
+        const tr    = e.target.closest('[data-row]');
         if (!field || !tr) return;
         const row = PENDING.find(r => r.__key === tr.dataset.row);
         if (!row) return;
@@ -2607,7 +2642,7 @@ function bindScheduleTableInputs() {
 
     mount.addEventListener('change', (e) => {
         const field = e.target.closest('[data-field]');
-        const tr    = e.target.closest('tr[data-row]');
+        const tr    = e.target.closest('[data-row]');
         if (!field || !tr) return;
         const row = PENDING.find(r => r.__key === tr.dataset.row);
         if (!row) return;
@@ -2729,6 +2764,9 @@ function renderOfferings() {
         return;
     }
 
+    // The rows as cards: each subject's lecture on top, its laboratory below on a connector.
+    const cardsHtml = scheduleCardsHtml(visible, section, year, term);
+
     // Form header — COURSE / YEAR & SECTION / AY · term.
     const { course, yearSection } = splitSection(section);
     const ayLabel = `${shortYear(year)} · ${termLabel(term)}`;
@@ -2747,41 +2785,22 @@ function renderOfferings() {
                 <div class="sched-form-head-ay">${escapeHtml(ayLabel)}</div>
             </div>
 
-            <div class="table-wrap">
-                <table class="data-table sched-edit-table">
-                    <thead>
-                        <tr>
-                            <th class="col-edp">EDP CODE</th>
-                            <th>SUBJECT</th>
-                            <th class="col-type">TYPE</th>
-                            <th class="col-units num">UNITS</th>
-                            <th class="col-time">START TIME</th>
-                            <th class="col-time">END TIME</th>
-                            <th class="col-days">DAYS</th>
-                            <th class="col-room">ROOM</th>
-                            <th class="col-drop"></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${visible.map(o => rowHtmlFor(o, section, year, term)).join('')}
-                        <tr class="sched-add-row">
-                            <td colspan="9">
-                                <button class="btn-small" data-add-all>
-                                    <i class="fa-solid fa-list-check" aria-hidden="true"></i>
-                                    Add all subjects
-                                </button>
-                                <button class="btn-small" data-suggest-times
-                                        title="Fills empty rows only. Nothing is saved until you press Save.">
-                                    <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
-                                    Suggest times
-                                </button>
-                                <button class="btn-small" data-undo-suggest
-                                        ${LAST_SUGGEST?.section === section ? '' : 'hidden'}>Undo suggestions</button>
-                                <span class="sched-progress" id="sched-progress"></span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="sched-cards">
+                ${cardsHtml}
+                <div class="sched-add-bar">
+                    <button class="btn-small" data-add-all>
+                        <i class="fa-solid fa-list-check" aria-hidden="true"></i>
+                        Add all subjects
+                    </button>
+                    <button class="btn-small" data-suggest-times
+                            title="Fills empty cards only. Nothing is saved until you press Save.">
+                        <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                        Suggest times
+                    </button>
+                    <button class="btn-small" data-undo-suggest
+                            ${LAST_SUGGEST?.section === section ? '' : 'hidden'}>Undo suggestions</button>
+                    <span class="sched-progress" id="sched-progress"></span>
+                </div>
             </div>
 
             <div class="sched-form-actions">
@@ -2870,7 +2889,7 @@ function addAllSubjects(section) {
     renderOfferings();
 }
 
-const rowLabel = (r) => `${subjectById(r.subject_id)?.code ?? 'A subject'} ${r.meeting_type}`;
+const rowLabel = (r) => window.CurriculogicScheduleCards.meetingLabel(subjectById(r.subject_id)?.code, r);
 
 /* What the last "Suggest times" wrote, so it can be taken back. */
 let LAST_SUGGEST = null;
@@ -2954,7 +2973,7 @@ function scheduleClashes(section) {
 
     const note = (r, text) => {
         if (!out.has(r.__key)) out.set(r.__key, []);
-        out.get(r.__key).push(text);
+        if (!out.get(r.__key).includes(text)) out.get(r.__key).push(text);   // the same sentence once
     };
     const sharedDays = (a, b) => {
         const theirs = SCF.parseDays(b.schedule_days);
@@ -3007,14 +3026,29 @@ function refreshScheduleChecks() {
     if (!section || !body) return;
 
     const clashes = scheduleClashes(section);
-    body.querySelectorAll('tr[data-row]').forEach((tr) => {
-        const reasons = clashes.get(tr.dataset.row) ?? [];
-        tr.classList.toggle('sched-clash', reasons.length > 0);
-        const noteRow = body.querySelector(`tr[data-clash-for="${tr.dataset.row}"]`);
-        if (noteRow) {
-            noteRow.hidden = reasons.length === 0;
-            noteRow.firstElementChild.textContent = reasons.join(' ');
+    body.querySelectorAll('[data-row]').forEach((card) => {
+        const reasons = clashes.get(card.dataset.row) ?? [];
+        card.classList.toggle('sched-clash', reasons.length > 0);
+        const note = card.querySelector('[data-clash-for]');
+        if (note) {
+            // One short line under the card: the first warning and "+N more". The full list is the hover text.
+            const sum = window.CurriculogicScheduleCards.clashSummary(reasons);
+            note.hidden = sum.count === 0;
+            note.textContent = sum.text;
+            note.title = sum.title;
+            if (sum.title) note.setAttribute('aria-label', sum.title.replace(/\n/g, ' ')); else note.removeAttribute('aria-label');
         }
+        // Ready once the days and times are in. Repainted here so it follows the typing without a redraw.
+        const row = PENDING.find(r => r.__key === card.dataset.row);
+        const ready = !!row && window.CurriculogicScheduleCards.isTimed(row);
+        card.classList.toggle('is-ready', ready);
+        const mark = card.querySelector('.sched-state');
+        if (mark) mark.innerHTML = scheduleStateHtml(ready);
+    });
+    // The group's connector and its ready mark follow the cards inside it.
+    body.querySelectorAll('.sched-group').forEach((g) => {
+        const cards = [...g.querySelectorAll('[data-row]')];
+        g.classList.toggle('is-ready', cards.length > 0 && cards.every(c => c.classList.contains('is-ready')));
     });
 
     const progress = $('sched-progress');
@@ -3184,51 +3218,84 @@ function tagPendingKeys() {
     }
 }
 
-/* One editable row. Inputs carry data-field so the input handler can
-   write straight back into PENDING without re-rendering the table —
-   a full render on every keystroke would steal focus mid-word.
+/* One meeting (lecture or laboratory) as a card. Inputs carry data-field so the input handler can write straight back
+   into PENDING without re-rendering the form: a full render on every keystroke would steal focus mid-word. Every
+   field name is the same as in the old table row, so nothing that reads or saves the rows changes. */
+function scheduleStateHtml(ready) {
+    return ready
+        ? '<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Ready'
+        : '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Not filled in';
+}
 
-   The subject cell wraps its content in a <div class="sched-subject-cell">
-   rather than styling the <td> directly: `display: flex` on a table cell
-   would pull it out of the table layout and break column widths. The
-   wrapper gets the flex treatment from CSS. */
 function rowHtmlFor(o, section, year, term) {
     const s       = subjectById(o.subject_id);
     const hasLab  = Number(s?.lab_units) > 0;
     const isLab   = o.meeting_type === 'LAB';
-    const units   = isLab ? '—' : (s?.units ?? '—');
+    const ready   = window.CurriculogicScheduleCards.isTimed(o);
 
     const subjectOptions = subjectOptionsFor(section, term, o.subject_id);
+    // The lecture carries the subject's units; the laboratory is part of them.
+    const unitsNote = isLab ? 'in lecture units' : (s?.units != null ? `${s.units} units` : '');
+    const noLab = !isLab && s && !hasLab ? '<span class="sched-chip" title="No laboratory">No lab</span>' : '';
 
-    return `<tr data-row="${o.__key}"${isLab ? ' class="sched-row-lab"' : ''}>
-        <td><input data-field="edp_code" value="${escapeHtml(o.edp_code || '')}"
-                   placeholder="61251" autocomplete="off" maxlength="20"></td>
-        <td>
-            <div class="sched-subject-cell">
-                ${isLab ? '<span class="sched-lab-arrow" aria-hidden="true">↳</span>' : ''}
-                <select data-field="subject_id" class="sched-subject-pick">
-                    ${subjectOptions}
-                </select>
-            </div>
-        </td>
-        <td>
-            <select data-field="meeting_type">
-                <option value="LEC"${o.meeting_type === 'LEC' ? ' selected' : ''}>LEC</option>
-                ${hasLab ? `<option value="LAB"${isLab ? ' selected' : ''}>LAB</option>` : ''}
+    return `<div class="sched-card ${isLab ? 'is-lab' : 'is-lec'}${ready ? ' is-ready' : ''}" data-row="${o.__key}">
+        <div class="sched-card-head">
+            <select data-field="meeting_type" class="sched-kind" aria-label="Meeting type">
+                <option value="LEC"${o.meeting_type === 'LEC' ? ' selected' : ''}>Lecture</option>
+                ${hasLab ? `<option value="LAB"${isLab ? ' selected' : ''}>Laboratory</option>` : ''}
             </select>
-        </td>
-        <td class="num">${units}</td>
-        <td><input type="time" data-field="start_time" value="${(o.start_time || '').slice(0, 5)}"></td>
-        <td><input type="time" data-field="end_time"   value="${(o.end_time   || '').slice(0, 5)}"></td>
-        <td><input data-field="schedule_days" value="${escapeHtml(o.schedule_days || '')}" placeholder="MW" maxlength="20"></td>
-        <td><input data-field="room" value="${escapeHtml(o.room || '')}" placeholder="215" maxlength="50"></td>
-        <td class="num">
-            <button class="btn-icon" data-drop="${o.__key}" aria-label="Remove row">
+            <select data-field="subject_id" class="sched-subject-pick" aria-label="Subject">
+                ${subjectOptions}
+            </select>
+            <span class="sched-meta">${unitsNote ? `<span class="sched-units">${unitsNote}</span>` : ''}${noLab}</span>
+            <span class="sched-state">${scheduleStateHtml(ready)}</span>
+            <button class="btn-icon" data-drop="${o.__key}" aria-label="Remove this meeting">
                 <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
             </button>
-        </td>
-    </tr>
-    <tr class="sched-clash-note" data-clash-for="${o.__key}" role="status" hidden><td colspan="9"></td></tr>`;
+        </div>
+        <div class="sched-card-fields">
+            <label><span>EDP code</span>
+                <input data-field="edp_code" value="${escapeHtml(o.edp_code || '')}" placeholder="61251" autocomplete="off" maxlength="20"></label>
+            <label><span>Days</span>
+                <input data-field="schedule_days" value="${escapeHtml(o.schedule_days || '')}" placeholder="MW" maxlength="20"></label>
+            <label><span>Start</span>
+                <input type="time" data-field="start_time" value="${(o.start_time || '').slice(0, 5)}"></label>
+            <label><span>End</span>
+                <input type="time" data-field="end_time" value="${(o.end_time || '').slice(0, 5)}"></label>
+            <label><span>Room</span>
+                <input data-field="room" value="${escapeHtml(o.room || '')}" placeholder="215" maxlength="50"></label>
+        </div>
+        <div class="sched-card-clash" data-clash-for="${o.__key}" role="status" hidden></div>
+    </div>`;
+}
+
+/* A section's cards, grouped by subject: the lecture on top and the laboratory below it on a connector. A subject
+   that has a lab but no lab row yet gets a dashed placeholder, so the missing half is visible. */
+function scheduleCardsHtml(rows, section, year, term) {
+    if (!rows.length) {
+        return `<div class="empty sched-empty">
+            <i class="fa-solid fa-list-check" aria-hidden="true"></i>
+            <h3>No subjects in this section yet</h3>
+            <p>Press Add all subjects to start from the curriculum, or upload a file or photo.</p>
+        </div>`;
+    }
+    const card = new Map();
+    rows.map(o => rowHtmlFor(o, section, year, term)).forEach((h, i) => card.set(rows[i].__key, h));
+
+    // On a wide screen each card is one line, so the field names are shown once here instead of on every card. This
+    // row is hidden on a narrow screen, where the cards keep their own labels.
+    const colHead = '<div class="sched-colhead" aria-hidden="true"><span>Type</span><span>Subject</span><span>Units</span>' +
+        '<span>EDP code</span><span>Days</span><span>Start</span><span>End</span><span>Room</span><span>Status</span><span></span></div>';
+
+    return colHead + window.CurriculogicScheduleCards.groups(rows, subjectById).map((g) => {
+        const lec = g.lec.concat(g.other).map(o => card.get(o.__key)).join('');
+        const labs = g.lab.map(o => `<div class="sched-under has-link">${card.get(o.__key)}</div>`).join('');
+        const missing = g.needsLab && !g.lab.length && g.lec.length
+            ? '<div class="sched-under has-link is-missing"><div class="sched-placeholder"><i class="fa-solid fa-flask" aria-hidden="true"></i> Laboratory not added yet. Add all subjects adds it.</div></div>'
+            : '';
+        const ready = window.CurriculogicScheduleCards.state(g) === 'ready';
+        return `<div class="sched-group${ready ? ' is-ready' : ''}">${lec}${labs}${missing}</div>`;
+    }).join('');
 }
 
 function subjectOptionsFor(section, term, currentId) {
@@ -5702,11 +5769,17 @@ function cacheStudents(rows) {
     }
 }
 
+/* A dean (db/114) is allowed to read the students of every programme they cover, but the page works on ONE: the list and
+   the counts are narrowed to the programme chosen in the header. With one programme nothing changes. */
+function inChosenProgram(query) {
+    return programScoped() && PROGRAM ? query.eq('program_id', PROGRAM.id) : query;
+}
+
 async function loadCounts() {
     if (PREVIEW || !supabase) {
         return { total: PREVIEW_STUDENTS.length, verified: PREVIEW_STUDENTS.filter(s => s.record_verified).length };
     }
-    const head = () => supabase.from('university_student').select('id', { count: 'exact', head: true });
+    const head = () => inChosenProgram(supabase.from('university_student').select('id', { count: 'exact', head: true }));
     const [total, ver] = await Promise.all([head(), head().eq('record_verified', true)]);
     return { total: total.count ?? 0, verified: ver.count ?? 0 };
 }
@@ -5729,7 +5802,7 @@ async function fetchStudentPage() {
         return { rows: all.slice(from, to + 1), total: all.length };
     }
 
-    let q = supabase.from('university_student').select(STUDENT_COLS, { count: 'exact' });
+    let q = inChosenProgram(supabase.from('university_student').select(STUDENT_COLS, { count: 'exact' }));
     if (LIST.filter === 'verified') q = q.eq('record_verified', true);
     if (LIST.filter === 'pending')  q = q.eq('record_verified', false);
     if (LIST.year !== 'all')        q = q.eq('year_level', Number(LIST.year));
@@ -6748,7 +6821,7 @@ async function showDemandNames(tr) {
     // Programme names are looked up, not typed. The working programme has to
     // be known before anything reads a version or counts a schedule.
     await window.CurriculogicPrograms?.load(supabase);
-    initPrograms();
+    initPrograms(await loadCovered());
 
     // Readiness (students, offerings, grade files) has to be in before the
     // curriculum load renders the tiles and the setup badge. It only ran in

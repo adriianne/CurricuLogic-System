@@ -1689,7 +1689,7 @@ async function loadRequestDetail(requestId) {
     const { data: req, error } = await supabase
         .from('request')
         .select(`
-            id, status, registrar_status, requested_term, requested_year, created_at, prospectus_id,
+            id, status, registrar_status, requested_term, requested_year, created_at, updated_at, prospectus_id,
             student:student_id (id, first_name, last_name, student_id, year_level),
             request_item (
                 id, subject_id, status, remarks, offering_id,
@@ -1712,6 +1712,7 @@ async function loadRequestDetail(requestId) {
     }
 
     const items = req.request_item ?? [];
+    const withdrawn = !!window.CurriculogicRequestStatus?.withdrawn(req);
     const undecided = items.filter(i =>
         i.status !== 'approved' && i.status !== 'rejected');
     const units = items.reduce((sum, i) =>
@@ -1741,7 +1742,11 @@ async function loadRequestDetail(requestId) {
     }
 
     if (actionsEl) {
-        if (undecided.length) {
+        if (withdrawn) {
+            // The student took this plan back before it was reviewed (db/113): nothing here can be decided.
+            actionsEl.innerHTML =
+                '<span class="pill muted"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Withdrawn by the student</span>';
+        } else if (undecided.length) {
             // A subject with a warning (flagged, or clashing with another) cannot be approved, so "Approve all"
             // covers only the subjects with no warning.
             const warnN = window.CurriculogicSystemCheck
@@ -1777,11 +1782,19 @@ async function loadRequestDetail(requestId) {
         : '';
     // While the banner is up it already says what the longer note would, so only one of them is shown.
     const finish = SC ? SC.finishHtml(items, window.ScheduleConflicts?.meetingsClash, req.id) : '';
-    bodyEl.innerHTML = (finish || note) + renderRequestTable(items);
+    const closedNote = withdrawn ? `
+        <div class="sys-check is-none" role="note">
+            <div class="sys-check-title"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Withdrawn by the student</div>
+            <p>The student took this plan back${req.updated_at ? ' on ' + new Date(req.updated_at).toLocaleDateString() : ''}, before it was reviewed.
+               Nothing here needs a decision, and it is not in your queue.</p>
+        </div>` : '';
+    bodyEl.innerHTML = withdrawn
+        ? closedNote + renderRequestTable(items, { closed: true })
+        : (finish || note) + renderRequestTable(items);
 
     // Under the table: the subjects the student already passed, mapped to the ones they asked for. Drawn after the
     // table so a slow or failed lookup never holds the review up.
-    planOverviewHtml(req, items).then((overview) => {
+    (withdrawn ? Promise.resolve('') : planOverviewHtml(req, items)).then((overview) => {
         if (overview && bodyEl.isConnected && $('req-detail-name')?.textContent === fullName(req.student)) {
             bodyEl.querySelectorAll('.po').forEach(el => el.remove());   // one overview only, if the plan was redrawn meanwhile
             bodyEl.insertAdjacentHTML('beforeend', overview);
@@ -1829,7 +1842,7 @@ async function loadRequestDetail(requestId) {
 /* The subject table for one request. One row per subject, status on the
    right. Every undecided row shows a small approve/reject pair inline;
    decided rows show their outcome. */
-function renderRequestTable(items) {
+function renderRequestTable(items, { closed = false } = {}) {
     // Subjects with a warning cannot be approved: flagged by the system, or in a schedule clash with another
     // undecided subject (shared/js/enrolment/systemcheck.js, and db/112 for flagged ones).
     const blocked = window.CurriculogicSystemCheck
@@ -1869,7 +1882,10 @@ function renderRequestTable(items) {
         const clashCodes = (blocked.clashWith.get(item.id) ?? []).join(', ');
 
         let statusHtml;
-        if (item.status === 'valid' && blocked.clashing.has(item.id)) {
+        if (closed) {
+            // A withdrawn plan: the subjects are listed, with no buttons.
+            statusHtml = '<span class="req-status">withdrawn</span>';
+        } else if (item.status === 'valid' && blocked.clashing.has(item.id)) {
             // Passed the system's checks, but its section overlaps another subject's: cannot be approved while both stand.
             statusHtml = `
                 <span class="req-status is-flagged" title="Schedule clash with ${escapeHtml(clashCodes)}">

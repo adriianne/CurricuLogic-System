@@ -269,6 +269,9 @@
 }
 
 
+/* The programme code on a version chip, when versions of several programmes are listed together. */
+.pv-prog { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; opacity: 0.8; margin-right: 0.35rem; }
+
 /* ── Activate version dialog ──────────────────────────────────── */
 
 .act-modal {
@@ -728,6 +731,7 @@
     border: 1px solid var(--line);
     border-radius: 10px;
     overflow: hidden;
+    overflow: clip;   /* clips the rounded corners without becoming a scroll box, so the sticky column header can stick */
     background: #fff;
 }
 
@@ -1912,4 +1916,132 @@
     .req-table td:nth-child(3)::after { content: ' units'; }
     .req-table td:nth-child(4) { grid-column: 1 / -1; grid-row: 4; font-size: 0.82rem; overflow-wrap: anywhere; }
     .req-table td:nth-child(4):not(:empty)::before { content: 'Schedule '; color: var(--slate); }
+    /* A subject with a warning has a reason in its status cell. Left in the top-right corner, its one long line made that
+       cell as wide as the screen and squeezed the subject code to nothing. It goes to its own full-width row at the
+       bottom of the card instead (badge, lock and buttons, then the reason, wrapping). */
+    .req-table td.req-status-cell:has(.req-flag-reason) {
+        grid-column: 1 / -1; grid-row: 5; justify-self: stretch; align-self: start;
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; text-align: left; white-space: normal;
+    }
+    .req-table .req-flag-reason { flex: 1 0 100%; margin-top: 0; }
+}
+
+
+/* ── Department schedule: lecture on top, laboratory below on a connector ──────────────────────────────────────────
+   One card per meeting, grouped by subject (shared/js/schedule/schedulecards.js). The same top-to-bottom style as the
+   plan overview a faculty adviser sees. */
+
+.sched-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; padding: 0.25rem 0 0.5rem; }
+.sched-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.85rem; }   /* minmax(0, ...): the subject list's long names must not widen the card past the screen */
+
+.sched-card {
+    padding: 0.65rem 0.8rem 0.75rem; border: 1px solid var(--line); border-left: 4px solid #d97706; border-radius: 10px;
+    background: var(--surface, #fff); color: var(--ink);
+}
+.sched-card.is-lab { background: rgba(59, 130, 246, 0.04); }
+.sched-card.is-ready { border-left-color: var(--green, #0f8a5f); }
+.sched-card.sched-clash { border-color: #dc2626; border-left-color: #dc2626; background: rgba(220, 38, 38, 0.06); }
+
+.sched-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.65rem; }
+.sched-card select, .sched-card input {
+    height: 2rem; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; padding: 0 0.5rem;
+    background: transparent; color: var(--ink); font: inherit; font-size: 0.84rem;
+}
+.sched-card select:focus, .sched-card input:focus { outline: none; border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+.sched-card .sched-kind {
+    width: auto; height: 1.7rem; border-radius: 999px; padding: 0 0.6rem; font-size: 0.68rem; font-weight: 700;
+    letter-spacing: 0.07em; text-transform: uppercase; color: var(--slate);
+}
+.sched-card.is-lec .sched-kind { color: var(--green, #0f8a5f); border-color: rgba(15, 138, 95, 0.35); }
+.sched-card.is-lab .sched-kind { color: #1d4ed8; border-color: rgba(59, 130, 246, 0.4); }
+.sched-card .sched-subject-pick { flex: 1 1 16rem; min-width: 12rem; font-weight: 600; }
+.sched-units { font-size: 0.78rem; color: var(--slate); }
+.sched-chip { padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; color: var(--slate); background: var(--wash, rgba(15, 23, 42, 0.06)); }
+.sched-state { margin-left: auto; font-size: 0.76rem; font-weight: 700; color: #92400e; white-space: nowrap; }
+.sched-card.is-ready .sched-state { color: var(--green, #0f8a5f); }
+.sched-card .btn-icon { flex: none; }
+
+.sched-card-fields { display: grid; grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 1fr; gap: 0.5rem 0.65rem; margin-top: 0.6rem; }
+.sched-card-fields label { display: grid; gap: 0.15rem; min-width: 0; }
+.sched-card-fields label span { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint-ink, var(--slate)); }
+.sched-card-fields input { width: 100%; }
+.sched-card-clash { margin-top: 0.5rem; font-size: 0.78rem; font-weight: 600; color: #b91c1c; }
+.sched-card-clash[hidden] { display: none; }
+
+/* The laboratory hangs below its lecture, indented, on an elbow connector. */
+.sched-under { position: relative; margin-left: 2.6rem; }
+@container sched (min-width: 1090px) { .sched-under { margin-left: 1.5rem; } }
+.sched-under.has-link::before {
+    content: ''; position: absolute; left: -1.5rem; top: -0.85rem; width: 1.5rem; height: calc(50% + 0.85rem);
+    border-left: 2px solid var(--line); border-bottom: 2px solid var(--line); border-bottom-left-radius: 10px;
+}
+.sched-under.has-link::after {
+    content: ''; position: absolute; left: -0.5rem; top: 50%; transform: translateY(-50%);
+    border: 5px solid transparent; border-left: 8px solid var(--line);
+}
+.sched-group.is-ready .sched-under.has-link::before { border-color: var(--green, #0f8a5f); }
+.sched-group.is-ready .sched-under.has-link::after { border-left-color: var(--green, #0f8a5f); }
+.sched-under.is-missing::before { border-color: #d97706; border-left-style: dashed; border-bottom-style: dashed; }
+.sched-under.is-missing::after { border-left-color: #d97706; }
+.sched-placeholder {
+    padding: 0.7rem 0.85rem; border: 1px dashed #d97706; border-radius: 10px; background: rgba(217, 119, 6, 0.06);
+    font-size: 0.82rem; color: #92400e;
+}
+.sched-placeholder i { margin-right: 0.35rem; }
+
+.sched-add-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding-top: 0.2rem; }
+.sched-empty { padding: 1.5rem 1rem; }
+
+/* The units note and the "No laboratory" chip share one slot. */
+.sched-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
+.sched-card-clash { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+.sched-colhead { display: none; }
+
+/* ── Wide: one line per meeting ──────────────────────────────────────────────────────────────────────────────────
+   Measured on the cards' own width (a container query), not the screen: the sidebar takes a share of it. The right-hand
+   columns have fixed widths and only the subject stretches, so a laboratory, indented under its lecture, still lines up
+   with every other row. The field names move to one sticky header row, and stay on each field for screen readers. */
+.sched-cards { container-type: inline-size; container-name: sched; }
+@container sched (min-width: 1090px) {
+    .sched-group { gap: 0.4rem; }
+    .sched-card, .sched-colhead {
+        display: grid; align-items: center; column-gap: 0.5rem;
+        grid-template-columns: 7rem minmax(9rem, 1fr) 7.6rem 5.4rem 4rem 6.8rem 6.8rem 4.6rem 7.2rem 1.9rem;
+    }
+    .sched-card { padding: 0.4rem 0.6rem; row-gap: 0.25rem; }
+    .sched-card-head, .sched-card-fields, .sched-card-fields label { display: contents; }
+    .sched-card > *, .sched-card-head > *, .sched-card-fields input { grid-row: 1; }
+    .sched-card .sched-kind { grid-column: 1; width: 100%; padding: 0 0.35rem; letter-spacing: 0.04em; }
+    .sched-card .sched-subject-pick { grid-column: 2; flex: none; min-width: 0; width: 100%; }
+    .sched-card .sched-meta { grid-column: 3; flex-wrap: nowrap; min-width: 0; overflow: hidden; white-space: nowrap; }
+    .sched-card [data-field="edp_code"]      { grid-column: 4; }
+    .sched-card [data-field="schedule_days"] { grid-column: 5; }
+    .sched-card [data-field="start_time"]    { grid-column: 6; }
+    .sched-card [data-field="end_time"]      { grid-column: 7; }
+    .sched-card [data-field="room"]          { grid-column: 8; }
+    .sched-card .sched-state { grid-column: 9; margin-left: 0; white-space: nowrap; }
+    .sched-card .btn-icon { grid-column: 10; }
+    .sched-card .sched-card-clash { grid-column: 1 / -1; grid-row: 2; margin-top: 0; }
+    /* The name above each input is replaced by the header row; it stays for screen readers. */
+    .sched-card-fields label span {
+        position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+    .sched-card-fields input { padding: 0 0.35rem; }
+
+    /* The header row: same columns and the same side space as a card, so the names sit over their fields. It stays at
+       the top, under the page's top bar, while the list scrolls. */
+    .sched-colhead {
+        position: sticky; top: var(--topbar, 4rem); z-index: 3;
+        padding: 0.4rem 0.6rem; border-left: 4px solid transparent;
+        background: var(--surface, #fff); border-bottom: 1px solid var(--line);
+        font-size: 0.64rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint-ink, var(--slate));
+    }
+}
+
+@media (max-width: 720px) {
+    .sched-card-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sched-card .sched-subject-pick { flex-basis: 100%; }
+    .sched-state { margin-left: 0; }
+    .sched-under { margin-left: 1.5rem; }
+    .sched-under.has-link::before { left: -0.9rem; width: 0.9rem; }
 }

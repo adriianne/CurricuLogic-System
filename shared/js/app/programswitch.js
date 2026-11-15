@@ -10,6 +10,9 @@
 //   const sw = CurriculogicProgramSwitch.create({ wrap, key: 'registrar', onChange(value) { ... } });
 //   sw.setOptions([{ id: 7, code: 'BSIT', name: 'BS Information Technology' }, ...]);
 //   sw.value()   // 'all' or a programme id (number)
+//
+// A page that can only work on ONE programme at a time (the Department) passes allowAll: false: there is no "All"
+// entry, and a missing or stale choice falls back to the first programme (or to the one passed to setOptions).
 
 (function (root, factory) {
     if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -21,10 +24,12 @@ const ALL = 'all';
 
 /* The choice that applies to the options now on offer: a remembered programme the person no longer covers falls back
    to "all". Pure, so it can be tested. */
-function resolveChoice(stored, options) {
-    if (stored === undefined || stored === null || stored === '' || stored === ALL) return ALL;
+function resolveChoice(stored, options, allowAll) {
+    const list = options || [];
+    const fallback = allowAll === false && list.length ? Number(list[0].id) : ALL;
+    if (stored === undefined || stored === null || stored === '' || stored === ALL) return fallback;
     const id = Number(stored);
-    return (options || []).some(o => Number(o.id) === id) ? id : ALL;
+    return list.some(o => Number(o.id) === id) ? id : fallback;
 }
 
 /* What the button says. */
@@ -42,6 +47,7 @@ function esc(s) {
 function create(cfg) {
     const doc = (cfg.wrap && cfg.wrap.ownerDocument) || (typeof document !== 'undefined' ? document : null);
     const storageKey = 'curriculogic.programme.' + (cfg.key || 'page');
+    const allowAll = cfg.allowAll !== false;
     let options = [];
     let choice = ALL;
     let host = null;
@@ -98,7 +104,7 @@ function create(cfg) {
                 (name ? '<span class="pswitch-name">' + esc(name) + '</span>' : '') +
                 (on ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '') +
             '</li>';
-        menu.innerHTML = row(ALL, 'All my programmes', '', choice === ALL) +
+        menu.innerHTML = (allowAll ? row(ALL, 'All my programmes', '', choice === ALL) : '') +
             options.map(o => row(o.id, o.code, o.name, choice !== ALL && Number(choice) === Number(o.id))).join('');
     }
 
@@ -132,14 +138,15 @@ function create(cfg) {
 
     return {
         /* Offer these programmes. Shows the switch only when there are two or more, and hides the plain label then. */
-        setOptions(list) {
+        setOptions(list, initial) {
             options = (list || []).filter(o => o && o.id != null);
             build();
-            choice = resolveChoice(read(), options);
+            // [initial] (a programme id the page already knows) wins over what this tab remembered.
+            choice = resolveChoice(initial != null ? initial : read(), options, allowAll);
             const many = options.length > 1;
             if (host) host.hidden = !many;
             if (cfg.wrap) cfg.wrap.hidden = many;
-            if (!many) choice = ALL;
+            if (!many) choice = allowAll ? ALL : (options[0] ? Number(options[0].id) : ALL);
             paint();
             return choice;
         },

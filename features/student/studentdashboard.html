@@ -118,26 +118,30 @@
                     <div id="status-notice"></div>
 
                     <div class="stats">
-                        <div class="stat">
+                        <a class="stat stat-link" href="#plan">
                             <span class="stat-label">Eligible</span>
                             <span class="stat-value muted" id="stat-eligible">—</span>
                             <span class="stat-hint" id="stat-eligible-hint">Subjects you can take</span>
-                        </div>
-                        <div class="stat">
+                            <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                        </a>
+                        <a class="stat stat-link" href="#prospectus">
                             <span class="stat-label">Not yet available</span>
                             <span class="stat-value muted" id="stat-locked">—</span>
                             <span class="stat-hint">Prerequisites unmet</span>
-                        </div>
-                        <div class="stat">
+                            <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                        </a>
+                        <a class="stat stat-link" href="#record">
                             <span class="stat-label">Completed</span>
                             <span class="stat-value muted" id="stat-done">—</span>
                             <span class="stat-hint">Subjects passed</span>
-                        </div>
-                        <div class="stat">
+                            <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                        </a>
+                        <a class="stat stat-link" href="#record">
                             <span class="stat-label">Units earned</span>
                             <span class="stat-value muted" id="stat-units">—</span>
                             <span class="stat-hint">From your academic record</span>
-                        </div>
+                            <span class="stat-go">View <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
+                        </a>
                     </div>
 
                     <div class="dash-grid">
@@ -556,6 +560,7 @@
     <script src="../../cura/chatsuggestions.js"></script>
     <script src="../../cura/chatlist.js"></script>
     <script src="../../shared/engine/engine.js"></script>
+    <script src="../../shared/js/enrolment/planoverview.js"></script>
     <script src="../../shared/engine/preferences.js"></script>
     <script src="../../shared/js/curriculum/prospectusgrid.js"></script>
     <script src="../../shared/js/accounts/passwordrules.js"></script>
