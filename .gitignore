@@ -28,3 +28,6 @@ Thumbs.db
 
 # Dependencies
 node_modules/
+
+# What scripts/build-static.mjs builds for Vercel (rebuilt on every deploy)
+dist/

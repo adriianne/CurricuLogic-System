@@ -1,0 +1,19 @@
+# Files Vercel does not need to receive. The site is built by scripts/build-static.mjs, which copies only
+# index.html, assets/, cura/, features/ and shared/ into dist/, so none of these are ever published.
+# This list only keeps them out of command-line uploads and makes those uploads smaller.
+
+db/
+docs/
+tests/
+supabase/
+knowledge/
+data/
+workspace/
+secrets/
+.claude/
+.vscode/
+skills-lock.json
+README.md
+*.md
+.env
+.env.*
