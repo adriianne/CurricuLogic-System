@@ -1,32 +1,40 @@
 # Data reset runbook
 
 How to clear the test data and load the real programmes, subjects, sections and
-staff. **Written 2026-10-17. Nothing here has been run.** Do it only when the owner
+staff. **Written 2026-10-17, updated 2026-11-15 (schema as of migration 114). RUN ON THE LIVE DATABASE ON 2026-11-15** (1 administrator kept, curriculum backup in `workspace/backups/curriculum-before-reset-2026-11-15.json`, storage emptied, fresh snapshot `db/schema-snapshot-2026-11-15.sql`). What is left is step 4 onwards: set the term, then load the real data. Do it only when the owner
 says it is time, with a backup, and read the dry-run counts before committing.
 
 ## What stays and what goes
 
 | Stays | Goes |
 |---|---|
-| Database structure: tables, policies, functions, triggers (migrations up to 081) | Students and their records, requests, items, reviews |
+| Database structure: tables, policies, functions, triggers (migrations up to 114) | Students and their records, requests, items, reviews |
 | Edge functions and their secrets (Gemini key, mail settings) | Staff accounts (faculty, registrar, department) |
 | `system_config` (current term and academic year; set the real values afterwards) | Programmes, prospectuses, subjects, rules, elective lists |
-| `audit_log` (a trigger forbids deleting it; it keeps the history) | Offerings and sections, EDP codes |
-| ONE administrator account (your choice) | Notifications, Cura chats and preferences |
+| `audit_log` (a trigger forbids deleting it; it keeps the history) | Offerings and sections, EDP codes, the expected-student (EDP) list |
+| ONE administrator account (your choice) | Notifications, Cura chats and preferences, form-print log, login-attempt and Cura-usage logs |
 | Storage buckets and their rules | Grade uploads, import history, maintenance log |
 | | Every other login (including the test accounts) |
 | | Photos in Storage (done by hand, see step 5) |
 
-Row counts on 2026-10-17 (so the dry run can be compared): 23 students, 15 staff
-(7 faculty, 4 registrar, 4 department) and 1 administrator, 3 programmes, 5
-prospectuses, 278 subjects, 307 rules, 242 offerings, 13 requests, 97 academic
-records, 51 logins, 2 stored photos.
+Row counts on 2026-11-15 (so the dry run can be compared): 28 students, 15 staff
+(7 faculty, 4 registrar, 4 department; BSIT has two Department accounts) and 1
+administrator, 3 programmes, 9 prospectuses, 363 subjects, 365 rules, 235 offerings,
+24 requests (106 items, 72 reviews), 99 academic records, 56 logins (about 12 of them
+have no student or staff row), 5 stored files (4 photos, 1 staff avatar), 11 Cura chats
+(184 messages), 39 notifications, 39 form prints, 4 expected students, 5 grade files
+(47 rows), 220 audit-log rows (kept).
+
+Two things the dry run must show: the final table has **1 login and 1 administrator**,
+and **no error** at "delete from public.program" (that line used to fail on
+`expected_student` before 15 Nov).
 
 ## Before you start
 
 1. **Backup.** Supabase dashboard -> Database -> Backups (note the time of the latest
    one, or take a manual export). The newest schema snapshot is
-   `db/schema-snapshot-2026-10-17.sql` (structure only, no rows).
+   `db/schema-snapshot-2026-11-06.sql` (structure only, no rows, and it is older than
+   migrations 107-114: re-export with `db/tools/export-schema.sql` first).
 2. Keep the programme PDFs, the schedule file and the staff list ready: after the
    reset the system has no subjects and no staff, so nothing can be tested until they
    are loaded.

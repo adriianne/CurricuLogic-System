@@ -110,7 +110,7 @@ select * from audit_log where table_name = 'prospectus' and record_id = '13' ord
   no downloadable backups; daily backups are a paid-plan feature and point-in-time
   recovery is an add-on. **If that page shows none, make a manual export (below).**
 
-**Status, checked 2026-10-04:** the Backups page offers backups only on a paid plan, so this project has none. The manual exports below are the only data backup. The latest schema snapshot is `db/schema-snapshot-2026-10-13.sql` (generated 2026-10-13 after migration 070; its counts match the live database).
+**Status, checked 2026-10-04:** the Backups page offers backups only on a paid plan, so this project has none. The manual exports below are the only data backup. The latest schema snapshot is `db/schema-snapshot-2026-11-15.sql` (generated 2026-11-15 after migration 114, with the live counts: 95 functions, 99 policies).
 
 **Routine (before every demo or defence, and after every batch of migrations)**
 1. Run `db/tools/export-schema.sql` in the SQL editor. It returns one row per

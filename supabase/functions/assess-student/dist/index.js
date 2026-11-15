@@ -231,6 +231,7 @@ var require_core2 = __commonJS({
     function lockedSubjectIds(requests) {
       const latest = /* @__PURE__ */ new Map();
       for (const req of requests ?? []) {
+        if (req.status === "withdrawn") continue;
         for (const item of req.request_item ?? []) {
           if (!latest.has(item.subject_id)) latest.set(item.subject_id, { req, item });
         }

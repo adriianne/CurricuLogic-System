@@ -1,8 +1,9 @@
--- data-reset.sql   (WRITTEN, NEVER RUN)
+-- data-reset.sql   (RUN ON THE LIVE DATABASE on 15 Nov 2026, schema as of migration 114. It kept ONE administrator.
+--                  Running it again wipes everything created since, so only do that on purpose.)
 --
 -- Clears the live DATA so the real programmes, subjects, sections and staff can be
 -- loaded fresh. It keeps the structure (tables, policies, functions, migrations up
--- to 081), system_config (current term and year), the audit_log (append-only by
+-- to 114), system_config (current term and year), the audit_log (append-only by
 -- design), the Storage buckets and ONE administrator account.
 --
 -- IRREVERSIBLE. Read docs/DATA-RESET-RUNBOOK.md first. Needs the owner's explicit
@@ -30,7 +31,12 @@ begin
   end if;
 end $$;
 
--- 1. Requests and what hangs off them.
+-- 0. Small tables that have no owner row to cascade from (added after 17 Oct: db/086 to db/101).
+delete from public.account_stop_log;
+delete from public.cura_usage;
+delete from public.login_attempt;
+
+-- 1. Requests and what hangs off them (form_print cascades from request).
 delete from public.request_review;
 delete from public.request_item;
 delete from public.notification;                       -- all users, the kept admin too
@@ -54,7 +60,11 @@ delete from public.subject_offering;
 delete from public.subject;
 delete from public.prospectus;
 
--- 5. Staff (faculty, registrar, department), then programmes.
+-- 5. Staff (faculty, registrar, department), then programmes. The faculty_program, registrar_program and
+--    department_program lists (db/107, 110, 114) cascade from the staff rows, so they are empty before the
+--    programmes go. expected_student (the EDP list) points at a programme with NO cascade, so it goes first;
+--    without this line the programme delete fails.
+delete from public.expected_student;
 delete from public.faculty_staff;
 delete from public.registrar_staff;
 delete from public.department_staff;
@@ -84,6 +94,8 @@ union all select 'subject', count(*) from public.subject
 union all select 'subject_offering', count(*) from public.subject_offering
 union all select 'request', count(*) from public.request
 union all select 'academic_record', count(*) from public.academic_record
+union all select 'expected_student / program links', (select count(*) from public.expected_student) + (select count(*) from public.faculty_program) + (select count(*) from public.registrar_program) + (select count(*) from public.department_program)
+union all select 'chats / notifications / form prints', (select count(*) from public.ai_chat_message) + (select count(*) from public.notification) + (select count(*) from public.form_print)
 union all select 'audit_log (kept)', count(*) from public.audit_log;
 
 -- EDIT 2: rollback = dry run. Change to  commit;  only after the owner's yes.

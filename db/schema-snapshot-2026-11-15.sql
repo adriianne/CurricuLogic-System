@@ -1,6 +1,7 @@
--- CurricuLogic schema snapshot, generated 2026-10-13 16:23 UTC
+-- CurricuLogic schema snapshot, generated 2026-11-15 04:50 UTC
 -- extensions in use: pg_cron, pg_stat_statements, pgcrypto, plpgsql, supabase_vault, uuid-ossp
 set check_function_bodies = false;
+create sequence if not exists public.form_print_id_seq as bigint start with 1 increment by 1 minvalue 1 maxvalue 9223372036854775807 cache 1;
 create sequence if not exists public.grade_file_row_id_seq as integer start with 1 increment by 1 minvalue 1 maxvalue 2147483647 cache 1;
 create sequence if not exists public.staff_employee_seq as integer start with 1 increment by 1 minvalue 1 maxvalue 99999 cache 1;
 create sequence if not exists public.subject_offering_id_seq as integer start with 1 increment by 1 minvalue 1 maxvalue 2147483647 cache 1;
@@ -16,6 +17,17 @@ create table public.academic_record (
     created_at timestamp without time zone default now(),
     updated_at timestamp without time zone default now()
 );
+create table public.account_stop_log (
+    id uuid default gen_random_uuid() not null,
+    role text not null,
+    target_id uuid not null,
+    user_id uuid,
+    action text not null,
+    reason text,
+    actor_id uuid default auth.uid(),
+    created_at timestamp with time zone default now() not null,
+    seq bigint generated always as identity not null
+);
 create table public.advisee_assignment (
     assignment_id uuid default gen_random_uuid() not null,
     faculty_id uuid not null,
@@ -23,6 +35,13 @@ create table public.advisee_assignment (
     assigned_by uuid,
     assigned_at timestamp with time zone default now() not null,
     is_active boolean default true not null
+);
+create table public.ai_chat_conversation (
+    id uuid default gen_random_uuid() not null,
+    student_id uuid not null,
+    title text,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null
 );
 create table public.ai_chat_message (
     id bigint generated always as identity not null,
@@ -32,7 +51,13 @@ create table public.ai_chat_message (
     show_recommended_table boolean default false not null,
     created_at timestamp with time zone default now() not null,
     show_schedule_table boolean default false not null,
-    schedule_option text
+    schedule_option text,
+    conversation_id uuid
+);
+create table public.ai_chat_reset (
+    id bigint generated always as identity not null,
+    student_id uuid not null,
+    created_at timestamp with time zone default now() not null
 );
 create table public.audit_log (
     id integer generated always as identity not null,
@@ -52,6 +77,23 @@ create table public.bulk_upload_history (
     total_rows integer default 0 not null,
     success_count integer default 0 not null,
     failed_count integer default 0 not null,
+    created_at timestamp with time zone default now() not null
+);
+create table public.cura_usage (
+    id bigint generated always as identity not null,
+    created_at timestamp with time zone default now() not null,
+    user_id uuid,
+    client text,
+    status text not null,
+    http_status integer,
+    duration_ms integer not null,
+    model text,
+    attempts integer,
+    had_wishes boolean default false not null
+);
+create table public.department_program (
+    department_id uuid not null,
+    program_id integer not null,
     created_at timestamp with time zone default now() not null
 );
 create table public.department_staff (
@@ -86,6 +128,25 @@ create table public.elective_group_member (
     elective_group_id integer not null,
     subject_id integer not null
 );
+create table public.expected_student (
+    id uuid default gen_random_uuid() not null,
+    student_id character varying(20) not null,
+    first_name character varying(100) not null,
+    last_name character varying(100) not null,
+    program_id integer not null,
+    email character varying(255) not null,
+    uploaded_by uuid default auth.uid(),
+    uploaded_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null,
+    year_level smallint,
+    curriculum_year smallint,
+    middle_name text
+);
+create table public.faculty_program (
+    faculty_id uuid not null,
+    program_id integer not null,
+    created_at timestamp with time zone default now() not null
+);
 create table public.faculty_staff (
     id uuid default uuid_generate_v4() not null,
     user_id uuid not null,
@@ -101,6 +162,13 @@ create table public.faculty_staff (
     created_via text default 'SELF_REGISTER'::text,
     must_change_password boolean default false not null,
     program_id integer
+);
+create table public.form_print (
+    id bigint default nextval('form_print_id_seq'::regclass) not null,
+    request_id integer not null,
+    printed_by uuid not null,
+    printed_as text not null,
+    printed_at timestamp with time zone default now() not null
 );
 create table public.grade_file (
     id integer generated always as identity not null,
@@ -135,6 +203,11 @@ create table public.grade_file_row (
     validation_status character varying default 'pending'::character varying not null,
     error_message text,
     processed_at timestamp without time zone
+);
+create table public.login_attempt (
+    id bigint generated always as identity not null,
+    key text not null,
+    attempted_at timestamp with time zone default now() not null
 );
 create table public.maintenance_log (
     id bigint generated always as identity not null,
@@ -189,6 +262,11 @@ create table public.prospectus (
     created_at timestamp without time zone default now(),
     updated_at timestamp without time zone default now()
 );
+create table public.registrar_program (
+    registrar_id uuid not null,
+    program_id integer not null,
+    created_at timestamp with time zone default now() not null
+);
 create table public.registrar_staff (
     id uuid default uuid_generate_v4() not null,
     user_id uuid not null,
@@ -227,7 +305,11 @@ create table public.request_item (
     remarks text,
     created_at timestamp without time zone default now(),
     updated_at timestamp without time zone default now(),
-    offering_id integer
+    offering_id integer,
+    edp_result text,
+    edp_reason text,
+    edp_reported_at timestamp with time zone,
+    section_changed_at timestamp with time zone
 );
 create table public.request_review (
     id integer generated always as identity not null,
@@ -275,7 +357,8 @@ create table public.student_preference (
     student_id uuid not null,
     time_of_day text,
     load text,
-    updated_at timestamp with time zone default now() not null
+    updated_at timestamp with time zone default now() not null,
+    compact boolean default false not null
 );
 create table public.subject (
     id integer generated always as identity not null,
@@ -363,165 +446,206 @@ create table public.university_student (
     created_by uuid,
     created_via text default 'SELF_REGISTER'::text,
     must_change_password boolean default false not null,
-    prospectus_id integer
+    prospectus_id integer,
+    middle_name text
 );
+alter table public.academic_record add constraint academic_record_attempt_key UNIQUE (student_id, subject_id, taken_term, taken_year);
 alter table public.academic_record add constraint academic_record_pkey PRIMARY KEY (id);
 alter table public.academic_record add constraint academic_record_status_values CHECK (((status IS NULL) OR ((status)::text = ANY ('{PASSED,FAILED,ENROLLED,DROPPED}'::text[]))));
-alter table public.academic_record add constraint academic_record_attempt_key UNIQUE (student_id, subject_id, taken_term, taken_year);
+alter table public.account_stop_log add constraint account_stop_log_action_check CHECK ((action = ANY (ARRAY['stop'::text, 'restore'::text])));
+alter table public.account_stop_log add constraint account_stop_log_pkey PRIMARY KEY (id);
+alter table public.account_stop_log add constraint account_stop_log_stop_needs_reason CHECK (((action = 'restore'::text) OR ((reason IS NOT NULL) AND (btrim(reason) <> ''::text))));
+alter table public.account_stop_log add constraint account_stop_log_reason_length CHECK (((reason IS NULL) OR (char_length(reason) <= 300)));
+alter table public.account_stop_log add constraint account_stop_log_role_check CHECK ((role = ANY (ARRAY['student'::text, 'faculty'::text, 'registrar'::text, 'department'::text])));
 alter table public.advisee_assignment add constraint advisee_assignment_faculty_id_student_id_key UNIQUE (faculty_id, student_id);
 alter table public.advisee_assignment add constraint advisee_assignment_pkey PRIMARY KEY (assignment_id);
-alter table public.ai_chat_message add constraint ai_chat_message_schedule_option_maxlen CHECK (((schedule_option IS NULL) OR (char_length(schedule_option) <= 60)));
+alter table public.ai_chat_conversation add constraint ai_chat_conversation_pkey PRIMARY KEY (id);
+alter table public.ai_chat_conversation add constraint ai_chat_conversation_title_check CHECK (((title IS NULL) OR ((char_length(btrim(title)) >= 1) AND (char_length(btrim(title)) <= 60))));
 alter table public.ai_chat_message add constraint ai_chat_message_pkey PRIMARY KEY (id);
-alter table public.ai_chat_message add constraint ai_chat_message_text_maxlen CHECK ((char_length(text) <= 4000));
 alter table public.ai_chat_message add constraint ai_chat_message_role_check CHECK ((role = ANY (ARRAY['user'::text, 'model'::text])));
+alter table public.ai_chat_message add constraint ai_chat_message_schedule_option_maxlen CHECK (((schedule_option IS NULL) OR (char_length(schedule_option) <= 60)));
+alter table public.ai_chat_message add constraint ai_chat_message_text_maxlen CHECK ((char_length(text) <= 4000));
+alter table public.ai_chat_reset add constraint ai_chat_reset_pkey PRIMARY KEY (id);
 alter table public.audit_log add constraint audit_log_pkey PRIMARY KEY (id);
-alter table public.bulk_upload_history add constraint bulk_upload_history_file_name_maxlen CHECK ((char_length(file_name) <= 255));
 alter table public.bulk_upload_history add constraint bulk_upload_history_pkey PRIMARY KEY (id);
-alter table public.department_staff add constraint department_staff_avatar_url_maxlen CHECK ((char_length(avatar_url) <= 500));
-alter table public.department_staff add constraint department_staff_email_format CHECK ((((email)::text ~* '^[a-z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'::text) AND ((email)::text !~ '\.\.'::text) AND ((email)::text !~ '(^\.|\.@)'::text) AND (char_length(split_part((email)::text, '@'::text, 1)) <= 64) AND (char_length((email)::text) <= 254) AND ((email)::text ~* '\.[a-z]{2,}$'::text)));
-alter table public.department_staff add constraint department_staff_employee_id_key UNIQUE (employee_id);
-alter table public.department_staff add constraint department_staff_pkey PRIMARY KEY (id);
-alter table public.department_staff add constraint department_staff_first_name_chars CHECK ((((first_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((first_name)::text ~ '[[:alpha:]]'::text)));
-alter table public.department_staff add constraint department_staff_user_id_key UNIQUE (user_id);
-alter table public.department_staff add constraint department_staff_employee_id_format CHECK (((employee_id)::text ~ '^EMP-[0-9]{5}$'::text));
+alter table public.bulk_upload_history add constraint bulk_upload_history_file_name_maxlen CHECK ((char_length(file_name) <= 255));
+alter table public.cura_usage add constraint cura_usage_status_check CHECK ((status = ANY (ARRAY['ok'::text, 'busy'::text, 'error'::text, 'bad_request'::text])));
+alter table public.cura_usage add constraint cura_usage_attempts_check CHECK (((attempts IS NULL) OR (attempts >= 0)));
+alter table public.cura_usage add constraint cura_usage_pkey PRIMARY KEY (id);
+alter table public.cura_usage add constraint cura_usage_client_check CHECK (((client IS NULL) OR (client = ANY (ARRAY['web'::text, 'app'::text]))));
+alter table public.cura_usage add constraint cura_usage_duration_ms_check CHECK ((duration_ms >= 0));
+alter table public.department_program add constraint department_program_pkey PRIMARY KEY (department_id, program_id);
 alter table public.department_staff add constraint department_staff_last_name_chars CHECK ((((last_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((last_name)::text ~ '[[:alpha:]]'::text)));
 alter table public.department_staff add constraint department_staff_created_via_maxlen CHECK ((char_length(created_via) <= 30));
+alter table public.department_staff add constraint department_staff_employee_id_format CHECK (((employee_id)::text ~ '^EMP-[0-9]{5}$'::text));
+alter table public.department_staff add constraint department_staff_avatar_url_maxlen CHECK ((char_length(avatar_url) <= 500));
+alter table public.department_staff add constraint department_staff_user_id_key UNIQUE (user_id);
+alter table public.department_staff add constraint department_staff_employee_id_key UNIQUE (employee_id);
+alter table public.department_staff add constraint department_staff_email_format CHECK ((((email)::text ~* '^[a-z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'::text) AND ((email)::text !~ '\.\.'::text) AND ((email)::text !~ '(^\.|\.@)'::text) AND (char_length(split_part((email)::text, '@'::text, 1)) <= 64) AND (char_length((email)::text) <= 254) AND ((email)::text ~* '\.[a-z]{2,}$'::text)));
+alter table public.department_staff add constraint department_staff_first_name_chars CHECK ((((first_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((first_name)::text ~ '[[:alpha:]]'::text)));
+alter table public.department_staff add constraint department_staff_pkey PRIMARY KEY (id);
 alter table public.elective_group add constraint elective_group_pkey PRIMARY KEY (id);
 alter table public.elective_group_member add constraint elective_group_member_pkey PRIMARY KEY (id);
 alter table public.elective_group_member add constraint elective_group_member_elective_group_id_subject_id_key UNIQUE (elective_group_id, subject_id);
-alter table public.faculty_staff add constraint faculty_staff_first_name_chars CHECK ((((first_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((first_name)::text ~ '[[:alpha:]]'::text)));
-alter table public.faculty_staff add constraint faculty_staff_employee_id_format CHECK (((employee_id)::text ~ '^EMP-[0-9]{5}$'::text));
-alter table public.faculty_staff add constraint faculty_staff_last_name_chars CHECK ((((last_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((last_name)::text ~ '[[:alpha:]]'::text)));
+alter table public.expected_student add constraint expected_student_curriculum_year_range CHECK (((curriculum_year IS NULL) OR ((curriculum_year >= 2000) AND (curriculum_year <= 2100))));
+alter table public.expected_student add constraint expected_student_student_id_key UNIQUE (student_id);
+alter table public.expected_student add constraint expected_student_year_level_check CHECK (((year_level IS NULL) OR ((year_level >= 1) AND (year_level <= 4))));
+alter table public.expected_student add constraint expected_student_middle_name_chars CHECK (((middle_name IS NULL) OR (((char_length(middle_name) >= 2) AND (char_length(middle_name) <= 60)) AND (middle_name !~ '[\x01-\x1f\x7f-\x9f​-‏ -‮⁠-⁤﻿<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND (middle_name ~ '^[[:alpha:]]'::text) AND (middle_name ~ '[[:alpha:]].*[[:alpha:]]'::text))));
+alter table public.expected_student add constraint expected_student_pkey PRIMARY KEY (id);
+alter table public.faculty_program add constraint faculty_program_pkey PRIMARY KEY (faculty_id, program_id);
 alter table public.faculty_staff add constraint faculty_staff_created_via_maxlen CHECK ((char_length(created_via) <= 30));
-alter table public.faculty_staff add constraint faculty_staff_employee_id_key UNIQUE (employee_id);
-alter table public.faculty_staff add constraint faculty_staff_user_id_key UNIQUE (user_id);
-alter table public.faculty_staff add constraint faculty_staff_pkey PRIMARY KEY (id);
 alter table public.faculty_staff add constraint faculty_staff_email_format CHECK ((((email)::text ~* '^[a-z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'::text) AND ((email)::text !~ '\.\.'::text) AND ((email)::text !~ '(^\.|\.@)'::text) AND (char_length(split_part((email)::text, '@'::text, 1)) <= 64) AND (char_length((email)::text) <= 254) AND ((email)::text ~* '\.[a-z]{2,}$'::text)));
+alter table public.faculty_staff add constraint faculty_staff_last_name_chars CHECK ((((last_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((last_name)::text ~ '[[:alpha:]]'::text)));
+alter table public.faculty_staff add constraint faculty_staff_first_name_chars CHECK ((((first_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((first_name)::text ~ '[[:alpha:]]'::text)));
+alter table public.faculty_staff add constraint faculty_staff_pkey PRIMARY KEY (id);
+alter table public.faculty_staff add constraint faculty_staff_user_id_key UNIQUE (user_id);
+alter table public.faculty_staff add constraint faculty_staff_employee_id_key UNIQUE (employee_id);
+alter table public.faculty_staff add constraint faculty_staff_employee_id_format CHECK (((employee_id)::text ~ '^EMP-[0-9]{5}$'::text));
+alter table public.form_print add constraint form_print_pkey PRIMARY KEY (id);
+alter table public.form_print add constraint form_print_printed_as_check CHECK ((printed_as = ANY (ARRAY['student'::text, 'faculty'::text, 'registrar'::text])));
 alter table public.grade_file add constraint grade_file_pkey PRIMARY KEY (id);
-alter table public.grade_file add constraint grade_file_status_values CHECK (((status IS NULL) OR ((status)::text = ANY ('{pending,processing,completed,failed}'::text[]))));
 alter table public.grade_file add constraint grade_file_error_log_maxlen CHECK ((char_length(error_log) <= 50000));
-alter table public.grade_file_row add constraint grade_file_row_error_message_maxlen CHECK ((char_length(error_message) <= 500));
-alter table public.grade_file_row add constraint grade_file_row_raw_grade_maxlen CHECK ((char_length((raw_grade)::text) <= 20));
-alter table public.grade_file_row add constraint grade_file_row_validation_valid CHECK (((validation_status)::text = ANY ((ARRAY['pending'::character varying, 'matched'::character varying, 'rejected'::character varying, 'applied'::character varying])::text[])));
-alter table public.grade_file_row add constraint grade_file_row_pkey PRIMARY KEY (id);
-alter table public.grade_file_row add constraint grade_file_row_raw_subject_code_maxlen CHECK ((char_length((raw_subject_code)::text) <= 60));
+alter table public.grade_file add constraint grade_file_status_values CHECK (((status IS NULL) OR ((status)::text = ANY ('{pending,processing,completed,failed}'::text[]))));
 alter table public.grade_file_row add constraint grade_file_row_status_values CHECK (((status IS NULL) OR ((status)::text = ANY ('{PASSED,FAILED,ENROLLED,DROPPED}'::text[]))));
 alter table public.grade_file_row add constraint grade_file_row_raw_student_name_maxlen CHECK ((char_length((raw_student_name)::text) <= 200));
+alter table public.grade_file_row add constraint grade_file_row_raw_grade_maxlen CHECK ((char_length((raw_grade)::text) <= 20));
+alter table public.grade_file_row add constraint grade_file_row_error_message_maxlen CHECK ((char_length(error_message) <= 500));
+alter table public.grade_file_row add constraint grade_file_row_pkey PRIMARY KEY (id);
+alter table public.grade_file_row add constraint grade_file_row_validation_valid CHECK (((validation_status)::text = ANY ((ARRAY['pending'::character varying, 'matched'::character varying, 'rejected'::character varying, 'applied'::character varying])::text[])));
+alter table public.grade_file_row add constraint grade_file_row_raw_subject_code_maxlen CHECK ((char_length((raw_subject_code)::text) <= 60));
+alter table public.login_attempt add constraint login_attempt_key_check CHECK ((char_length(key) <= 254));
+alter table public.login_attempt add constraint login_attempt_pkey PRIMARY KEY (id);
 alter table public.maintenance_log add constraint maintenance_log_task_maxlen CHECK ((char_length(task) <= 50));
 alter table public.maintenance_log add constraint maintenance_log_pkey PRIMARY KEY (id);
-alter table public.notification add constraint notification_pkey PRIMARY KEY (id);
 alter table public.notification add constraint notification_message_maxlen CHECK ((char_length(message) <= 1000));
-alter table public.prerequisite add constraint prerequisite_pkey PRIMARY KEY (id);
+alter table public.notification add constraint notification_pkey PRIMARY KEY (id);
 alter table public.prerequisite add constraint valid_prerequisite CHECK (((((requirement_type)::text = ANY (ARRAY['prerequisite'::text, 'co_requisite'::text])) AND (prerequisite_subject_id IS NOT NULL)) OR (((requirement_type)::text = 'standing'::text) AND (prerequisite_subject_id IS NULL) AND (threshold_value IS NOT NULL))));
-alter table public.program add constraint program_max_units_graduating_check CHECK ((max_units_graduating > 0));
-alter table public.program add constraint program_code_key UNIQUE (code);
-alter table public.program add constraint program_pkey PRIMARY KEY (id);
+alter table public.prerequisite add constraint prerequisite_pkey PRIMARY KEY (id);
 alter table public.program add constraint program_code_shape CHECK (((code)::text ~ '^[A-Za-z]{2,10}$'::text));
-alter table public.program add constraint program_target_units_check CHECK ((target_units > 0));
 alter table public.program add constraint program_max_units_check CHECK ((max_units > 0));
+alter table public.program add constraint program_code_key UNIQUE (code);
+alter table public.program add constraint program_max_units_graduating_check CHECK ((max_units_graduating > 0));
+alter table public.program add constraint program_pkey PRIMARY KEY (id);
+alter table public.program add constraint program_target_units_check CHECK ((target_units > 0));
 alter table public.prospectus add constraint prospectus_pkey PRIMARY KEY (id);
-alter table public.registrar_staff add constraint registrar_staff_employee_id_key UNIQUE (employee_id);
-alter table public.registrar_staff add constraint registrar_staff_last_name_chars CHECK ((((last_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((last_name)::text ~ '[[:alpha:]]'::text)));
-alter table public.registrar_staff add constraint registrar_staff_email_format CHECK ((((email)::text ~* '^[a-z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'::text) AND ((email)::text !~ '\.\.'::text) AND ((email)::text !~ '(^\.|\.@)'::text) AND (char_length(split_part((email)::text, '@'::text, 1)) <= 64) AND (char_length((email)::text) <= 254) AND ((email)::text ~* '\.[a-z]{2,}$'::text)));
-alter table public.registrar_staff add constraint registrar_staff_department_maxlen CHECK ((char_length((department)::text) <= 100));
+alter table public.registrar_program add constraint registrar_program_pkey PRIMARY KEY (registrar_id, program_id);
 alter table public.registrar_staff add constraint registrar_staff_created_via_maxlen CHECK ((char_length(created_via) <= 30));
 alter table public.registrar_staff add constraint registrar_staff_employee_id_format CHECK (((employee_id)::text ~ '^EMP-[0-9]{5}$'::text));
-alter table public.registrar_staff add constraint registrar_staff_user_id_key UNIQUE (user_id);
-alter table public.registrar_staff add constraint registrar_staff_pkey PRIMARY KEY (id);
 alter table public.registrar_staff add constraint registrar_staff_first_name_chars CHECK ((((first_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((first_name)::text ~ '[[:alpha:]]'::text)));
+alter table public.registrar_staff add constraint registrar_staff_last_name_chars CHECK ((((last_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((last_name)::text ~ '[[:alpha:]]'::text)));
+alter table public.registrar_staff add constraint registrar_staff_pkey PRIMARY KEY (id);
+alter table public.registrar_staff add constraint registrar_staff_employee_id_key UNIQUE (employee_id);
+alter table public.registrar_staff add constraint registrar_staff_department_maxlen CHECK ((char_length((department)::text) <= 100));
+alter table public.registrar_staff add constraint registrar_staff_user_id_key UNIQUE (user_id);
+alter table public.registrar_staff add constraint registrar_staff_email_format CHECK ((((email)::text ~* '^[a-z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'::text) AND ((email)::text !~ '\.\.'::text) AND ((email)::text !~ '(^\.|\.@)'::text) AND (char_length(split_part((email)::text, '@'::text, 1)) <= 64) AND (char_length((email)::text) <= 254) AND ((email)::text ~* '\.[a-z]{2,}$'::text)));
+alter table public.request add constraint request_registrar_notes_maxlen CHECK ((char_length(registrar_notes) <= 500));
 alter table public.request add constraint request_pkey PRIMARY KEY (id);
 alter table public.request add constraint request_registrar_status_check CHECK (((registrar_status IS NULL) OR (registrar_status = ANY (ARRAY['approved'::text, 'rejected'::text]))));
-alter table public.request add constraint request_registrar_notes_maxlen CHECK ((char_length(registrar_notes) <= 500));
-alter table public.request add constraint request_status_values CHECK (((status IS NULL) OR ((status)::text = ANY ('{submitted,approved,partially_approved,rejected}'::text[]))));
+alter table public.request add constraint request_status_values CHECK (((status IS NULL) OR ((status)::text = ANY (ARRAY['submitted'::text, 'approved'::text, 'partially_approved'::text, 'rejected'::text, 'withdrawn'::text]))));
+alter table public.request_item add constraint request_item_edp_reason_values CHECK (((edp_reason IS NULL) OR (edp_reason = ANY (ARRAY['full'::text, 'conflict'::text, 'record'::text, 'overload'::text, 'code_error'::text, 'hold'::text, 'other'::text]))));
+alter table public.request_item add constraint request_item_edp_result_values CHECK (((edp_result IS NULL) OR (edp_result = ANY (ARRAY['accepted'::text, 'rejected'::text]))));
 alter table public.request_item add constraint request_item_pkey PRIMARY KEY (id);
 alter table public.request_item add constraint request_item_remarks_maxlen CHECK ((char_length(remarks) <= 500));
 alter table public.request_item add constraint request_item_status_values CHECK (((status IS NULL) OR ((status)::text = ANY ('{pending,valid,flagged,approved,rejected}'::text[]))));
-alter table public.request_review add constraint request_review_status_values CHECK (((status IS NULL) OR ((status)::text = ANY ('{approved,partially_approved,rejected}'::text[]))));
-alter table public.request_review add constraint request_review_remarks_maxlen CHECK ((char_length(remarks) <= 5000));
+alter table public.request_item add constraint request_item_edp_reason_rule CHECK (((edp_reason IS NULL) OR (edp_result = 'rejected'::text)));
 alter table public.request_review add constraint request_review_pkey PRIMARY KEY (id);
+alter table public.request_review add constraint request_review_remarks_maxlen CHECK ((char_length(remarks) <= 5000));
+alter table public.request_review add constraint request_review_status_values CHECK (((status IS NULL) OR ((status)::text = ANY ('{approved,partially_approved,rejected}'::text[]))));
 alter table public.student_id_counter add constraint student_id_counter_pkey PRIMARY KEY (year);
-alter table public.student_preference add constraint student_preference_load_maxlen CHECK ((char_length(load) <= 20));
-alter table public.student_preference add constraint student_preference_time_of_day_maxlen CHECK ((char_length(time_of_day) <= 20));
 alter table public.student_preference add constraint student_preference_load_check CHECK ((load = ANY (ARRAY['light'::text, 'regular'::text, 'full'::text])));
-alter table public.student_preference add constraint student_preference_pkey PRIMARY KEY (student_id);
+alter table public.student_preference add constraint student_preference_load_maxlen CHECK ((char_length(load) <= 20));
 alter table public.student_preference add constraint student_preference_time_of_day_check CHECK ((time_of_day = ANY (ARRAY['morning'::text, 'afternoon'::text, 'evening'::text])));
-alter table public.subject add constraint subject_prospectus_id_code_key UNIQUE (prospectus_id, code);
-alter table public.subject add constraint subject_pkey PRIMARY KEY (id);
-alter table public.subject add constraint subject_elective_type_check CHECK (((elective_type IS NULL) OR ((elective_type)::text = ANY ((ARRAY['IT'::character varying, 'FREE'::character varying])::text[]))));
-alter table public.subject add constraint subject_category_check CHECK (((category IS NULL) OR ((category)::text = ANY ((ARRAY['GE'::character varying, 'COMMON_COMPUTING'::character varying, 'PROFESSIONAL_IT'::character varying, 'ELECTIVE'::character varying, 'OTHER'::character varying])::text[]))));
-alter table public.subject add constraint subject_category_maxlen CHECK ((char_length((category)::text) <= 50));
+alter table public.student_preference add constraint student_preference_time_of_day_maxlen CHECK ((char_length(time_of_day) <= 20));
+alter table public.student_preference add constraint student_preference_pkey PRIMARY KEY (student_id);
 alter table public.subject add constraint subject_elective_type_maxlen CHECK ((char_length((elective_type)::text) <= 50));
+alter table public.subject add constraint subject_category_maxlen CHECK ((char_length((category)::text) <= 50));
+alter table public.subject add constraint subject_elective_type_check CHECK (((elective_type IS NULL) OR ((elective_type)::text = ANY ((ARRAY['IT'::character varying, 'FREE'::character varying])::text[]))));
+alter table public.subject add constraint subject_prospectus_id_code_key UNIQUE (prospectus_id, code);
 alter table public.subject add constraint subject_code_shape CHECK ((((code)::text ~ '^[A-Z][A-Z0-9 _-]*$'::text) AND (char_length((code)::text) <= 20) AND ((code)::text = btrim((code)::text)) AND ((code)::text !~ '  '::text)));
-alter table public.subject_offering add constraint subject_offering_term_check CHECK (((term >= 1) AND (term <= 3)));
-alter table public.subject_offering add constraint subject_offering_pkey PRIMARY KEY (id);
+alter table public.subject add constraint subject_pkey PRIMARY KEY (id);
+alter table public.subject add constraint subject_category_check CHECK (((category IS NULL) OR ((category)::text = ANY ((ARRAY['GE'::character varying, 'COMMON_COMPUTING'::character varying, 'PROFESSIONAL_IT'::character varying, 'ELECTIVE'::character varying, 'OTHER'::character varying])::text[]))));
 alter table public.subject_offering add constraint subject_offering_edp_code_maxlen CHECK ((char_length((edp_code)::text) <= 20));
-alter table public.subject_offering add constraint uq_offering_slot UNIQUE (subject_id, academic_year, term, section, meeting_type);
-alter table public.subject_offering add constraint subject_offering_section_maxlen CHECK ((char_length((section)::text) <= 50));
-alter table public.subject_offering add constraint uq_offering_edp UNIQUE (academic_year, term, edp_code);
-alter table public.subject_offering add constraint subject_offering_instructor_maxlen CHECK ((char_length((instructor)::text) <= 150));
-alter table public.subject_offering add constraint subject_offering_meeting_type_values CHECK (((meeting_type IS NULL) OR ((meeting_type)::text = ANY ('{LEC,LAB}'::text[]))));
 alter table public.subject_offering add constraint subject_offering_schedule_days_maxlen CHECK ((char_length((schedule_days)::text) <= 20));
+alter table public.subject_offering add constraint subject_offering_section_maxlen CHECK ((char_length((section)::text) <= 50));
 alter table public.subject_offering add constraint subject_offering_room_maxlen CHECK ((char_length((room)::text) <= 50));
+alter table public.subject_offering add constraint subject_offering_meeting_type_values CHECK (((meeting_type IS NULL) OR ((meeting_type)::text = ANY ('{LEC,LAB}'::text[]))));
+alter table public.subject_offering add constraint uq_offering_edp UNIQUE (academic_year, term, edp_code);
+alter table public.subject_offering add constraint uq_offering_slot UNIQUE (subject_id, academic_year, term, section, meeting_type);
 alter table public.subject_offering add constraint chk_meeting_type CHECK (((meeting_type)::text = ANY ((ARRAY['LEC'::character varying, 'LAB'::character varying])::text[])));
+alter table public.subject_offering add constraint subject_offering_pkey PRIMARY KEY (id);
+alter table public.subject_offering add constraint subject_offering_term_check CHECK (((term >= 1) AND (term <= 3)));
+alter table public.subject_offering add constraint subject_offering_instructor_maxlen CHECK ((char_length((instructor)::text) <= 150));
 alter table public.system_administrator add constraint system_administrator_last_name_chars CHECK ((((last_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((last_name)::text ~ '[[:alpha:]]'::text)));
-alter table public.system_administrator add constraint system_administrator_employee_id_key UNIQUE (employee_id);
-alter table public.system_administrator add constraint system_administrator_created_via_maxlen CHECK ((char_length(created_via) <= 30));
-alter table public.system_administrator add constraint system_administrator_username_maxlen CHECK ((char_length(username) <= 50));
+alter table public.system_administrator add constraint system_administrator_user_id_key UNIQUE (user_id);
 alter table public.system_administrator add constraint system_administrator_first_name_chars CHECK ((((first_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((first_name)::text ~ '[[:alpha:]]'::text)));
+alter table public.system_administrator add constraint system_administrator_employee_id_key UNIQUE (employee_id);
 alter table public.system_administrator add constraint system_administrator_email_format CHECK ((((email)::text ~* '^[a-z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'::text) AND ((email)::text !~ '\.\.'::text) AND ((email)::text !~ '(^\.|\.@)'::text) AND (char_length(split_part((email)::text, '@'::text, 1)) <= 64) AND (char_length((email)::text) <= 254) AND ((email)::text ~* '\.[a-z]{2,}$'::text)));
+alter table public.system_administrator add constraint system_administrator_employee_id_format CHECK (((employee_id)::text ~ '^SYS-[A-Z0-9]{3,12}$'::text));
+alter table public.system_administrator add constraint system_administrator_username_maxlen CHECK ((char_length(username) <= 50));
+alter table public.system_administrator add constraint system_administrator_created_via_maxlen CHECK ((char_length(created_via) <= 30));
 alter table public.system_administrator add constraint system_administrator_username_key UNIQUE (username);
 alter table public.system_administrator add constraint system_administrator_pkey PRIMARY KEY (id);
-alter table public.system_administrator add constraint system_administrator_employee_id_format CHECK (((employee_id)::text ~ '^SYS-[A-Z0-9]{3,12}$'::text));
-alter table public.system_administrator add constraint system_administrator_user_id_key UNIQUE (user_id);
+alter table public.system_config add constraint system_config_term_range CHECK (((current_term >= 1) AND (current_term <= 3)));
 alter table public.system_config add constraint system_config_pkey PRIMARY KEY (id);
 alter table public.system_config add constraint system_config_singleton CHECK ((id = 1));
-alter table public.system_config add constraint system_config_term_range CHECK (((current_term >= 1) AND (current_term <= 3)));
-alter table public.university_student add constraint university_student_first_name_chars CHECK ((((first_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((first_name)::text ~ '[[:alpha:]]'::text)));
+alter table public.university_student add constraint university_student_user_id_key UNIQUE (user_id);
+alter table public.university_student add constraint university_student_pkey PRIMARY KEY (id);
+alter table public.university_student add constraint university_student_student_id_key UNIQUE (student_id);
+alter table public.university_student add constraint university_student_approval_status_valid CHECK ((approval_status = ANY (ARRAY['pending'::text, 'approved'::text, 'declined'::text])));
 alter table public.university_student add constraint university_student_review_note_maxlen CHECK ((char_length(review_note) <= 500));
 alter table public.university_student add constraint university_student_created_via_maxlen CHECK ((char_length(created_via) <= 30));
-alter table public.university_student add constraint university_student_id_format CHECK (((student_id IS NULL) OR ((student_id)::text ~ '^\d{7}$'::text)));
-alter table public.university_student add constraint university_student_approval_status_valid CHECK ((approval_status = ANY (ARRAY['pending'::text, 'approved'::text, 'declined'::text])));
 alter table public.university_student add constraint university_student_declared_path_values CHECK (((declared_path IS NULL) OR ((declared_path)::text = ANY ('{new,existing}'::text[]))));
 alter table public.university_student add constraint university_student_email_format CHECK ((((email)::text ~* '^[a-z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'::text) AND ((email)::text !~ '\.\.'::text) AND ((email)::text !~ '(^\.|\.@)'::text) AND (char_length(split_part((email)::text, '@'::text, 1)) <= 64) AND (char_length((email)::text) <= 254) AND ((email)::text ~* '\.[a-z]{2,}$'::text)));
-alter table public.university_student add constraint university_student_pkey PRIMARY KEY (id);
+alter table public.university_student add constraint university_student_first_name_chars CHECK ((((first_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((first_name)::text ~ '[[:alpha:]]'::text)));
 alter table public.university_student add constraint university_student_last_name_chars CHECK ((((last_name)::text !~ '[\x01-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND ((last_name)::text ~ '[[:alpha:]]'::text)));
-alter table public.university_student add constraint university_student_student_id_key UNIQUE (student_id);
-alter table public.university_student add constraint university_student_user_id_key UNIQUE (user_id);
-alter table public.academic_record add constraint academic_record_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
+alter table public.university_student add constraint university_student_id_format CHECK (((student_id IS NULL) OR ((student_id)::text ~ '^\d{8}$'::text)));
+alter table public.university_student add constraint university_student_middle_name_chars CHECK (((middle_name IS NULL) OR (((char_length(middle_name) >= 2) AND (char_length(middle_name) <= 60)) AND (middle_name !~ '[\x01-\x1f\x7f-\x9f​-‏ -‮⁠-⁤﻿<>=@+*%$#^~|\\/{}\[\];:"!?0-9]'::text) AND (middle_name ~ '^[[:alpha:]]'::text) AND (middle_name ~ '[[:alpha:]].*[[:alpha:]]'::text))));
 alter table public.academic_record add constraint academic_record_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES subject(id);
-alter table public.advisee_assignment add constraint advisee_assignment_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
+alter table public.academic_record add constraint academic_record_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
 alter table public.advisee_assignment add constraint advisee_assignment_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES auth.users(id) ON DELETE SET NULL;
 alter table public.advisee_assignment add constraint advisee_assignment_faculty_id_fkey FOREIGN KEY (faculty_id) REFERENCES faculty_staff(id) ON DELETE CASCADE;
+alter table public.advisee_assignment add constraint advisee_assignment_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
+alter table public.ai_chat_conversation add constraint ai_chat_conversation_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
 alter table public.ai_chat_message add constraint ai_chat_message_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
+alter table public.ai_chat_message add constraint ai_chat_message_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES ai_chat_conversation(id) ON DELETE CASCADE;
+alter table public.ai_chat_reset add constraint ai_chat_reset_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
 alter table public.bulk_upload_history add constraint bulk_upload_history_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES system_administrator(id);
+alter table public.department_program add constraint department_program_department_id_fkey FOREIGN KEY (department_id) REFERENCES department_staff(id) ON DELETE CASCADE;
+alter table public.department_program add constraint department_program_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
 alter table public.department_staff add constraint department_staff_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.department_staff add constraint department_staff_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
 alter table public.department_staff add constraint department_staff_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
 alter table public.elective_group add constraint elective_group_created_by_fkey FOREIGN KEY (created_by) REFERENCES department_staff(id);
 alter table public.elective_group add constraint elective_group_prospectus_id_fkey FOREIGN KEY (prospectus_id) REFERENCES prospectus(id);
-alter table public.elective_group_member add constraint elective_group_member_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES subject(id) ON DELETE CASCADE;
 alter table public.elective_group_member add constraint elective_group_member_elective_group_id_fkey FOREIGN KEY (elective_group_id) REFERENCES elective_group(id) ON DELETE CASCADE;
-alter table public.faculty_staff add constraint faculty_staff_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
+alter table public.elective_group_member add constraint elective_group_member_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES subject(id) ON DELETE CASCADE;
+alter table public.expected_student add constraint expected_student_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
+alter table public.faculty_program add constraint faculty_program_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
+alter table public.faculty_program add constraint faculty_program_faculty_id_fkey FOREIGN KEY (faculty_id) REFERENCES faculty_staff(id) ON DELETE CASCADE;
 alter table public.faculty_staff add constraint faculty_staff_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+alter table public.faculty_staff add constraint faculty_staff_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
 alter table public.faculty_staff add constraint faculty_staff_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
+alter table public.form_print add constraint form_print_request_id_fkey FOREIGN KEY (request_id) REFERENCES request(id) ON DELETE CASCADE;
 alter table public.grade_file add constraint grade_file_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES department_staff(id);
-alter table public.grade_file_row add constraint grade_file_row_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES subject(id);
-alter table public.grade_file_row add constraint grade_file_row_grade_file_id_fkey FOREIGN KEY (grade_file_id) REFERENCES grade_file(id) ON DELETE CASCADE;
 alter table public.grade_file_row add constraint grade_file_row_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id);
+alter table public.grade_file_row add constraint grade_file_row_grade_file_id_fkey FOREIGN KEY (grade_file_id) REFERENCES grade_file(id) ON DELETE CASCADE;
+alter table public.grade_file_row add constraint grade_file_row_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES subject(id);
 alter table public.notification add constraint notification_related_request_id_fkey FOREIGN KEY (related_request_id) REFERENCES request(id);
 alter table public.notification add constraint notification_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.prerequisite add constraint prerequisite_prerequisite_subject_id_fkey FOREIGN KEY (prerequisite_subject_id) REFERENCES subject(id);
 alter table public.prerequisite add constraint prerequisite_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES subject(id) ON DELETE CASCADE;
 alter table public.prerequisite add constraint prerequisite_created_by_fkey FOREIGN KEY (created_by) REFERENCES department_staff(id);
-alter table public.prospectus add constraint prospectus_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
-alter table public.prospectus add constraint prospectus_published_by_fkey FOREIGN KEY (published_by) REFERENCES department_staff(id);
 alter table public.prospectus add constraint prospectus_created_by_fkey FOREIGN KEY (created_by) REFERENCES department_staff(id);
+alter table public.prospectus add constraint prospectus_published_by_fkey FOREIGN KEY (published_by) REFERENCES department_staff(id);
+alter table public.prospectus add constraint prospectus_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
+alter table public.registrar_program add constraint registrar_program_registrar_id_fkey FOREIGN KEY (registrar_id) REFERENCES registrar_staff(id) ON DELETE CASCADE;
+alter table public.registrar_program add constraint registrar_program_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
+alter table public.registrar_staff add constraint registrar_staff_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.registrar_staff add constraint registrar_staff_program_id_fkey FOREIGN KEY (program_id) REFERENCES program(id);
 alter table public.registrar_staff add constraint registrar_staff_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
-alter table public.registrar_staff add constraint registrar_staff_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+alter table public.request add constraint request_registrar_id_fkey FOREIGN KEY (registrar_id) REFERENCES registrar_staff(id);
 alter table public.request add constraint request_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
 alter table public.request add constraint request_prospectus_id_fkey FOREIGN KEY (prospectus_id) REFERENCES prospectus(id);
-alter table public.request add constraint request_registrar_id_fkey FOREIGN KEY (registrar_id) REFERENCES registrar_staff(id);
 alter table public.request_item add constraint request_item_request_id_fkey FOREIGN KEY (request_id) REFERENCES request(id) ON DELETE CASCADE;
 alter table public.request_item add constraint request_item_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES subject(id);
 alter table public.request_item add constraint request_item_offering_id_fkey FOREIGN KEY (offering_id) REFERENCES subject_offering(id) ON DELETE SET NULL;
@@ -530,58 +654,78 @@ alter table public.request_review add constraint request_review_request_id_fkey 
 alter table public.stg_prerequisite add constraint stg_prerequisite_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES auth.users(id);
 alter table public.stg_subject add constraint stg_subject_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES auth.users(id);
 alter table public.student_preference add constraint student_preference_student_id_fkey FOREIGN KEY (student_id) REFERENCES university_student(id) ON DELETE CASCADE;
-alter table public.subject add constraint subject_created_by_fkey FOREIGN KEY (created_by) REFERENCES department_staff(id);
 alter table public.subject add constraint subject_retired_by_fkey FOREIGN KEY (retired_by) REFERENCES department_staff(id);
+alter table public.subject add constraint subject_created_by_fkey FOREIGN KEY (created_by) REFERENCES department_staff(id);
 alter table public.subject add constraint subject_prospectus_id_fkey FOREIGN KEY (prospectus_id) REFERENCES prospectus(id);
 alter table public.subject_offering add constraint subject_offering_created_by_fkey FOREIGN KEY (created_by) REFERENCES department_staff(id);
 alter table public.subject_offering add constraint subject_offering_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES subject(id) ON DELETE CASCADE;
 alter table public.system_administrator add constraint system_administrator_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
 alter table public.system_administrator add constraint system_administrator_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.system_config add constraint system_config_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES auth.users(id);
-alter table public.university_student add constraint university_student_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.university_student add constraint university_student_prospectus_id_fkey FOREIGN KEY (prospectus_id) REFERENCES prospectus(id);
+alter table public.university_student add constraint university_student_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.university_student add constraint university_student_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id);
 CREATE INDEX idx_academic_record_subject ON public.academic_record USING btree (subject_id);
 CREATE INDEX idx_academic_record_student ON public.academic_record USING btree (student_id);
-CREATE INDEX advisee_faculty_idx ON public.advisee_assignment USING btree (faculty_id);
+CREATE INDEX account_stop_log_target_idx ON public.account_stop_log USING btree (role, target_id, seq DESC);
 CREATE INDEX advisee_student_idx ON public.advisee_assignment USING btree (student_id);
+CREATE INDEX advisee_faculty_idx ON public.advisee_assignment USING btree (faculty_id);
+CREATE INDEX ai_chat_conversation_student_updated_idx ON public.ai_chat_conversation USING btree (student_id, updated_at DESC);
+CREATE INDEX ai_chat_message_conversation_idx ON public.ai_chat_message USING btree (conversation_id, created_at);
 CREATE INDEX ai_chat_message_student_id_created_at_idx ON public.ai_chat_message USING btree (student_id, created_at);
+CREATE INDEX ai_chat_reset_student_id_created_at_idx ON public.ai_chat_reset USING btree (student_id, created_at DESC);
+CREATE INDEX idx_audit_log_actor ON public.audit_log USING btree (actor_id);
 CREATE INDEX audit_log_record_idx ON public.audit_log USING btree (table_name, record_id);
 CREATE INDEX audit_log_created_idx ON public.audit_log USING btree (created_at DESC);
-CREATE INDEX idx_audit_log_actor ON public.audit_log USING btree (actor_id);
 CREATE INDEX idx_audit_log_table ON public.audit_log USING btree (table_name);
+CREATE INDEX cura_usage_created_idx ON public.cura_usage USING btree (created_at DESC);
+CREATE INDEX department_program_program_idx ON public.department_program USING btree (program_id);
+CREATE INDEX faculty_program_program_idx ON public.faculty_program USING btree (program_id);
+CREATE INDEX form_print_request_idx ON public.form_print USING btree (request_id, printed_at DESC);
 CREATE INDEX grade_file_row_file_idx ON public.grade_file_row USING btree (grade_file_id);
+CREATE INDEX login_attempt_key_time_idx ON public.login_attempt USING btree (key, attempted_at DESC);
 CREATE INDEX idx_notification_user ON public.notification USING btree (user_id);
 CREATE INDEX idx_prerequisite_subject ON public.prerequisite USING btree (subject_id);
 CREATE INDEX idx_prerequisite_dep ON public.prerequisite USING btree (prerequisite_subject_id);
-CREATE INDEX idx_prospectus_program ON public.prospectus USING btree (program_id);
 CREATE UNIQUE INDEX prospectus_one_active ON public.prospectus USING btree (program_id) WHERE is_active;
-CREATE INDEX idx_request_status ON public.request USING btree (status);
+CREATE INDEX idx_prospectus_program ON public.prospectus USING btree (program_id);
+CREATE INDEX registrar_program_program_idx ON public.registrar_program USING btree (program_id);
 CREATE INDEX idx_request_student ON public.request USING btree (student_id);
+CREATE INDEX idx_request_status ON public.request USING btree (status);
 CREATE INDEX idx_request_item_request ON public.request_item USING btree (request_id);
 CREATE INDEX stg_prerequisite_batch_idx ON public.stg_prerequisite USING btree (batch_id);
 CREATE INDEX stg_subject_batch_idx ON public.stg_subject USING btree (batch_id);
-CREATE UNIQUE INDEX subject_code_key_unique ON public.subject USING btree (prospectus_id, regexp_replace(upper((code)::text), '[^A-Z0-9]'::text, ''::text, 'g'::text));
 CREATE INDEX subject_active_idx ON public.subject USING btree (prospectus_id) WHERE is_active;
+CREATE UNIQUE INDEX subject_code_key_unique ON public.subject USING btree (prospectus_id, regexp_replace(upper((code)::text), '[^A-Z0-9]'::text, ''::text, 'g'::text));
 CREATE INDEX idx_subject_prospectus ON public.subject USING btree (prospectus_id);
 CREATE INDEX subject_offering_term_idx ON public.subject_offering USING btree (academic_year, term);
 CREATE INDEX idx_admin_username ON public.system_administrator USING btree (username);
 alter table public.academic_record enable row level security;
+alter table public.account_stop_log enable row level security;
 alter table public.advisee_assignment enable row level security;
+alter table public.ai_chat_conversation enable row level security;
 alter table public.ai_chat_message enable row level security;
+alter table public.ai_chat_reset enable row level security;
 alter table public.audit_log enable row level security;
 alter table public.bulk_upload_history enable row level security;
+alter table public.cura_usage enable row level security;
+alter table public.department_program enable row level security;
 alter table public.department_staff enable row level security;
 alter table public.elective_group enable row level security;
 alter table public.elective_group_member enable row level security;
+alter table public.expected_student enable row level security;
+alter table public.faculty_program enable row level security;
 alter table public.faculty_staff enable row level security;
+alter table public.form_print enable row level security;
 alter table public.grade_file enable row level security;
 alter table public.grade_file_row enable row level security;
+alter table public.login_attempt enable row level security;
 alter table public.maintenance_log enable row level security;
 alter table public.notification enable row level security;
 alter table public.prerequisite enable row level security;
 alter table public.program enable row level security;
 alter table public.prospectus enable row level security;
+alter table public.registrar_program enable row level security;
 alter table public.registrar_staff enable row level security;
 alter table public.request enable row level security;
 alter table public.request_item enable row level security;
@@ -610,6 +754,36 @@ AS $function$
     when exists (select 1 from university_student   where user_id = auth.uid()) then 'student'
     else 'unknown'
   end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public._form_print_role(p_request_id integer)
+ RETURNS text
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_student uuid;
+    v_status  text;
+    v_reg     text;
+begin
+    select student_id, status, registrar_status into v_student, v_status, v_reg
+      from request where id = p_request_id;
+    if not found then
+        return null;
+    end if;
+    if v_status not in ('approved', 'partially_approved') or v_reg is not distinct from 'rejected' then
+        return null;
+    end if;
+    if current_student_id() is not null and current_student_id() = v_student then
+        return 'student';
+    elsif is_adviser_of_request(p_request_id) then
+        return 'faculty';
+    elsif is_registrar_of_student(v_student) then
+        return 'registrar';
+    end if;
+    return null;
+end;
 $function$
 ;
 CREATE OR REPLACE FUNCTION public._fresh_student_account(p_user uuid, p_email text)
@@ -641,6 +815,19 @@ begin
 end;
 $function$
 ;
+CREATE OR REPLACE FUNCTION public._norm_name(p text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $function$
+  select regexp_replace(
+           translate(lower(btrim(coalesce(p, ''))),
+                     'ñáàâäãåéèêëíìîïóòôöõøúùûüýÿçšžčřłśźżňďťěůğ',
+                     'naaaaaaeeeeiiiioooooouuuuyycszcrlszzndteug'),
+           '\s+', ' ', 'g');
+$function$
+;
 CREATE OR REPLACE FUNCTION public._password_problem(p_password text, p_role text)
  RETURNS text
  LANGUAGE sql
@@ -657,6 +844,10 @@ AS $function$
       then 'Password must be at most 72 bytes (accented, emoji and non-Latin characters count as 2 to 4 each).'
     when p_password !~ '[^[:alnum:][:space:]]'
       then 'Password must include a special character, such as ! @ # $ or %.'
+    when p_password !~ '[[:alpha:]]'
+      then 'Password must include a letter.'
+    when p_password !~ '[[:digit:]]'
+      then 'Password must include a number.'
     else null
   end;
 $function$
@@ -736,13 +927,13 @@ begin
 
         if v_sid = '' then
             -- No ID given: the student is new to UC, so the system issues one
-            -- (YY + 5-digit counter) and the account is created as a new
+            -- (YY + 6-digit counter) and the account is created as a new
             -- student. Nobody types it.
             v_sid  := public.next_student_id();
             v_path := 'new';
         else
-            if v_sid !~ '^\d{7}$' then
-                raise exception 'Student ID must be 7 digits (got %).', p_student_id
+            if v_sid !~ '^\d{8}$' then
+                raise exception 'Student ID must be 8 digits (got %).', p_student_id
                     using errcode = '22023';
             end if;
 
@@ -926,6 +1117,31 @@ begin
 end;
 $function$
 ;
+CREATE OR REPLACE FUNCTION public._random_password()
+ RETURNS text
+ LANGUAGE sql
+ SET search_path TO 'pg_catalog', 'extensions'
+AS $function$
+  -- 24 random bytes, base64 -> 32 characters; '=' padding becomes '!' so a special
+  -- character is guaranteed, and 'Aa1' guarantees the rest. Never shown to anyone.
+  select translate(encode(extensions.gen_random_bytes(24), 'base64'), E'=\n', '!') || 'Aa1!';
+$function$
+;
+CREATE OR REPLACE FUNCTION public.academic_record_autoverify()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+    update public.university_student
+       set record_verified = true,
+           verified_at = coalesce(verified_at, now())
+     where id = new.student_id and is_approved is true and record_verified is not true;
+    return null;
+end;
+$function$
+;
 CREATE OR REPLACE FUNCTION public.activate_prospectus(target_id integer)
  RETURNS void
  LANGUAGE plpgsql
@@ -934,6 +1150,8 @@ CREATE OR REPLACE FUNCTION public.activate_prospectus(target_id integer)
 AS $function$
 declare
     v_program integer;
+    v_year    integer;
+    v_current integer;
 begin
     if not exists (
         select 1 from department_staff
@@ -943,13 +1161,13 @@ begin
             using errcode = '42501';
     end if;
 
-    select program_id into v_program from prospectus where id = target_id;
+    select program_id, academic_year into v_program, v_year from prospectus where id = target_id;
 
     if v_program is null then
         raise exception 'No such prospectus version.' using errcode = '22023';
     end if;
 
-    if v_program is distinct from public.my_department_program() then
+    if not public.department_covers_program(v_program) then
         raise exception 'You can only activate a curriculum version of your own programme.'
             using errcode = '42501';
     end if;
@@ -957,6 +1175,26 @@ begin
     if not exists (select 1 from subject where prospectus_id = target_id) then
         raise exception 'That version has no subjects. A student placed on it '
                         'would have no curriculum to be assessed against.'
+            using errcode = '22023';
+    end if;
+
+    if not exists (
+        select 1
+        from subject_offering o
+        join subject s on s.id = o.subject_id
+        where s.prospectus_id = target_id
+    ) then
+        raise exception 'That version has no schedule yet. Add its sections on the Schedule tab '
+                        'first, so a student placed on it has subjects to enrol in.'
+            using errcode = '22023';
+    end if;
+
+    select current_academic_year into v_current from system_config where id = 1;
+
+    if v_current is not null and v_year > v_current then
+        raise exception 'That version takes effect in % (the system is on %). A student placed on it '
+                        'would have a curriculum that has not started. Activate it when its year begins.',
+                        v_year, v_current
             using errcode = '22023';
     end if;
 
@@ -969,6 +1207,80 @@ begin
     set is_active = true, published_at = coalesce(published_at, now()),
         updated_at = now()
     where id = target_id;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.admin_last_sign_ins()
+ RETURNS TABLE(role text, account_id uuid, last_sign_in_at timestamp with time zone)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'auth', 'pg_temp'
+AS $function$
+begin
+  if not public.is_system_admin() then
+    raise exception 'Only an administrator can read sign-in times.' using errcode = '42501';
+  end if;
+
+  return query
+    select 'student'::text, s.id, u.last_sign_in_at
+      from public.university_student s join auth.users u on u.id = s.user_id
+    union all
+    select 'faculty'::text, f.id, u.last_sign_in_at
+      from public.faculty_staff f join auth.users u on u.id = f.user_id
+    union all
+    select 'registrar'::text, r.id, u.last_sign_in_at
+      from public.registrar_staff r join auth.users u on u.id = r.user_id
+    union all
+    select 'department'::text, d.id, u.last_sign_in_at
+      from public.department_staff d join auth.users u on u.id = d.user_id;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.ai_chat_drop_empty_conversations()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+    delete from public.ai_chat_conversation c
+     where c.id in (select conversation_id from old_rows where conversation_id is not null)
+       and not exists (select 1 from public.ai_chat_message m where m.conversation_id = c.id);
+    return null;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.ai_chat_message_before_insert()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+    if new.conversation_id is null then
+        select c.id into new.conversation_id
+          from public.ai_chat_conversation c
+         where c.student_id = new.student_id
+         order by c.updated_at desc limit 1;
+
+        if new.conversation_id is null then
+            insert into public.ai_chat_conversation (student_id)
+            values (new.student_id)
+            returning id into new.conversation_id;
+        end if;
+    end if;
+
+    update public.ai_chat_conversation c
+       set updated_at = now(),
+           title = case
+                     when c.title is null and new.role = 'user'
+                     then left(regexp_replace(btrim(new.text), '\s+', ' ', 'g'), 60)
+                     else c.title
+                   end
+     where c.id = new.conversation_id
+       and c.student_id = new.student_id;
+
+    return new;
 end;
 $function$
 ;
@@ -1047,9 +1359,9 @@ AS $function$
     select p_program_id is not null and (
         exists (select 1 from system_administrator where user_id = auth.uid() and is_approved)
         or exists (select 1 from university_student where user_id = auth.uid() and program_id = p_program_id)
-        or exists (select 1 from faculty_staff    where user_id = auth.uid() and is_approved and program_id = p_program_id)
-        or exists (select 1 from registrar_staff  where user_id = auth.uid() and is_approved and program_id = p_program_id)
-        or exists (select 1 from department_staff where user_id = auth.uid() and is_approved and program_id = p_program_id)
+        or p_program_id = any (public.my_faculty_programs())
+        or p_program_id = any (public.my_registrar_programs())
+        or p_program_id = any (public.my_department_programs())
     );
 $function$
 ;
@@ -1077,6 +1389,78 @@ AS $function$
         or is_adviser_of_student(p_student_id)
         or is_department_of_student(p_student_id)
         or is_registrar_of_student(p_student_id);
+$function$
+;
+CREATE OR REPLACE FUNCTION public.check_expected_student(p_student_id text, p_first_name text, p_last_name text, p_program_id integer)
+ RETURNS text
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_id text := btrim(regexp_replace(coalesce(p_student_id, ''), '^uc-', '', 'i'));
+  v_found boolean;
+begin
+  if not exists (select 1 from public.expected_student) then
+    return 'no_list';
+  end if;
+
+  if v_id <> '' then
+    select exists (
+      select 1 from public.expected_student e
+      where e.student_id = v_id
+        and (p_program_id is null or e.program_id = p_program_id)
+    ) into v_found;
+  else
+    if public._norm_name(p_first_name) = '' or public._norm_name(p_last_name) = '' then
+      return 'no_match';
+    end if;
+    select exists (
+      select 1 from public.expected_student e
+      where public._norm_name(e.first_name) = public._norm_name(p_first_name)
+        and public._norm_name(e.last_name)  = public._norm_name(p_last_name)
+        and (p_program_id is null or e.program_id = p_program_id)
+    ) into v_found;
+  end if;
+
+  return case when v_found then 'match' else 'no_match' end;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.check_registration_match(p_student_id text, p_first_name text, p_last_name text, p_program_id integer, p_email text)
+ RETURNS text
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare v_id text := nullif(btrim(coalesce(p_student_id, '')), ''); v_match boolean;
+begin
+    if not exists (select 1 from public.expected_student) then return 'no_list'; end if;
+    select exists (select 1 from public.expected_student e
+        where p_program_id is not null and e.program_id = p_program_id
+          and lower(btrim(e.email)) = lower(btrim(coalesce(p_email, '')))
+          and ((v_id is not null and e.student_id = v_id)
+            or (v_id is null and public._norm_name(e.first_name) = public._norm_name(p_first_name) and public._norm_name(e.last_name) = public._norm_name(p_last_name)))) into v_match;
+    return case when v_match then 'match' else 'no_match' end;
+end; $function$
+;
+CREATE OR REPLACE FUNCTION public.cleanup_cura_usage(p_dry_run boolean DEFAULT true)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_n integer;
+begin
+  select count(*) into v_n from public.cura_usage where created_at < now() - interval '90 days';
+  if not p_dry_run and v_n > 0 then
+    delete from public.cura_usage where created_at < now() - interval '90 days';
+  end if;
+  insert into public.maintenance_log (task, rows_found, dry_run)
+  values ('cura_usage older than 90 days', v_n, p_dry_run);
+  return v_n;
+end;
 $function$
 ;
 CREATE OR REPLACE FUNCTION public.cleanup_unused_data(p_dry_run boolean DEFAULT true)
@@ -1200,7 +1584,7 @@ CREATE OR REPLACE FUNCTION public.copy_prospectus(source_id integer, new_year in
 AS $function$
 declare
     v_me       uuid    := public.my_department_staff_id();
-    v_prog     integer := public.my_department_program();
+    v_prog     integer;
     v_src      prospectus%rowtype;
     v_new      integer;
     v_subjects integer := 0;
@@ -1215,8 +1599,9 @@ begin
     -- Same message whether the version does not exist or belongs to another
     -- programme, so this cannot be used to discover which versions exist.
     select * into v_src from prospectus where id = source_id;
-    if auth.uid() is null or v_me is null or v_prog is null
-       or v_src.id is null or v_src.program_id is distinct from v_prog then
+    v_prog := v_src.program_id;
+    if auth.uid() is null or v_me is null or v_src.id is null
+       or not public.department_covers_program(v_prog) then
         raise exception 'Only the Department Staff of this programme can copy a curriculum version.'
             using errcode = '42501';
     end if;
@@ -1324,7 +1709,9 @@ CREATE OR REPLACE FUNCTION public.create_user_account(p_first_name text, p_last_
  SET search_path TO 'public', 'auth', 'extensions'
 AS $function$
     select _provision_account(
-        p_first_name, p_last_name, p_email, p_password, p_role,
+        p_first_name, p_last_name, p_email,
+        coalesce(nullif(trim(coalesce(p_password, '')), ''), public._random_password()),
+        p_role,
         p_employee_id, p_student_id, p_department, p_year_level,
         p_username, 'ADMIN_BULK', p_program_code, p_declared_path
     );
@@ -1363,7 +1750,24 @@ CREATE OR REPLACE FUNCTION public.current_student_id()
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-    select id from university_student where user_id = auth.uid() limit 1;
+    select id from university_student where user_id = auth.uid() and is_approved limit 1;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.curriculum_for(p_program integer, p_year integer DEFAULT NULL::integer)
+ RETURNS integer
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
+  select pr.id
+  from public.prospectus pr
+  where pr.program_id = p_program
+    and (
+         (p_year is not null and pr.academic_year = p_year and pr.published_at is not null)
+      or (p_year is null and pr.is_active)
+    )
+  order by pr.is_active desc, pr.academic_term, pr.id
+  limit 1;
 $function$
 ;
 CREATE OR REPLACE FUNCTION public.delete_draft_prospectus(target_id integer, confirm boolean DEFAULT false)
@@ -1393,8 +1797,7 @@ BEGIN
     -- Same message whether the version does not exist or belongs to another
     -- programme, so this cannot be used to discover which versions exist.
     IF auth.uid() IS NULL
-       OR public.my_department_program() IS NULL
-       OR p_record.program_id IS DISTINCT FROM public.my_department_program() THEN
+       OR NOT public.department_covers_program(p_record.program_id) THEN
         RAISE EXCEPTION 'Only the Department Staff of this programme can delete a curriculum version.'
             USING ERRCODE = '42501';
     END IF;
@@ -1507,12 +1910,139 @@ BEGIN
 END;
 $function$
 ;
+CREATE OR REPLACE FUNCTION public.department_covers_program(p_program_id integer)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select p_program_id is not null and p_program_id = any (public.my_department_programs());
+$function$
+;
 CREATE OR REPLACE FUNCTION public.department_ids_for_my_registrar()
  RETURNS SETOF uuid
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ select id from department_staff where program_id = my_registrar_program(); $function$
+AS $function$
+    select distinct dp.department_id from public.department_program dp
+    where dp.program_id = any (public.my_registrar_programs());
+$function$
+;
+CREATE OR REPLACE FUNCTION public.department_main_program_link()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+    if new.program_id is not null then
+        insert into public.department_program (department_id, program_id)
+        values (new.id, new.program_id)
+        on conflict do nothing;
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.department_program_cap()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_code text;
+begin
+    -- A row that is already there is not a new claim on the programme: "insert ... on conflict do nothing" fires this
+    -- trigger first, and BSIT already has two Department accounts (made before the cap existed). Neither may be locked
+    -- out of editing because of the other.
+    if exists (
+        select 1 from public.department_program
+        where program_id = new.program_id and department_id = new.department_id
+    ) then
+        return new;
+    end if;
+
+    if exists (
+        select 1 from public.department_program
+        where program_id = new.program_id and department_id <> new.department_id
+    ) then
+        select code into v_code from public.program where id = new.program_id;
+        raise exception '% already has its Department account.', coalesce(v_code, 'This programme')
+            using errcode = '23505';
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.department_program_college()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_college text;
+    v_clash   boolean;
+begin
+    select lower(btrim(coalesce(college, ''))) into v_college from public.program where id = new.program_id;
+
+    select exists (
+        select 1
+        from public.department_program dp
+        join public.program p on p.id = dp.program_id
+        where dp.department_id = new.department_id
+          and dp.program_id <> new.program_id
+          and lower(btrim(coalesce(p.college, ''))) <> coalesce(v_college, '')
+    ) into v_clash;
+
+    if v_clash then
+        raise exception 'A Department account can only cover programmes from one college.'
+            using errcode = '23514';
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.edp_status(p_ids uuid[])
+ RETURNS TABLE(student_uuid uuid, status text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_has_list boolean;
+begin
+  if coalesce(array_length(p_ids, 1), 0) > 500 then
+    raise exception 'At most 500 students at a time.';
+  end if;
+
+  select exists (select 1 from public.expected_student) into v_has_list;
+
+  return query
+  select
+    s.id,
+    case
+      when not v_has_list then 'no_list'
+      when exists (
+        select 1 from public.expected_student e
+        where (s.program_id is null or e.program_id = s.program_id)
+          and (
+            (s.declared_path = 'existing' and s.student_id is not null and e.student_id = s.student_id)
+            or
+            ((s.declared_path is distinct from 'existing' or s.student_id is null)
+              and public._norm_name(e.first_name) = public._norm_name(s.first_name)
+              and public._norm_name(e.last_name)  = public._norm_name(s.last_name))
+          )
+      ) then 'on_list'
+      else 'not_on_list'
+    end
+  from public.university_student s
+  where s.id = any(p_ids)
+    and (public.can_read_all_students() or public.is_registrar_of_student(s.id));
+end;
+$function$
 ;
 CREATE OR REPLACE FUNCTION public.faculty_can_review_request(p_request_id integer, p_faculty_id uuid)
  RETURNS boolean
@@ -1549,6 +2079,105 @@ AS $function$
     and public.is_adviser_of_request(p_request_id);
 $function$
 ;
+CREATE OR REPLACE FUNCTION public.faculty_main_program_link()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+    if new.program_id is not null then
+        insert into public.faculty_program (faculty_id, program_id)
+        values (new.id, new.program_id)
+        on conflict do nothing;
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.faculty_program_cap()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_count integer;
+    v_code  text;
+begin
+    select count(*) into v_count
+    from public.faculty_program
+    where program_id = new.program_id and faculty_id <> new.faculty_id;
+
+    if v_count >= 10 then
+        select code into v_code from public.program where id = new.program_id;
+        raise exception '% already has the maximum of 10 faculty accounts.', coalesce(v_code, 'This programme')
+            using errcode = '23505';
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.faculty_program_college()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_college text;
+    v_clash   boolean;
+begin
+    select lower(btrim(coalesce(college, ''))) into v_college from public.program where id = new.program_id;
+
+    select exists (
+        select 1
+        from public.faculty_program fp
+        join public.program p on p.id = fp.program_id
+        where fp.faculty_id = new.faculty_id
+          and fp.program_id <> new.program_id
+          and lower(btrim(coalesce(p.college, ''))) <> coalesce(v_college, '')
+    ) into v_clash;
+
+    if v_clash then
+        raise exception 'A faculty member can only cover programmes from one college.'
+            using errcode = '23514';
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.form_print_history(p_request_id integer)
+ RETURNS TABLE(printed_at timestamp with time zone, printed_as text, printed_by_name text, total bigint)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+    if auth.uid() is null or _form_print_role(p_request_id) is null then
+        raise exception 'You cannot see the prints of this plan.' using errcode = '42501';
+    end if;
+
+    return query
+    select fp.printed_at,
+           fp.printed_as,
+           coalesce(
+               nullif(trim(coalesce(f.first_name, '') || ' ' || coalesce(f.last_name, '')), ''),
+               nullif(trim(coalesce(r.first_name, '') || ' ' || coalesce(r.last_name, '')), ''),
+               nullif(trim(coalesce(s.first_name, '') || ' ' || coalesce(s.last_name, '')), ''),
+               ''
+           ) as printed_by_name,
+           count(*) over () as total
+      from form_print fp
+      left join faculty_staff   f on f.user_id = fp.printed_by
+      left join registrar_staff r on r.user_id = fp.printed_by
+      left join university_student s on s.user_id = fp.printed_by
+     where fp.request_id = p_request_id
+     order by fp.printed_at desc
+     limit 20;
+end;
+$function$
+;
 CREATE OR REPLACE FUNCTION public.is_adviser_of_request(p_request_id integer)
  RETURNS boolean
  LANGUAGE sql
@@ -1572,7 +2201,8 @@ AS $function$
     select exists (
         select 1
         from university_student s
-        join faculty_staff f on f.program_id = s.program_id
+        join faculty_program fp on fp.program_id = s.program_id
+        join faculty_staff f    on f.id = fp.faculty_id
         where s.id = p_student_id
           and f.user_id = auth.uid()
           and f.is_approved
@@ -1597,7 +2227,39 @@ CREATE OR REPLACE FUNCTION public.is_department_of_student(p_student_id uuid)
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ select exists (select 1 from university_student s where s.id = p_student_id and s.program_id is not null and s.program_id = my_department_program()); $function$
+AS $function$
+    select exists (
+        select 1 from university_student s
+        where s.id = p_student_id and s.program_id is not null and public.department_covers_program(s.program_id)
+    );
+$function$
+;
+CREATE OR REPLACE FUNCTION public.is_my_department_row(p_department_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select exists (select 1 from public.department_staff d where d.id = p_department_id and d.user_id = auth.uid());
+$function$
+;
+CREATE OR REPLACE FUNCTION public.is_my_faculty_row(p_faculty_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select exists (select 1 from public.faculty_staff f where f.id = p_faculty_id and f.user_id = auth.uid());
+$function$
+;
+CREATE OR REPLACE FUNCTION public.is_my_registrar_row(p_registrar_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select exists (select 1 from public.registrar_staff r where r.id = p_registrar_id and r.user_id = auth.uid());
+$function$
 ;
 CREATE OR REPLACE FUNCTION public.is_registrar_of_student(p_student_id uuid)
  RETURNS boolean
@@ -1606,10 +2268,14 @@ CREATE OR REPLACE FUNCTION public.is_registrar_of_student(p_student_id uuid)
  SET search_path TO 'public'
 AS $function$
     select exists (
-        select 1 from registrar_staff r, university_student s
+        select 1
+        from registrar_staff r
+        join university_student s on s.id = p_student_id
         where r.user_id = auth.uid() and r.is_approved
-          and s.id = p_student_id
-          and (s.program_id is null or s.program_id = r.program_id)
+          and (
+              s.program_id is null
+              or exists (select 1 from registrar_program rp where rp.registrar_id = r.id and rp.program_id = s.program_id)
+          )
     );
 $function$
 ;
@@ -1626,6 +2292,117 @@ AS $function$
   );
 $function$
 ;
+CREATE OR REPLACE FUNCTION public.log_form_print(p_request_id integer)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_uid uuid := auth.uid();
+    v_as  text;
+begin
+    if v_uid is null then
+        raise exception 'Not signed in.' using errcode = '42501';
+    end if;
+    v_as := _form_print_role(p_request_id);
+    if v_as is null then
+        raise exception 'You cannot print the form of this plan.' using errcode = '42501';
+    end if;
+
+    insert into form_print (request_id, printed_by, printed_as) values (p_request_id, v_uid, v_as);
+
+    insert into audit_log (actor_id, actor_role, action, table_name, record_id, new_values)
+    values (v_uid, v_as, 'PRINT_ENROLLMENT_FORM', 'request', p_request_id::text,
+            jsonb_build_object('printed_as', v_as));
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.move_request_item_section(p_item_id integer, p_new_offering_id integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    me          uuid := current_student_id();
+    v_old       subject_offering%rowtype;
+    v_new       subject_offering%rowtype;
+    v_request   integer;
+    v_code      text;
+    v_student   text;
+    v_notified  integer := 0;
+begin
+    if me is null then
+        raise exception 'Only a student account can move a subject to another section.' using errcode = '42501';
+    end if;
+
+    select so.* into v_old
+      from request_item ri
+      join request rq        on rq.id = ri.request_id
+      join subject_offering so on so.id = ri.offering_id
+     where ri.id = p_item_id
+       and rq.student_id = me
+       and rq.status in ('approved', 'partially_approved')
+       and rq.registrar_status is distinct from 'rejected'
+       and ri.status = 'approved';
+    if not found then
+        raise exception 'That subject is not in one of your approved plans.';
+    end if;
+
+    select request_id into v_request from request_item where id = p_item_id;
+
+    select * into v_new from subject_offering where id = p_new_offering_id;
+    if not found then
+        raise exception 'That section does not exist.';
+    end if;
+    if v_new.id = v_old.id then
+        raise exception 'You are already in that section.';
+    end if;
+    if v_new.subject_id <> v_old.subject_id
+       or v_new.academic_year <> v_old.academic_year
+       or v_new.term <> v_old.term then
+        raise exception 'That section is for a different subject or term.';
+    end if;
+    if coalesce(v_new.is_open, true) = false then
+        raise exception 'That section is closed.';
+    end if;
+    if v_new.meeting_type is distinct from v_old.meeting_type then
+        raise exception 'Pick the same kind of meeting (lecture or lab).';
+    end if;
+
+    update request_item
+       set offering_id     = v_new.id,
+           edp_result      = null,
+           edp_reason      = null,
+           edp_reported_at = null,
+           section_changed_at = now(),
+           updated_at      = now()
+     where id = p_item_id;
+
+    select s.code::text into v_code from subject s where s.id = v_old.subject_id;
+    select coalesce(nullif(trim(u.first_name || ' ' || u.last_name), ''), u.student_id::text)
+      into v_student from university_student u where u.id = me;
+
+    insert into notification (user_id, type, title, message, related_request_id)
+    select f.user_id, 'section_moved',
+           'A student changed a section',
+           left(coalesce(v_student, 'A student') || ' moved ' || coalesce(v_code, 'a subject')
+                || ' from section ' || v_old.section || ' to ' || v_new.section
+                || '. The subject and units are the same, so nothing needs your approval.', 1000),
+           v_request
+      from advisee_assignment a
+      join faculty_staff f on f.id = a.faculty_id
+     where a.student_id = me and a.is_active and f.user_id is not null;
+    get diagnostics v_notified = row_count;
+
+    return jsonb_build_object('item_id', p_item_id,
+                              'from_section', v_old.section,
+                              'to_section', v_new.section,
+                              'notified', v_notified);
+end;
+$function$
+;
 CREATE OR REPLACE FUNCTION public.my_department_program()
  RETURNS integer
  LANGUAGE sql
@@ -1633,12 +2410,36 @@ CREATE OR REPLACE FUNCTION public.my_department_program()
  SET search_path TO 'public'
 AS $function$ select program_id from department_staff where user_id = auth.uid() and is_approved limit 1; $function$
 ;
+CREATE OR REPLACE FUNCTION public.my_department_programs()
+ RETURNS integer[]
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select coalesce(array_agg(dp.program_id), '{}'::integer[])
+    from public.department_program dp
+    join public.department_staff d on d.id = dp.department_id
+    where d.user_id = auth.uid() and d.is_approved;
+$function$
+;
 CREATE OR REPLACE FUNCTION public.my_department_staff_id()
  RETURNS uuid
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$ select id from department_staff where user_id = auth.uid() and is_approved limit 1; $function$
+;
+CREATE OR REPLACE FUNCTION public.my_faculty_programs()
+ RETURNS integer[]
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select coalesce(array_agg(fp.program_id), '{}'::integer[])
+    from public.faculty_program fp
+    join public.faculty_staff f on f.id = fp.faculty_id
+    where f.user_id = auth.uid() and f.is_approved;
+$function$
 ;
 CREATE OR REPLACE FUNCTION public.my_must_change_password()
  RETURNS boolean
@@ -1659,6 +2460,36 @@ CREATE OR REPLACE FUNCTION public.my_registrar_program()
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$ select program_id from registrar_staff where user_id = auth.uid() and is_approved limit 1; $function$
+;
+CREATE OR REPLACE FUNCTION public.my_registrar_programs()
+ RETURNS integer[]
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select coalesce(array_agg(rp.program_id), '{}'::integer[])
+    from public.registrar_program rp
+    join public.registrar_staff r on r.id = rp.registrar_id
+    where r.user_id = auth.uid() and r.is_approved;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.name_already_registered(p_first_name text, p_last_name text, p_middle_name text DEFAULT NULL::text)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  select not exists (select 1 from public.expected_student)
+     and public._norm_name(p_first_name) <> ''
+     and public._norm_name(p_last_name)  <> ''
+     and exists (
+       select 1 from public.university_student s
+       where public._norm_name(s.first_name)  = public._norm_name(p_first_name)
+         and public._norm_name(s.last_name)   = public._norm_name(p_last_name)
+         and public._norm_name(s.middle_name) = public._norm_name(p_middle_name)
+         and coalesce(s.approval_status, 'pending') <> 'declined'
+     );
+$function$
 ;
 CREATE OR REPLACE FUNCTION public.next_staff_employee_id()
  RETURNS text
@@ -1698,18 +2529,167 @@ begin
         on conflict (year) do update set last = student_id_counter.last + 1
         returning last into v_n;
 
-        if v_n > 99999 then
+        if v_n > 999999 then
             raise exception 'No more student IDs are available for %.', v_year
                 using errcode = '53400';
         end if;
 
-        v_id := v_yy || lpad(v_n::text, 5, '0');
+        v_id := v_yy || lpad(v_n::text, 6, '0');
 
         -- skip a number somebody already holds (an admin-typed or imported ID)
         exit when not exists (select 1 from university_student where student_id = v_id);
     end loop;
 
     return v_id;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.registrar_covers_faculty(p_faculty_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select exists (
+        select 1 from public.faculty_program fp
+        where fp.faculty_id = p_faculty_id
+          and fp.program_id = any (public.my_registrar_programs())
+    );
+$function$
+;
+CREATE OR REPLACE FUNCTION public.registrar_main_program_link()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+    if new.program_id is not null then
+        insert into public.registrar_program (registrar_id, program_id)
+        values (new.id, new.program_id)
+        on conflict do nothing;
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.registrar_program_cap()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_count integer;
+    v_code  text;
+begin
+    select count(*) into v_count
+    from public.registrar_program
+    where program_id = new.program_id and registrar_id <> new.registrar_id;
+
+    if v_count >= 2 then
+        select code into v_code from public.program where id = new.program_id;
+        raise exception '% already has the maximum of 2 registrar accounts.', coalesce(v_code, 'This programme')
+            using errcode = '23505';
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.report_edp_results(p_results jsonb)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    me        uuid := current_student_id();
+    entry     jsonb;
+    v_item    integer;
+    v_result  text;
+    v_reason  text;
+    n         integer := 0;
+begin
+    if me is null then
+        raise exception 'Only a student account can report an EDP result.' using errcode = '42501';
+    end if;
+    if p_results is null or jsonb_typeof(p_results) <> 'array' then
+        raise exception 'Send a list of results.';
+    end if;
+    if jsonb_array_length(p_results) > 40 then
+        raise exception 'Send at most 40 results at a time.';
+    end if;
+
+    for entry in select * from jsonb_array_elements(p_results) loop
+        v_item   := (entry ->> 'item_id')::integer;
+        v_result := nullif(entry ->> 'result', '');
+        v_reason := nullif(entry ->> 'reason', '');
+
+        if v_result is not null and v_result not in ('accepted', 'rejected') then
+            raise exception 'Unknown result "%".', v_result;
+        end if;
+        if v_result = 'rejected' and v_reason is null then
+            raise exception 'Say why the EDP office rejected it.';
+        end if;
+        if v_reason is not null and v_reason not in ('full', 'conflict', 'record', 'overload', 'code_error', 'hold', 'other') then
+            raise exception 'Unknown reason "%".', v_reason;
+        end if;
+
+        update request_item ri
+           set edp_result      = v_result,
+               edp_reason      = case when v_result = 'rejected' then v_reason else null end,
+               edp_reported_at = case when v_result is null then null else now() end
+          from request rq
+         where ri.id = v_item
+           and rq.id = ri.request_id
+           and rq.student_id = me
+           and rq.status in ('approved', 'partially_approved')
+           and rq.registrar_status is distinct from 'rejected'
+           and ri.status = 'approved';
+
+        if not found then
+            raise exception 'That subject is not in one of your approved plans.';
+        end if;
+        n := n + 1;
+    end loop;
+
+    return n;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.request_item_flag_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+    raise exception 'A flagged subject cannot be approved (%). It can only be rejected.', btrim(coalesce(old.remarks, ''))
+        using errcode = '23514';
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.request_item_withdrawn_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+    if exists (select 1 from public.request r where r.id = new.request_id and r.status = 'withdrawn') then
+        raise exception 'This request was withdrawn by the student, so its subjects can no longer be approved or rejected.'
+            using errcode = '23514';
+    end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.request_withdrawn_final()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+    raise exception 'A withdrawn request cannot be changed. The student sends a new one.' using errcode = '23514';
+    return new;
 end;
 $function$
 ;
@@ -1740,7 +2720,7 @@ begin
     -- the ambiguity the prefix exists to remove.
     if cleaned ~ '^UC-[0-9]+$' then
         digits := regexp_replace(cleaned, '^UC-', '');
-        digits := lpad(digits, 7, '0');
+        digits := lpad(digits, 8, '0');
 
         select email into found
         from university_student
@@ -1803,7 +2783,7 @@ begin
         raise exception 'No such subject.' using errcode = '22023';
     end if;
 
-    if v_program is distinct from public.my_department_program() then
+    if not public.department_covers_program(v_program) then
         raise exception 'You can only retire a subject of your own programme.'
             using errcode = '42501';
     end if;
@@ -1861,6 +2841,530 @@ begin
 end;
 $function$
 ;
+CREATE OR REPLACE FUNCTION public.section_demand(p_year integer, p_term integer)
+ RETURNS TABLE(subject_id integer, subject_code text, subject_title text, section text, edp_codes text[], capacity integer, is_open boolean, selected integer, awaiting integer, approved integer)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    with sec as (
+        select so.subject_id,
+               so.section::text                  as section,
+               array_agg(so.id)                  as offering_ids,
+               array_agg(distinct so.edp_code::text) as edp_codes,
+               max(so.capacity)                  as capacity,
+               bool_and(so.is_open)              as is_open
+        from subject_offering so
+        join subject s    on s.id = so.subject_id
+        join prospectus p on p.id = s.prospectus_id
+        where so.academic_year = p_year
+          and so.term = p_term
+          and public.department_covers_program(p.program_id)
+        group by so.subject_id, so.section
+    ),
+    picks as (
+        select sec.subject_id, sec.section, r.student_id, r.status as request_status
+        from sec
+        join request_item ri on ri.offering_id = any (sec.offering_ids)
+        join request r       on r.id = ri.request_id
+        where r.status in ('submitted', 'approved', 'partially_approved')
+          and r.registrar_status is distinct from 'rejected'
+          and ri.status is distinct from 'rejected'
+    )
+    select sec.subject_id,
+           s.code::text,
+           s.title::text,
+           sec.section,
+           sec.edp_codes,
+           sec.capacity,
+           sec.is_open,
+           count(distinct pk.student_id)::integer,
+           (count(distinct pk.student_id) filter (where pk.request_status = 'submitted'))::integer,
+           (count(distinct pk.student_id) filter (where pk.request_status in ('approved', 'partially_approved')))::integer
+    from sec
+    join subject s on s.id = sec.subject_id
+    left join picks pk on pk.subject_id = sec.subject_id and pk.section = sec.section
+    group by sec.subject_id, s.code, s.title, sec.section, sec.edp_codes, sec.capacity, sec.is_open
+    order by s.code, sec.section;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.section_demand_students(p_subject_id integer, p_section text, p_year integer, p_term integer)
+ RETURNS TABLE(student_id text, first_name text, last_name text, year_level integer, request_status text)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+    select t.student_id, t.first_name, t.last_name, t.year_level, t.request_status
+    from (
+        select distinct on (u.id)
+               u.student_id::text as student_id,
+               u.first_name::text as first_name,
+               u.last_name::text  as last_name,
+               u.year_level       as year_level,
+               r.status::text     as request_status
+        from subject_offering so
+        join subject s    on s.id = so.subject_id
+        join prospectus p on p.id = s.prospectus_id
+        join request_item ri on ri.offering_id = so.id
+        join request r       on r.id = ri.request_id
+        join university_student u on u.id = r.student_id
+        where so.subject_id = p_subject_id
+          and so.section = p_section
+          and so.academic_year = p_year
+          and so.term = p_term
+          and public.department_covers_program(p.program_id)
+          and r.status in ('submitted', 'approved', 'partially_approved')
+          and r.registrar_status is distinct from 'rejected'
+          and ri.status is distinct from 'rejected'
+          and is_department_of_student(u.id)
+        order by u.id, r.created_at desc
+    ) t
+    order by t.last_name, t.first_name;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.set_account_stopped(p_role text, p_target uuid, p_stop boolean, p_reason text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_user     uuid;
+  v_approved boolean;
+  v_status   text;
+  v_last     text;
+  v_reason   text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  if not public.is_system_admin() then
+    raise exception 'Only an administrator can stop or restore an account.' using errcode = '42501';
+  end if;
+
+  if p_role = 'student' then
+    select user_id, is_approved, approval_status into v_user, v_approved, v_status
+      from public.university_student where id = p_target for update;
+  elsif p_role = 'faculty' then
+    select user_id, is_approved into v_user, v_approved from public.faculty_staff where id = p_target for update;
+  elsif p_role = 'registrar' then
+    select user_id, is_approved into v_user, v_approved from public.registrar_staff where id = p_target for update;
+  elsif p_role = 'department' then
+    select user_id, is_approved into v_user, v_approved from public.department_staff where id = p_target for update;
+  else
+    raise exception 'Unknown role: %.', p_role using errcode = '22023';
+  end if;
+
+  if not found then
+    raise exception 'Account not found.' using errcode = 'P0002';
+  end if;
+
+  if v_user is not null and v_user = auth.uid() then
+    raise exception 'You cannot stop your own account.' using errcode = '42501';
+  end if;
+
+  if p_stop then
+    if v_approved is not true then
+      raise exception 'This account is not active, so there is nothing to stop.' using errcode = '22023';
+    end if;
+    if v_reason is null then
+      raise exception 'A reason is required to stop an account.' using errcode = '22023';
+    end if;
+    if char_length(v_reason) > 300 then
+      raise exception 'Keep the reason under 300 characters.' using errcode = '22023';
+    end if;
+  else
+    select action into v_last from public.account_stop_log
+      where role = p_role and target_id = p_target order by seq desc limit 1;
+    if v_last is distinct from 'stop' or v_approved is true then
+      raise exception 'This account was not stopped, so there is nothing to restore.' using errcode = '22023';
+    end if;
+    if p_role = 'student' and v_status is distinct from 'approved' then
+      raise exception 'This student is not an approved account, so it cannot be restored.' using errcode = '22023';
+    end if;
+  end if;
+
+  if p_role = 'student' then
+    update public.university_student set is_approved = not p_stop where id = p_target;
+  elsif p_role = 'faculty' then
+    update public.faculty_staff set is_approved = not p_stop where id = p_target;
+  elsif p_role = 'registrar' then
+    update public.registrar_staff set is_approved = not p_stop where id = p_target;
+  else
+    update public.department_staff set is_approved = not p_stop where id = p_target;
+  end if;
+
+  insert into public.account_stop_log (role, target_id, user_id, action, reason)
+  values (p_role, p_target, v_user, case when p_stop then 'stop' else 'restore' end,
+          case when p_stop then v_reason else null end);
+
+  return jsonb_build_object('ok', true, 'action', case when p_stop then 'stop' else 'restore' end);
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.set_department_programs(p_department_id uuid, p_program_ids integer[])
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_ids     integer[];
+    v_main    integer;
+    v_missing integer;
+begin
+    if not public.is_system_admin() then
+        raise exception 'Only an administrator can change a Department account''s programmes.' using errcode = '42501';
+    end if;
+
+    select array_agg(distinct x order by x) into v_ids from unnest(coalesce(p_program_ids, '{}'::integer[])) as x where x is not null;
+
+    if v_ids is null or array_length(v_ids, 1) is null then
+        raise exception 'A Department account must cover at least one programme.' using errcode = '22023';
+    end if;
+    if array_length(v_ids, 1) > 12 then
+        raise exception 'Too many programmes chosen.' using errcode = '22023';
+    end if;
+
+    select program_id into v_main from public.department_staff where id = p_department_id for update;
+    if not found then
+        raise exception 'That Department account was not found.' using errcode = '02000';
+    end if;
+
+    select count(*) into v_missing from unnest(v_ids) as x where not exists (select 1 from public.program where id = x);
+    if v_missing > 0 then
+        raise exception 'One of the chosen programmes does not exist.' using errcode = '23503';
+    end if;
+
+    -- The main programme moves only if the old one was taken away.
+    if v_main is null or not (v_main = any (v_ids)) then
+        v_main := v_ids[1];
+    end if;
+
+    delete from public.department_program
+    where department_id = p_department_id and not (program_id = any (v_ids));
+
+    -- New rows go through the cap and college triggers. Rows already there are left alone.
+    insert into public.department_program (department_id, program_id)
+    select p_department_id, x from unnest(v_ids) as x
+    on conflict do nothing;
+
+    update public.department_staff set program_id = v_main where id = p_department_id and program_id is distinct from v_main;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.set_faculty_programs(p_faculty_id uuid, p_program_ids integer[])
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_ids     integer[];
+    v_main    integer;
+    v_missing integer;
+begin
+    if not public.is_system_admin() then
+        raise exception 'Only an administrator can change a faculty member''s programmes.' using errcode = '42501';
+    end if;
+
+    select array_agg(distinct x order by x) into v_ids from unnest(coalesce(p_program_ids, '{}'::integer[])) as x where x is not null;
+
+    if v_ids is null or array_length(v_ids, 1) is null then
+        raise exception 'A faculty member must cover at least one programme.' using errcode = '22023';
+    end if;
+    if array_length(v_ids, 1) > 12 then
+        raise exception 'Too many programmes chosen.' using errcode = '22023';
+    end if;
+
+    select program_id into v_main from public.faculty_staff where id = p_faculty_id for update;
+    if not found then
+        raise exception 'That faculty account was not found.' using errcode = '02000';
+    end if;
+
+    select count(*) into v_missing from unnest(v_ids) as x where not exists (select 1 from public.program where id = x);
+    if v_missing > 0 then
+        raise exception 'One of the chosen programmes does not exist.' using errcode = '23503';
+    end if;
+
+    if v_main is null or not (v_main = any (v_ids)) then
+        v_main := v_ids[1];
+    end if;
+
+    delete from public.faculty_program
+    where faculty_id = p_faculty_id and not (program_id = any (v_ids));
+
+    insert into public.faculty_program (faculty_id, program_id)
+    select p_faculty_id, x from unnest(v_ids) as x
+    on conflict do nothing;
+
+    update public.faculty_staff set program_id = v_main where id = p_faculty_id and program_id is distinct from v_main;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.set_registrar_programs(p_registrar_id uuid, p_program_ids integer[])
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_ids     integer[];
+    v_main    integer;
+    v_missing integer;
+begin
+    if not public.is_system_admin() then
+        raise exception 'Only an administrator can change a registrar''s programmes.' using errcode = '42501';
+    end if;
+
+    select array_agg(distinct x order by x) into v_ids from unnest(coalesce(p_program_ids, '{}'::integer[])) as x where x is not null;
+
+    if v_ids is null or array_length(v_ids, 1) is null then
+        raise exception 'A registrar must cover at least one programme.' using errcode = '22023';
+    end if;
+    if array_length(v_ids, 1) > 30 then
+        raise exception 'Too many programmes chosen.' using errcode = '22023';
+    end if;
+
+    select program_id into v_main from public.registrar_staff where id = p_registrar_id for update;
+    if not found then
+        raise exception 'That registrar account was not found.' using errcode = '02000';
+    end if;
+
+    select count(*) into v_missing from unnest(v_ids) as x where not exists (select 1 from public.program where id = x);
+    if v_missing > 0 then
+        raise exception 'One of the chosen programmes does not exist.' using errcode = '23503';
+    end if;
+
+    if v_main is null or not (v_main = any (v_ids)) then
+        v_main := v_ids[1];
+    end if;
+
+    delete from public.registrar_program
+    where registrar_id = p_registrar_id and not (program_id = any (v_ids));
+
+    insert into public.registrar_program (registrar_id, program_id)
+    select p_registrar_id, x from unnest(v_ids) as x
+    on conflict do nothing;
+
+    update public.registrar_staff set program_id = v_main where id = p_registrar_id and program_id is distinct from v_main;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.set_section_all_open(p_section text, p_year integer, p_term integer, p_open boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_program     integer := my_department_program();
+    v_found       integer;
+    v_updated     integer := 0;
+    v_subject_ids integer[];
+    v_notified    integer := 0;
+begin
+    if v_program is null then
+        raise exception 'Only approved Department staff can open or close a section.' using errcode = '42501';
+    end if;
+    if p_open is null then
+        raise exception 'Say whether the section is open or closed.';
+    end if;
+    if p_section is null or btrim(p_section) = '' then
+        raise exception 'Say which section.';
+    end if;
+
+    -- the section's meetings that belong to this department's own curriculum
+    select count(*) into v_found
+      from subject_offering so
+      join subject s   on s.id = so.subject_id
+      join prospectus p on p.id = s.prospectus_id
+     where public.department_covers_program(p.program_id) and so.section = p_section
+       and so.academic_year = p_year and so.term = p_term;
+    if v_found = 0 then
+        raise exception 'No such section this term.';
+    end if;
+
+    with changed as (
+        update subject_offering so
+           set is_open = p_open, updated_at = now()
+          from subject s
+          join prospectus p on p.id = s.prospectus_id
+         where s.id = so.subject_id and public.department_covers_program(p.program_id)
+           and so.section = p_section and so.academic_year = p_year and so.term = p_term
+           and so.is_open is distinct from p_open
+        returning so.subject_id
+    )
+    select count(*), coalesce(array_agg(distinct subject_id), '{}')
+      into v_updated, v_subject_ids
+      from changed;
+
+    -- tell the students who chose any of the changed subjects, once each
+    if not p_open and v_updated > 0 then
+        insert into notification (user_id, type, title, message, related_request_id)
+        select u.user_id, 'section_closed',
+               'A section you chose was closed',
+               left('The Department closed section ' || p_section || ' for '
+                    || string_agg(distinct s.code::text, ', ' order by s.code::text)
+                    || '. Choose another section of ' || case when count(distinct s.id) = 1 then 'this subject' else 'each of these subjects' end
+                    || ' before you go to the EDP office. Your other subjects are not affected.', 1000),
+               (array_agg(r.id order by r.created_at desc))[1]
+          from subject_offering so
+          join request_item ri     on ri.offering_id = so.id
+          join request r           on r.id = ri.request_id
+          join subject s           on s.id = so.subject_id
+          join university_student u on u.id = r.student_id
+         where so.subject_id = any (v_subject_ids)
+           and so.section = p_section and so.academic_year = p_year and so.term = p_term
+           and r.status in ('submitted', 'approved', 'partially_approved')
+           and r.registrar_status is distinct from 'rejected'
+           and ri.status is distinct from 'rejected'
+         group by u.user_id;
+        get diagnostics v_notified = row_count;
+    end if;
+
+    return jsonb_build_object('updated', v_updated, 'subjects', coalesce(array_length(v_subject_ids, 1), 0),
+                              'notified', v_notified);
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.set_section_open(p_subject_id integer, p_section text, p_year integer, p_term integer, p_open boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_program  integer := my_department_program();
+    v_code     text;
+    v_edp      text;
+    v_updated  integer;
+    v_notified integer := 0;
+begin
+    if v_program is null then
+        raise exception 'Only approved Department staff can open or close a section.' using errcode = '42501';
+    end if;
+    if p_open is null then
+        raise exception 'Say whether the section is open or closed.';
+    end if;
+
+    select s.code::text into v_code
+      from subject s
+      join prospectus p on p.id = s.prospectus_id
+     where s.id = p_subject_id and public.department_covers_program(p.program_id);
+    if v_code is null then
+        raise exception 'That subject is not in your department''s curriculum.' using errcode = '42501';
+    end if;
+
+    select string_agg(distinct so.edp_code::text, ' + ' order by so.edp_code::text)
+      into v_edp
+      from subject_offering so
+     where so.subject_id = p_subject_id and so.section = p_section
+       and so.academic_year = p_year and so.term = p_term;
+
+    update subject_offering
+       set is_open = p_open, updated_at = now()
+     where subject_id = p_subject_id and section = p_section
+       and academic_year = p_year and term = p_term
+       and is_open is distinct from p_open;
+    get diagnostics v_updated = row_count;
+
+    if v_updated = 0 and v_edp is null then
+        raise exception 'No such section this term.';
+    end if;
+
+    if not p_open and v_updated > 0 then
+        insert into notification (user_id, type, title, message, related_request_id)
+        select u.user_id, 'section_closed',
+               'A section you chose was closed',
+               left('The Department closed section ' || p_section || ' of ' || v_code
+                    || coalesce(' (EDP ' || v_edp || ')', '')
+                    || '. Choose another section of this subject before you go to the EDP office. '
+                    || 'Your other subjects are not affected.', 1000),
+               picked.request_id
+          from (
+              select distinct on (r.student_id) r.student_id, r.id as request_id
+                from subject_offering so
+                join request_item ri on ri.offering_id = so.id
+                join request r       on r.id = ri.request_id
+               where so.subject_id = p_subject_id and so.section = p_section
+                 and so.academic_year = p_year and so.term = p_term
+                 and r.status in ('submitted', 'approved', 'partially_approved')
+                 and r.registrar_status is distinct from 'rejected'
+                 and ri.status is distinct from 'rejected'
+               order by r.student_id, r.created_at desc
+          ) picked
+          join university_student u on u.id = picked.student_id;
+        get diagnostics v_notified = row_count;
+    end if;
+
+    return jsonb_build_object('updated', v_updated, 'notified', v_notified);
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.set_student_curriculum(p_student_id text, p_year integer)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
+declare
+    s       public.university_student%rowtype;
+    pid     integer;
+    v_old   jsonb;
+    v_new   jsonb;
+begin
+    if not public.is_system_admin() then
+        raise exception 'Only the System Administrator can change a student''s curriculum.' using errcode = '42501';
+    end if;
+
+    select * into s from public.university_student where student_id = p_student_id;
+    if not found then
+        raise exception 'No student with ID %.', p_student_id using errcode = 'P0002';
+    end if;
+
+    if s.program_id is null then
+        raise exception 'This student has no programme, so no curriculum can be chosen.' using errcode = '22023';
+    end if;
+
+    pid := public.curriculum_for(s.program_id, p_year);
+    if pid is null then
+        raise exception 'No published curriculum for % exists for this programme.', coalesce(p_year::text, 'the active year') using errcode = '22023';
+    end if;
+
+    if s.prospectus_id is distinct from pid then
+        select jsonb_build_object('student_id', s.student_id, 'curriculum_year', pr.academic_year, 'active', pr.is_active)
+          into v_old from public.prospectus pr where pr.id = s.prospectus_id;
+        select jsonb_build_object('student_id', s.student_id, 'curriculum_year', pr.academic_year, 'active', pr.is_active)
+          into v_new from public.prospectus pr where pr.id = pid;
+
+        update public.university_student set prospectus_id = pid where id = s.id;
+
+        insert into public.audit_log (actor_id, actor_role, action, table_name, record_id, old_values, new_values)
+        values (auth.uid(), 'system_administrator', 'UPDATE_CURRICULUM', 'university_student', s.id::text,
+                coalesce(v_old, jsonb_build_object('student_id', s.student_id, 'curriculum_year', null)), v_new);
+    end if;
+    return pid;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.set_student_middle_name(p_student_id text, p_middle text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
+declare
+    v_middle text := nullif(btrim(coalesce(p_middle, '')), '');
+begin
+    if not public.is_system_admin() then
+        raise exception 'Not allowed.' using errcode = '42501';
+    end if;
+
+    update public.university_student set middle_name = v_middle where student_id = p_student_id;
+    if not found then
+        raise exception 'No student with ID %.', p_student_id using errcode = 'P0002';
+    end if;
+end;
+$function$
+;
 CREATE OR REPLACE FUNCTION public.staff_employee_id_guard()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1888,6 +3392,23 @@ begin
         end if;
     end if;
 
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.student_autoverify()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
+begin
+    if new.is_approved is true and new.record_verified is not true
+       and (coalesce(new.year_level, 1) <= 1
+            or exists (select 1 from public.academic_record r where r.student_id = new.id)) then
+        new.record_verified := true;
+        new.verified_at := coalesce(new.verified_at, now());
+    end if;
     return new;
 end;
 $function$
@@ -1921,6 +3442,85 @@ begin
     if new.is_approved is not true and new.declared_path = 'new' then
         new.student_id := null;
     end if;
+    return new;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.student_register_autoapprove()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+    e      public.expected_student%rowtype;
+    v_n    integer;
+    v_pros integer;
+    v_note text := 'Matched the EDP student list';
+begin
+    if new.created_via is distinct from 'SELF_REGISTER'
+       or new.is_approved is true
+       or new.approval_status is distinct from 'pending' then
+        return new;
+    end if;
+
+    if not exists (select 1 from public.expected_student) then
+        raise exception 'Registration is not open yet. Please contact the EDP office.' using errcode = '42501';
+    end if;
+
+    select count(*) into v_n
+    from public.expected_student x
+    where new.program_id is not null
+      and x.program_id = new.program_id
+      and lower(btrim(x.email)) = lower(btrim(coalesce(new.email, '')))
+      and (
+            (new.declared_path = 'existing' and new.student_id is not null and x.student_id = new.student_id)
+         or (new.declared_path = 'new'
+             and public._norm_name(x.first_name) = public._norm_name(new.first_name)
+             and public._norm_name(x.last_name)  = public._norm_name(new.last_name))
+      );
+
+    if v_n <> 1 then
+        raise exception 'These details do not match the EDP student list. Check your name, student ID, degree program and e-mail, or contact the EDP office.'
+            using errcode = '42501';
+    end if;
+
+    select x.* into e
+    from public.expected_student x
+    where x.program_id = new.program_id
+      and lower(btrim(x.email)) = lower(btrim(coalesce(new.email, '')))
+      and (
+            (new.declared_path = 'existing' and x.student_id = new.student_id)
+         or (new.declared_path = 'new'
+             and public._norm_name(x.first_name) = public._norm_name(new.first_name)
+             and public._norm_name(x.last_name)  = public._norm_name(new.last_name))
+      )
+    limit 1;
+
+    if exists (select 1 from public.university_student s where s.student_id = e.student_id) then
+        raise exception 'This student already has an account. Log in, or use "Forgot password?".'
+            using errcode = '42501';
+    end if;
+
+    if e.curriculum_year is not null then
+        v_pros := public.curriculum_for(e.program_id, e.curriculum_year);
+        if v_pros is null then
+            v_note := v_note || '; curriculum ' || e.curriculum_year || ' not found, active curriculum used';
+        end if;
+    end if;
+    if v_pros is null then
+        v_pros := public.curriculum_for(e.program_id, null);
+    end if;
+
+    new.student_id      := e.student_id;
+    new.first_name      := e.first_name;
+    new.last_name       := e.last_name;
+    new.year_level      := e.year_level;
+    new.prospectus_id   := v_pros;
+    new.is_approved     := true;
+    new.approval_status := 'approved';
+    new.reviewed_at     := now();
+    new.review_note     := v_note;
     return new;
 end;
 $function$
@@ -1978,6 +3578,22 @@ begin
 end;
 $function$
 ;
+CREATE OR REPLACE FUNCTION public.student_register_name_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+  if current_user in ('anon', 'authenticated')
+     and new.declared_path = 'new'
+     and public.name_already_registered(new.first_name, new.last_name, new.middle_name) then
+    raise exception 'A student with this name already has an account or a pending request.'
+      using errcode = '23505', constraint = 'student_name_taken';
+  end if;
+  return new;
+end;
+$function$
+;
 CREATE OR REPLACE FUNCTION public.update_subject(target_id integer, p_code text, p_title text, p_lec numeric, p_lab numeric, p_year integer DEFAULT NULL::integer, p_term integer DEFAULT NULL::integer, p_category text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -2004,7 +3620,7 @@ begin
     end if;
 
     select program_id into v_program from prospectus where id = v_old.prospectus_id;
-    if v_program is distinct from public.my_department_program() then
+    if not public.department_covers_program(v_program) then
         raise exception 'You can only edit a subject of your own programme.'
             using errcode = '42501';
     end if;
@@ -2075,11 +3691,63 @@ begin
 end;
 $function$
 ;
+CREATE OR REPLACE FUNCTION public.withdraw_my_request(p_request_id integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+    v_student uuid := public.current_student_id();
+    v_n       integer;
+    v_status  text;
+begin
+    if v_student is null then
+        raise exception 'Only a signed-in student can withdraw a request.' using errcode = '42501';
+    end if;
+
+    update public.request r
+       set status = 'withdrawn', updated_at = now()
+     where r.id = p_request_id
+       and r.student_id = v_student
+       and r.status = 'submitted'
+       and r.registrar_status is null
+       and not exists (select 1 from public.request_item i
+                        where i.request_id = r.id and i.status in ('approved', 'rejected'))
+       and not exists (select 1 from public.request_review v where v.request_id = r.id);
+    get diagnostics v_n = row_count;
+
+    if v_n = 0 then
+        select r.status into v_status from public.request r where r.id = p_request_id and r.student_id = v_student;
+        if not found then
+            return jsonb_build_object('ok', false, 'reason', 'not_found');
+        elsif v_status <> 'submitted' then
+            return jsonb_build_object('ok', false, 'reason', 'not_waiting', 'status', v_status);
+        else
+            return jsonb_build_object('ok', false, 'reason', 'already_reviewed');
+        end if;
+    end if;
+
+    insert into public.audit_log (actor_id, actor_role, action, table_name, record_id, old_values, new_values)
+    values (auth.uid(), 'student', 'WITHDRAW_REQUEST', 'request', p_request_id::text,
+            jsonb_build_object('status', 'submitted'), jsonb_build_object('status', 'withdrawn'));
+
+    return jsonb_build_object('ok', true, 'id', p_request_id);
+end;
+$function$
+;
 revoke all on function public._audit_actor_role() from public, anon, authenticated, service_role; grant execute on function public._audit_actor_role() to service_role;
+revoke all on function public._form_print_role(p_request_id integer) from public, anon, authenticated, service_role; grant execute on function public._form_print_role(p_request_id integer) to service_role;
 revoke all on function public._fresh_student_account(p_user uuid, p_email text) from public, anon, authenticated, service_role; grant execute on function public._fresh_student_account(p_user uuid, p_email text) to anon; grant execute on function public._fresh_student_account(p_user uuid, p_email text) to authenticated; grant execute on function public._fresh_student_account(p_user uuid, p_email text) to service_role;
+revoke all on function public._norm_name(p text) from public, anon, authenticated, service_role; grant execute on function public._norm_name(p text) to service_role;
 revoke all on function public._password_problem(p_password text, p_role text) from public, anon, authenticated, service_role; grant execute on function public._password_problem(p_password text, p_role text) to service_role;
 revoke all on function public._provision_account(p_first_name text, p_last_name text, p_email text, p_password text, p_role text, p_employee_id text, p_student_id text, p_department text, p_year_level text, p_username text, p_via text, p_program_code text, p_declared_path text) from public, anon, authenticated, service_role; grant execute on function public._provision_account(p_first_name text, p_last_name text, p_email text, p_password text, p_role text, p_employee_id text, p_student_id text, p_department text, p_year_level text, p_username text, p_via text, p_program_code text, p_declared_path text) to authenticated; grant execute on function public._provision_account(p_first_name text, p_last_name text, p_email text, p_password text, p_role text, p_employee_id text, p_student_id text, p_department text, p_year_level text, p_username text, p_via text, p_program_code text, p_declared_path text) to service_role;
+revoke all on function public._random_password() from public, anon, authenticated, service_role; grant execute on function public._random_password() to service_role;
+revoke all on function public.academic_record_autoverify() from public, anon, authenticated, service_role; grant execute on function public.academic_record_autoverify() to service_role;
 revoke all on function public.activate_prospectus(target_id integer) from public, anon, authenticated, service_role; grant execute on function public.activate_prospectus(target_id integer) to authenticated; grant execute on function public.activate_prospectus(target_id integer) to service_role;
+revoke all on function public.admin_last_sign_ins() from public, anon, authenticated, service_role; grant execute on function public.admin_last_sign_ins() to authenticated; grant execute on function public.admin_last_sign_ins() to service_role;
+revoke all on function public.ai_chat_drop_empty_conversations() from public, anon, authenticated, service_role; grant execute on function public.ai_chat_drop_empty_conversations() to service_role;
+revoke all on function public.ai_chat_message_before_insert() from public, anon, authenticated, service_role; grant execute on function public.ai_chat_message_before_insert() to service_role;
 revoke all on function public.audit_log_append_only() from public, anon, authenticated, service_role; grant execute on function public.audit_log_append_only() to service_role;
 revoke all on function public.audit_row_change() from public, anon, authenticated, service_role; grant execute on function public.audit_row_change() to service_role;
 revoke all on function public.can_read_all_students() from public, anon, authenticated, service_role; grant execute on function public.can_read_all_students() to authenticated; grant execute on function public.can_read_all_students() to service_role;
@@ -2087,6 +3755,9 @@ revoke all on function public.can_read_program(p_program_id integer) from public
 revoke all on function public.can_read_prospectus(p_prospectus_id integer) from public, anon, authenticated, service_role; grant execute on function public.can_read_prospectus(p_prospectus_id integer) to authenticated; grant execute on function public.can_read_prospectus(p_prospectus_id integer) to service_role;
 revoke all on function public.can_read_subject(p_subject_id integer) from public, anon, authenticated, service_role; grant execute on function public.can_read_subject(p_subject_id integer) to authenticated; grant execute on function public.can_read_subject(p_subject_id integer) to service_role;
 revoke all on function public.can_see_student(p_student_id uuid) from public, anon, authenticated, service_role; grant execute on function public.can_see_student(p_student_id uuid) to authenticated; grant execute on function public.can_see_student(p_student_id uuid) to service_role;
+revoke all on function public.check_expected_student(p_student_id text, p_first_name text, p_last_name text, p_program_id integer) from public, anon, authenticated, service_role; grant execute on function public.check_expected_student(p_student_id text, p_first_name text, p_last_name text, p_program_id integer) to service_role;
+revoke all on function public.check_registration_match(p_student_id text, p_first_name text, p_last_name text, p_program_id integer, p_email text) from public, anon, authenticated, service_role; grant execute on function public.check_registration_match(p_student_id text, p_first_name text, p_last_name text, p_program_id integer, p_email text) to anon; grant execute on function public.check_registration_match(p_student_id text, p_first_name text, p_last_name text, p_program_id integer, p_email text) to authenticated; grant execute on function public.check_registration_match(p_student_id text, p_first_name text, p_last_name text, p_program_id integer, p_email text) to service_role;
+revoke all on function public.cleanup_cura_usage(p_dry_run boolean) from public, anon, authenticated, service_role; grant execute on function public.cleanup_cura_usage(p_dry_run boolean) to service_role;
 revoke all on function public.cleanup_unused_data(p_dry_run boolean) from public, anon, authenticated, service_role; grant execute on function public.cleanup_unused_data(p_dry_run boolean) to service_role;
 revoke all on function public.clear_must_change_password() from public, anon, authenticated, service_role; grant execute on function public.clear_must_change_password() to authenticated; grant execute on function public.clear_must_change_password() to service_role;
 revoke all on function public.copy_prospectus(source_id integer, new_year integer, new_term integer, author uuid) from public, anon, authenticated, service_role; grant execute on function public.copy_prospectus(source_id integer, new_year integer, new_term integer, author uuid) to authenticated; grant execute on function public.copy_prospectus(source_id integer, new_year integer, new_term integer, author uuid) to service_role;
@@ -2096,132 +3767,206 @@ revoke all on function public.current_department_staff_id() from public, anon, a
 revoke all on function public.current_faculty_id() from public, anon, authenticated, service_role; grant execute on function public.current_faculty_id() to authenticated; grant execute on function public.current_faculty_id() to service_role;
 revoke all on function public.current_registrar_id() from public, anon, authenticated, service_role; grant execute on function public.current_registrar_id() to authenticated; grant execute on function public.current_registrar_id() to service_role;
 revoke all on function public.current_student_id() from public, anon, authenticated, service_role; grant execute on function public.current_student_id() to authenticated; grant execute on function public.current_student_id() to service_role;
+revoke all on function public.curriculum_for(p_program integer, p_year integer) from public, anon, authenticated, service_role; grant execute on function public.curriculum_for(p_program integer, p_year integer) to authenticated; grant execute on function public.curriculum_for(p_program integer, p_year integer) to service_role;
 revoke all on function public.delete_draft_prospectus(target_id integer, confirm boolean) from public, anon, authenticated, service_role; grant execute on function public.delete_draft_prospectus(target_id integer, confirm boolean) to authenticated; grant execute on function public.delete_draft_prospectus(target_id integer, confirm boolean) to service_role;
+revoke all on function public.department_covers_program(p_program_id integer) from public, anon, authenticated, service_role; grant execute on function public.department_covers_program(p_program_id integer) to authenticated; grant execute on function public.department_covers_program(p_program_id integer) to service_role;
 revoke all on function public.department_ids_for_my_registrar() from public, anon, authenticated, service_role; grant execute on function public.department_ids_for_my_registrar() to authenticated; grant execute on function public.department_ids_for_my_registrar() to service_role;
+revoke all on function public.department_main_program_link() from public, anon, authenticated, service_role; grant execute on function public.department_main_program_link() to anon; grant execute on function public.department_main_program_link() to authenticated; grant execute on function public.department_main_program_link() to service_role;
+revoke all on function public.department_program_cap() from public, anon, authenticated, service_role; grant execute on function public.department_program_cap() to anon; grant execute on function public.department_program_cap() to authenticated; grant execute on function public.department_program_cap() to service_role;
+revoke all on function public.department_program_college() from public, anon, authenticated, service_role; grant execute on function public.department_program_college() to anon; grant execute on function public.department_program_college() to authenticated; grant execute on function public.department_program_college() to service_role;
+revoke all on function public.edp_status(p_ids uuid[]) from public, anon, authenticated, service_role; grant execute on function public.edp_status(p_ids uuid[]) to authenticated; grant execute on function public.edp_status(p_ids uuid[]) to service_role;
 revoke all on function public.faculty_can_review_request(p_request_id integer, p_faculty_id uuid) from public, anon, authenticated, service_role; grant execute on function public.faculty_can_review_request(p_request_id integer, p_faculty_id uuid) to authenticated; grant execute on function public.faculty_can_review_request(p_request_id integer, p_faculty_id uuid) to service_role;
 revoke all on function public.faculty_can_transition_request(p_request_id integer) from public, anon, authenticated, service_role; grant execute on function public.faculty_can_transition_request(p_request_id integer) to authenticated; grant execute on function public.faculty_can_transition_request(p_request_id integer) to service_role;
 revoke all on function public.faculty_can_update_request_item(p_request_id integer, p_faculty_id uuid) from public, anon, authenticated, service_role; grant execute on function public.faculty_can_update_request_item(p_request_id integer, p_faculty_id uuid) to authenticated; grant execute on function public.faculty_can_update_request_item(p_request_id integer, p_faculty_id uuid) to service_role;
+revoke all on function public.faculty_main_program_link() from public, anon, authenticated, service_role; grant execute on function public.faculty_main_program_link() to anon; grant execute on function public.faculty_main_program_link() to authenticated; grant execute on function public.faculty_main_program_link() to service_role;
+revoke all on function public.faculty_program_cap() from public, anon, authenticated, service_role; grant execute on function public.faculty_program_cap() to anon; grant execute on function public.faculty_program_cap() to authenticated; grant execute on function public.faculty_program_cap() to service_role;
+revoke all on function public.faculty_program_college() from public, anon, authenticated, service_role; grant execute on function public.faculty_program_college() to anon; grant execute on function public.faculty_program_college() to authenticated; grant execute on function public.faculty_program_college() to service_role;
+revoke all on function public.form_print_history(p_request_id integer) from public, anon, authenticated, service_role; grant execute on function public.form_print_history(p_request_id integer) to authenticated; grant execute on function public.form_print_history(p_request_id integer) to service_role;
 revoke all on function public.is_adviser_of_request(p_request_id integer) from public, anon, authenticated, service_role; grant execute on function public.is_adviser_of_request(p_request_id integer) to authenticated; grant execute on function public.is_adviser_of_request(p_request_id integer) to service_role;
 revoke all on function public.is_adviser_of_student(p_student_id uuid) from public, anon, authenticated, service_role; grant execute on function public.is_adviser_of_student(p_student_id uuid) to authenticated; grant execute on function public.is_adviser_of_student(p_student_id uuid) to service_role;
 revoke all on function public.is_approved_staff() from public, anon, authenticated, service_role; grant execute on function public.is_approved_staff() to authenticated; grant execute on function public.is_approved_staff() to service_role;
 revoke all on function public.is_department_of_student(p_student_id uuid) from public, anon, authenticated, service_role; grant execute on function public.is_department_of_student(p_student_id uuid) to authenticated; grant execute on function public.is_department_of_student(p_student_id uuid) to service_role;
+revoke all on function public.is_my_department_row(p_department_id uuid) from public, anon, authenticated, service_role; grant execute on function public.is_my_department_row(p_department_id uuid) to authenticated; grant execute on function public.is_my_department_row(p_department_id uuid) to service_role;
+revoke all on function public.is_my_faculty_row(p_faculty_id uuid) from public, anon, authenticated, service_role; grant execute on function public.is_my_faculty_row(p_faculty_id uuid) to authenticated; grant execute on function public.is_my_faculty_row(p_faculty_id uuid) to service_role;
+revoke all on function public.is_my_registrar_row(p_registrar_id uuid) from public, anon, authenticated, service_role; grant execute on function public.is_my_registrar_row(p_registrar_id uuid) to authenticated; grant execute on function public.is_my_registrar_row(p_registrar_id uuid) to service_role;
 revoke all on function public.is_registrar_of_student(p_student_id uuid) from public, anon, authenticated, service_role; grant execute on function public.is_registrar_of_student(p_student_id uuid) to authenticated; grant execute on function public.is_registrar_of_student(p_student_id uuid) to service_role;
 revoke all on function public.is_system_admin() from public, anon, authenticated, service_role; grant execute on function public.is_system_admin() to authenticated; grant execute on function public.is_system_admin() to service_role;
+revoke all on function public.log_form_print(p_request_id integer) from public, anon, authenticated, service_role; grant execute on function public.log_form_print(p_request_id integer) to authenticated; grant execute on function public.log_form_print(p_request_id integer) to service_role;
+revoke all on function public.move_request_item_section(p_item_id integer, p_new_offering_id integer) from public, anon, authenticated, service_role; grant execute on function public.move_request_item_section(p_item_id integer, p_new_offering_id integer) to authenticated; grant execute on function public.move_request_item_section(p_item_id integer, p_new_offering_id integer) to service_role;
 revoke all on function public.my_department_program() from public, anon, authenticated, service_role; grant execute on function public.my_department_program() to authenticated; grant execute on function public.my_department_program() to service_role;
+revoke all on function public.my_department_programs() from public, anon, authenticated, service_role; grant execute on function public.my_department_programs() to authenticated; grant execute on function public.my_department_programs() to service_role;
 revoke all on function public.my_department_staff_id() from public, anon, authenticated, service_role; grant execute on function public.my_department_staff_id() to authenticated; grant execute on function public.my_department_staff_id() to service_role;
+revoke all on function public.my_faculty_programs() from public, anon, authenticated, service_role; grant execute on function public.my_faculty_programs() to authenticated; grant execute on function public.my_faculty_programs() to service_role;
 revoke all on function public.my_must_change_password() from public, anon, authenticated, service_role; grant execute on function public.my_must_change_password() to authenticated; grant execute on function public.my_must_change_password() to service_role;
 revoke all on function public.my_registrar_program() from public, anon, authenticated, service_role; grant execute on function public.my_registrar_program() to authenticated; grant execute on function public.my_registrar_program() to service_role;
+revoke all on function public.my_registrar_programs() from public, anon, authenticated, service_role; grant execute on function public.my_registrar_programs() to authenticated; grant execute on function public.my_registrar_programs() to service_role;
+revoke all on function public.name_already_registered(p_first_name text, p_last_name text, p_middle_name text) from public, anon, authenticated, service_role; grant execute on function public.name_already_registered(p_first_name text, p_last_name text, p_middle_name text) to anon; grant execute on function public.name_already_registered(p_first_name text, p_last_name text, p_middle_name text) to authenticated; grant execute on function public.name_already_registered(p_first_name text, p_last_name text, p_middle_name text) to service_role;
 revoke all on function public.next_staff_employee_id() from public, anon, authenticated, service_role; grant execute on function public.next_staff_employee_id() to service_role;
 revoke all on function public.next_student_id() from public, anon, authenticated, service_role; grant execute on function public.next_student_id() to service_role;
+revoke all on function public.registrar_covers_faculty(p_faculty_id uuid) from public, anon, authenticated, service_role; grant execute on function public.registrar_covers_faculty(p_faculty_id uuid) to authenticated; grant execute on function public.registrar_covers_faculty(p_faculty_id uuid) to service_role;
+revoke all on function public.registrar_main_program_link() from public, anon, authenticated, service_role; grant execute on function public.registrar_main_program_link() to anon; grant execute on function public.registrar_main_program_link() to authenticated; grant execute on function public.registrar_main_program_link() to service_role;
+revoke all on function public.registrar_program_cap() from public, anon, authenticated, service_role; grant execute on function public.registrar_program_cap() to anon; grant execute on function public.registrar_program_cap() to authenticated; grant execute on function public.registrar_program_cap() to service_role;
+revoke all on function public.report_edp_results(p_results jsonb) from public, anon, authenticated, service_role; grant execute on function public.report_edp_results(p_results jsonb) to authenticated; grant execute on function public.report_edp_results(p_results jsonb) to service_role;
+revoke all on function public.request_item_flag_guard() from public, anon, authenticated, service_role; grant execute on function public.request_item_flag_guard() to anon; grant execute on function public.request_item_flag_guard() to authenticated; grant execute on function public.request_item_flag_guard() to service_role;
+revoke all on function public.request_item_withdrawn_guard() from public, anon, authenticated, service_role; grant execute on function public.request_item_withdrawn_guard() to anon; grant execute on function public.request_item_withdrawn_guard() to authenticated; grant execute on function public.request_item_withdrawn_guard() to service_role;
+revoke all on function public.request_withdrawn_final() from public, anon, authenticated, service_role; grant execute on function public.request_withdrawn_final() to anon; grant execute on function public.request_withdrawn_final() to authenticated; grant execute on function public.request_withdrawn_final() to service_role;
 revoke all on function public.resolve_login_identifier(identifier text) from public, anon, authenticated, service_role; grant execute on function public.resolve_login_identifier(identifier text) to service_role;
 revoke all on function public.retire_subject(target_id integer, restore boolean, confirm boolean) from public, anon, authenticated, service_role; grant execute on function public.retire_subject(target_id integer, restore boolean, confirm boolean) to authenticated; grant execute on function public.retire_subject(target_id integer, restore boolean, confirm boolean) to service_role;
+revoke all on function public.section_demand(p_year integer, p_term integer) from public, anon, authenticated, service_role; grant execute on function public.section_demand(p_year integer, p_term integer) to authenticated; grant execute on function public.section_demand(p_year integer, p_term integer) to service_role;
+revoke all on function public.section_demand_students(p_subject_id integer, p_section text, p_year integer, p_term integer) from public, anon, authenticated, service_role; grant execute on function public.section_demand_students(p_subject_id integer, p_section text, p_year integer, p_term integer) to authenticated; grant execute on function public.section_demand_students(p_subject_id integer, p_section text, p_year integer, p_term integer) to service_role;
+revoke all on function public.set_account_stopped(p_role text, p_target uuid, p_stop boolean, p_reason text) from public, anon, authenticated, service_role; grant execute on function public.set_account_stopped(p_role text, p_target uuid, p_stop boolean, p_reason text) to authenticated; grant execute on function public.set_account_stopped(p_role text, p_target uuid, p_stop boolean, p_reason text) to service_role;
+revoke all on function public.set_department_programs(p_department_id uuid, p_program_ids integer[]) from public, anon, authenticated, service_role; grant execute on function public.set_department_programs(p_department_id uuid, p_program_ids integer[]) to authenticated; grant execute on function public.set_department_programs(p_department_id uuid, p_program_ids integer[]) to service_role;
+revoke all on function public.set_faculty_programs(p_faculty_id uuid, p_program_ids integer[]) from public, anon, authenticated, service_role; grant execute on function public.set_faculty_programs(p_faculty_id uuid, p_program_ids integer[]) to authenticated; grant execute on function public.set_faculty_programs(p_faculty_id uuid, p_program_ids integer[]) to service_role;
+revoke all on function public.set_registrar_programs(p_registrar_id uuid, p_program_ids integer[]) from public, anon, authenticated, service_role; grant execute on function public.set_registrar_programs(p_registrar_id uuid, p_program_ids integer[]) to authenticated; grant execute on function public.set_registrar_programs(p_registrar_id uuid, p_program_ids integer[]) to service_role;
+revoke all on function public.set_section_all_open(p_section text, p_year integer, p_term integer, p_open boolean) from public, anon, authenticated, service_role; grant execute on function public.set_section_all_open(p_section text, p_year integer, p_term integer, p_open boolean) to authenticated; grant execute on function public.set_section_all_open(p_section text, p_year integer, p_term integer, p_open boolean) to service_role;
+revoke all on function public.set_section_open(p_subject_id integer, p_section text, p_year integer, p_term integer, p_open boolean) from public, anon, authenticated, service_role; grant execute on function public.set_section_open(p_subject_id integer, p_section text, p_year integer, p_term integer, p_open boolean) to authenticated; grant execute on function public.set_section_open(p_subject_id integer, p_section text, p_year integer, p_term integer, p_open boolean) to service_role;
+revoke all on function public.set_student_curriculum(p_student_id text, p_year integer) from public, anon, authenticated, service_role; grant execute on function public.set_student_curriculum(p_student_id text, p_year integer) to authenticated; grant execute on function public.set_student_curriculum(p_student_id text, p_year integer) to service_role;
+revoke all on function public.set_student_middle_name(p_student_id text, p_middle text) from public, anon, authenticated, service_role; grant execute on function public.set_student_middle_name(p_student_id text, p_middle text) to authenticated; grant execute on function public.set_student_middle_name(p_student_id text, p_middle text) to service_role;
 revoke all on function public.staff_employee_id_guard() from public, anon, authenticated, service_role; grant execute on function public.staff_employee_id_guard() to service_role;
+revoke all on function public.student_autoverify() from public, anon, authenticated, service_role; grant execute on function public.student_autoverify() to service_role;
 revoke all on function public.student_id_on_approve() from public, anon, authenticated, service_role; grant execute on function public.student_id_on_approve() to service_role;
 revoke all on function public.student_id_on_register() from public, anon, authenticated, service_role; grant execute on function public.student_id_on_register() to service_role;
+revoke all on function public.student_register_autoapprove() from public, anon, authenticated, service_role; grant execute on function public.student_register_autoapprove() to service_role;
 revoke all on function public.student_register_guard() from public, anon, authenticated, service_role; grant execute on function public.student_register_guard() to service_role;
+revoke all on function public.student_register_name_guard() from public, anon, authenticated, service_role; grant execute on function public.student_register_name_guard() to service_role;
 revoke all on function public.update_subject(target_id integer, p_code text, p_title text, p_lec numeric, p_lab numeric, p_year integer, p_term integer, p_category text) from public, anon, authenticated, service_role; grant execute on function public.update_subject(target_id integer, p_code text, p_title text, p_lec numeric, p_lab numeric, p_year integer, p_term integer, p_category text) to authenticated; grant execute on function public.update_subject(target_id integer, p_code text, p_title text, p_lec numeric, p_lab numeric, p_year integer, p_term integer, p_category text) to service_role;
+revoke all on function public.withdraw_my_request(p_request_id integer) from public, anon, authenticated, service_role; grant execute on function public.withdraw_my_request(p_request_id integer) to authenticated; grant execute on function public.withdraw_my_request(p_request_id integer) to service_role;
+CREATE TRIGGER academic_record_autoverify AFTER INSERT ON public.academic_record FOR EACH ROW EXECUTE FUNCTION academic_record_autoverify();
 CREATE TRIGGER audit_advisee_assignment AFTER INSERT OR DELETE OR UPDATE ON public.advisee_assignment FOR EACH ROW EXECUTE FUNCTION audit_row_change();
+CREATE TRIGGER ai_chat_message_after_delete AFTER DELETE ON public.ai_chat_message REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION ai_chat_drop_empty_conversations();
+CREATE TRIGGER ai_chat_message_before_insert BEFORE INSERT ON public.ai_chat_message FOR EACH ROW EXECUTE FUNCTION ai_chat_message_before_insert();
 CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON public.audit_log FOR EACH STATEMENT EXECUTE FUNCTION audit_log_append_only();
 CREATE TRIGGER audit_log_no_change BEFORE DELETE OR UPDATE ON public.audit_log FOR EACH ROW EXECUTE FUNCTION audit_log_append_only();
-CREATE TRIGGER audit_department_staff AFTER DELETE OR UPDATE ON public.department_staff FOR EACH ROW EXECUTE FUNCTION audit_row_change('avatar_url');
+CREATE TRIGGER department_program_college BEFORE INSERT ON public.department_program FOR EACH ROW EXECUTE FUNCTION department_program_college();
+CREATE TRIGGER department_program_cap BEFORE INSERT ON public.department_program FOR EACH ROW EXECUTE FUNCTION department_program_cap();
 CREATE TRIGGER staff_employee_id_guard BEFORE INSERT OR UPDATE OF employee_id ON public.department_staff FOR EACH ROW EXECUTE FUNCTION staff_employee_id_guard();
+CREATE TRIGGER audit_department_staff AFTER DELETE OR UPDATE ON public.department_staff FOR EACH ROW EXECUTE FUNCTION audit_row_change('avatar_url');
+CREATE TRIGGER department_main_program_link AFTER INSERT OR UPDATE OF program_id ON public.department_staff FOR EACH ROW EXECUTE FUNCTION department_main_program_link();
+CREATE TRIGGER faculty_program_college BEFORE INSERT ON public.faculty_program FOR EACH ROW EXECUTE FUNCTION faculty_program_college();
+CREATE TRIGGER faculty_program_cap BEFORE INSERT ON public.faculty_program FOR EACH ROW EXECUTE FUNCTION faculty_program_cap();
 CREATE TRIGGER audit_faculty_staff AFTER DELETE OR UPDATE ON public.faculty_staff FOR EACH ROW EXECUTE FUNCTION audit_row_change('avatar_url');
 CREATE TRIGGER staff_employee_id_guard BEFORE INSERT OR UPDATE OF employee_id ON public.faculty_staff FOR EACH ROW EXECUTE FUNCTION staff_employee_id_guard();
+CREATE TRIGGER faculty_main_program_link AFTER INSERT OR UPDATE OF program_id ON public.faculty_staff FOR EACH ROW EXECUTE FUNCTION faculty_main_program_link();
 CREATE TRIGGER audit_program AFTER INSERT OR DELETE OR UPDATE ON public.program FOR EACH ROW EXECUTE FUNCTION audit_row_change();
 CREATE TRIGGER audit_prospectus AFTER INSERT OR DELETE OR UPDATE ON public.prospectus FOR EACH ROW EXECUTE FUNCTION audit_row_change();
+CREATE TRIGGER registrar_program_cap BEFORE INSERT ON public.registrar_program FOR EACH ROW EXECUTE FUNCTION registrar_program_cap();
 CREATE TRIGGER audit_registrar_staff AFTER DELETE OR UPDATE ON public.registrar_staff FOR EACH ROW EXECUTE FUNCTION audit_row_change('avatar_url');
 CREATE TRIGGER staff_employee_id_guard BEFORE INSERT OR UPDATE OF employee_id ON public.registrar_staff FOR EACH ROW EXECUTE FUNCTION staff_employee_id_guard();
+CREATE TRIGGER registrar_main_program_link AFTER INSERT OR UPDATE OF program_id ON public.registrar_staff FOR EACH ROW EXECUTE FUNCTION registrar_main_program_link();
+CREATE TRIGGER request_withdrawn_final BEFORE UPDATE OF status ON public.request FOR EACH ROW WHEN ((((old.status)::text = 'withdrawn'::text) AND ((new.status)::text IS DISTINCT FROM 'withdrawn'::text))) EXECUTE FUNCTION request_withdrawn_final();
+CREATE TRIGGER request_item_flag_guard BEFORE UPDATE OF status, remarks ON public.request_item FOR EACH ROW WHEN ((((old.status)::text = 'flagged'::text) AND ((new.status)::text = 'approved'::text))) EXECUTE FUNCTION request_item_flag_guard();
+CREATE TRIGGER request_item_withdrawn_guard BEFORE UPDATE OF status ON public.request_item FOR EACH ROW WHEN ((((new.status)::text = ANY ((ARRAY['approved'::character varying, 'rejected'::character varying])::text[])) AND ((old.status)::text IS DISTINCT FROM (new.status)::text))) EXECUTE FUNCTION request_item_withdrawn_guard();
 CREATE TRIGGER audit_system_administrator AFTER DELETE OR UPDATE ON public.system_administrator FOR EACH ROW EXECUTE FUNCTION audit_row_change('avatar_url');
 CREATE TRIGGER audit_system_config AFTER INSERT OR DELETE OR UPDATE ON public.system_config FOR EACH ROW EXECUTE FUNCTION audit_row_change();
 CREATE TRIGGER audit_university_student_delete AFTER DELETE ON public.university_student FOR EACH ROW WHEN (old.is_approved) EXECUTE FUNCTION audit_row_change('avatar_url');
 CREATE TRIGGER audit_university_student_update AFTER UPDATE ON public.university_student FOR EACH ROW EXECUTE FUNCTION audit_row_change('avatar_url');
-CREATE TRIGGER student_id_on_register BEFORE INSERT ON public.university_student FOR EACH ROW EXECUTE FUNCTION student_id_on_register();
 CREATE TRIGGER student_register_guard BEFORE INSERT ON public.university_student FOR EACH ROW EXECUTE FUNCTION student_register_guard();
+CREATE TRIGGER student_register_zzverify BEFORE INSERT OR UPDATE OF is_approved ON public.university_student FOR EACH ROW EXECUTE FUNCTION student_autoverify();
+CREATE TRIGGER student_register_zautoapprove BEFORE INSERT ON public.university_student FOR EACH ROW EXECUTE FUNCTION student_register_autoapprove();
+CREATE TRIGGER student_register_name_guard BEFORE INSERT ON public.university_student FOR EACH ROW EXECUTE FUNCTION student_register_name_guard();
+CREATE TRIGGER student_id_on_register BEFORE INSERT ON public.university_student FOR EACH ROW EXECUTE FUNCTION student_id_on_register();
 CREATE TRIGGER student_id_on_approve BEFORE UPDATE ON public.university_student FOR EACH ROW EXECUTE FUNCTION student_id_on_approve();
 create policy students_read_own_records on public.academic_record as permissive for select to authenticated using ((student_id = current_student_id()));
 create policy "staff read own-programme records" on public.academic_record as permissive for select to authenticated using (can_see_student(student_id));
 create policy department_writes_records on public.academic_record as permissive for all to authenticated using (is_department_of_student(student_id)) with check (is_department_of_student(student_id));
+create policy admin_read_account_stop_log on public.account_stop_log as permissive for select to authenticated using (is_system_admin());
 create policy "registrar manages advisee assignments" on public.advisee_assignment as permissive for all to authenticated using (is_registrar_of_student(student_id)) with check (is_registrar_of_student(student_id));
 create policy "staff read assignments" on public.advisee_assignment as permissive for select to authenticated using (can_see_student(student_id));
-create policy "students insert own chat" on public.ai_chat_message as permissive for insert to authenticated with check ((student_id = current_student_id()));
+create policy "students rename own conversations" on public.ai_chat_conversation as permissive for update to authenticated using ((student_id = current_student_id())) with check ((student_id = current_student_id()));
+create policy "students delete own conversations" on public.ai_chat_conversation as permissive for delete to authenticated using ((student_id = current_student_id()));
+create policy "students read own conversations" on public.ai_chat_conversation as permissive for select to authenticated using ((student_id = current_student_id()));
+create policy "students start own conversations" on public.ai_chat_conversation as permissive for insert to authenticated with check ((student_id = current_student_id()));
+create policy "students insert own chat" on public.ai_chat_message as permissive for insert to public with check (((student_id = current_student_id()) AND ((conversation_id IS NULL) OR (EXISTS ( SELECT 1
+   FROM ai_chat_conversation c
+  WHERE ((c.id = ai_chat_message.conversation_id) AND (c.student_id = ai_chat_message.student_id)))))));
 create policy "students read own chat" on public.ai_chat_message as permissive for select to authenticated using ((student_id = current_student_id()));
+create policy "students insert own chat reset" on public.ai_chat_reset as permissive for insert to authenticated with check ((student_id = current_student_id()));
+create policy "students read own chat reset" on public.ai_chat_reset as permissive for select to authenticated using ((student_id = current_student_id()));
 create policy admin_reads_audit_log on public.audit_log as permissive for select to authenticated using (is_system_admin());
-create policy admin_writes_bulk_history on public.bulk_upload_history as permissive for insert to authenticated with check (is_system_admin());
 create policy admin_reads_bulk_history on public.bulk_upload_history as permissive for select to authenticated using (is_system_admin());
+create policy admin_writes_bulk_history on public.bulk_upload_history as permissive for insert to authenticated with check (is_system_admin());
+create policy cura_usage_admin_read on public.cura_usage as permissive for select to authenticated using (is_system_admin());
+create policy "admin reads department programmes" on public.department_program as permissive for select to authenticated using (is_system_admin());
+create policy "registrar reads department programmes" on public.department_program as permissive for select to authenticated using ((program_id = ANY (my_registrar_programs())));
+create policy "department reads own programmes" on public.department_program as permissive for select to authenticated using (is_my_department_row(department_id));
 create policy "department updates own row" on public.department_staff as permissive for update to authenticated using ((auth.uid() = user_id)) with check ((auth.uid() = user_id));
-create policy "department reads own row" on public.department_staff as permissive for select to authenticated using ((auth.uid() = user_id));
 create policy "department updates own profile fields" on public.department_staff as permissive for update to authenticated using ((auth.uid() = user_id)) with check ((auth.uid() = user_id));
-create policy admin_read_department on public.department_staff as permissive for select to authenticated using (is_system_admin());
+create policy "department reads own row" on public.department_staff as permissive for select to authenticated using ((auth.uid() = user_id));
 create policy admin_update_department on public.department_staff as permissive for update to authenticated using (is_system_admin()) with check (is_system_admin());
+create policy admin_read_department on public.department_staff as permissive for select to authenticated using (is_system_admin());
 create policy elective_groups_readable on public.elective_group as permissive for select to authenticated using (can_read_prospectus(prospectus_id));
 create policy department_manage_elective_groups on public.elective_group as permissive for all to authenticated using ((prospectus_id IN ( SELECT prospectus.id
    FROM prospectus
-  WHERE (prospectus.program_id = my_department_program())))) with check ((prospectus_id IN ( SELECT prospectus.id
+  WHERE department_covers_program(prospectus.program_id)))) with check ((prospectus_id IN ( SELECT prospectus.id
    FROM prospectus
-  WHERE (prospectus.program_id = my_department_program()))));
+  WHERE department_covers_program(prospectus.program_id))));
 create policy elective_members_readable on public.elective_group_member as permissive for select to authenticated using (can_read_subject(subject_id));
 create policy department_manage_elective_members on public.elective_group_member as permissive for all to authenticated using ((elective_group_id IN ( SELECT g.id
    FROM (elective_group g
      JOIN prospectus p ON ((p.id = g.prospectus_id)))
-  WHERE (p.program_id = my_department_program())))) with check ((elective_group_id IN ( SELECT g.id
+  WHERE department_covers_program(p.program_id)))) with check ((elective_group_id IN ( SELECT g.id
    FROM (elective_group g
      JOIN prospectus p ON ((p.id = g.prospectus_id)))
-  WHERE (p.program_id = my_department_program()))));
-create policy "faculty reads own row" on public.faculty_staff as permissive for select to authenticated using ((auth.uid() = user_id));
-create policy "registrar reads faculty" on public.faculty_staff as permissive for select to authenticated using (((program_id IS NOT NULL) AND (program_id = my_registrar_program())));
+  WHERE department_covers_program(p.program_id))));
+create policy admin_all_expected_student on public.expected_student as permissive for all to authenticated using (is_system_admin()) with check (is_system_admin());
+create policy "admin reads faculty programmes" on public.faculty_program as permissive for select to authenticated using (is_system_admin());
+create policy "faculty reads own programmes" on public.faculty_program as permissive for select to authenticated using (is_my_faculty_row(faculty_id));
+create policy "registrar reads faculty programmes" on public.faculty_program as permissive for select to authenticated using ((program_id = ANY (my_registrar_programs())));
+create policy "registrar reads faculty" on public.faculty_staff as permissive for select to authenticated using (registrar_covers_faculty(id));
 create policy admin_read_faculty on public.faculty_staff as permissive for select to authenticated using (is_system_admin());
 create policy admin_update_faculty on public.faculty_staff as permissive for update to authenticated using (is_system_admin()) with check (is_system_admin());
+create policy "faculty reads own row" on public.faculty_staff as permissive for select to authenticated using ((auth.uid() = user_id));
 create policy registrar_reads_grade_files on public.grade_file as permissive for select to authenticated using ((uploaded_by IN ( SELECT department_ids_for_my_registrar() AS department_ids_for_my_registrar)));
 create policy department_manage_grade_files on public.grade_file as permissive for all to authenticated using ((uploaded_by = my_department_staff_id())) with check ((uploaded_by = my_department_staff_id()));
-create policy registrar_reads_grade_rows on public.grade_file_row as permissive for select to authenticated using ((grade_file_id IN ( SELECT grade_file.id
-   FROM grade_file
-  WHERE (grade_file.uploaded_by IN ( SELECT department_ids_for_my_registrar() AS department_ids_for_my_registrar)))));
 create policy department_manage_grade_rows on public.grade_file_row as permissive for all to authenticated using ((grade_file_id IN ( SELECT grade_file.id
    FROM grade_file
   WHERE (grade_file.uploaded_by = my_department_staff_id())))) with check ((grade_file_id IN ( SELECT grade_file.id
    FROM grade_file
   WHERE (grade_file.uploaded_by = my_department_staff_id()))));
+create policy registrar_reads_grade_rows on public.grade_file_row as permissive for select to authenticated using ((grade_file_id IN ( SELECT grade_file.id
+   FROM grade_file
+  WHERE (grade_file.uploaded_by IN ( SELECT department_ids_for_my_registrar() AS department_ids_for_my_registrar)))));
 create policy maintenance_log_admin_read on public.maintenance_log as permissive for select to authenticated using ((EXISTS ( SELECT 1
    FROM system_administrator a
   WHERE (a.user_id = auth.uid()))));
+create policy students_update_own_notifications on public.notification as permissive for update to authenticated using ((user_id = auth.uid())) with check ((user_id = auth.uid()));
+create policy students_read_own_notifications on public.notification as permissive for select to authenticated using ((user_id = auth.uid()));
 create policy "registrar notify on advising decision" on public.notification as permissive for insert to authenticated with check (((EXISTS ( SELECT 1
    FROM (request r
      JOIN university_student us ON ((us.id = r.student_id)))
   WHERE ((r.id = notification.related_request_id) AND (us.user_id = notification.user_id)))) AND (EXISTS ( SELECT 1
    FROM registrar_staff rs
   WHERE ((rs.user_id = auth.uid()) AND rs.is_approved)))));
-create policy students_update_own_notifications on public.notification as permissive for update to authenticated using ((user_id = auth.uid())) with check ((user_id = auth.uid()));
-create policy students_read_own_notifications on public.notification as permissive for select to authenticated using ((user_id = auth.uid()));
 create policy "faculty notify advisees" on public.notification as permissive for insert to authenticated with check ((EXISTS ( SELECT 1
-   FROM (((request r
-     JOIN advisee_assignment a ON ((a.student_id = r.student_id)))
-     JOIN faculty_staff f ON ((f.id = a.faculty_id)))
+   FROM (request r
      JOIN university_student us ON ((us.id = r.student_id)))
-  WHERE ((r.id = notification.related_request_id) AND (us.user_id = notification.user_id) AND (f.user_id = auth.uid()) AND a.is_active AND f.is_approved))));
+  WHERE ((r.id = notification.related_request_id) AND (us.user_id = notification.user_id) AND is_adviser_of_student(r.student_id)))));
+create policy prerequisites_readable on public.prerequisite as permissive for select to authenticated using (can_read_subject(subject_id));
 create policy department_manage_prerequisites on public.prerequisite as permissive for all to authenticated using ((subject_id IN ( SELECT s.id
    FROM (subject s
      JOIN prospectus p ON ((p.id = s.prospectus_id)))
-  WHERE (p.program_id = my_department_program())))) with check ((subject_id IN ( SELECT s.id
+  WHERE department_covers_program(p.program_id)))) with check ((subject_id IN ( SELECT s.id
    FROM (subject s
      JOIN prospectus p ON ((p.id = s.prospectus_id)))
-  WHERE (p.program_id = my_department_program()))));
-create policy prerequisites_readable on public.prerequisite as permissive for select to authenticated using (can_read_subject(subject_id));
-create policy "programs readable before sign-in" on public.program as permissive for select to anon using (true);
+  WHERE department_covers_program(p.program_id))));
+create policy "read programs" on public.program as permissive for select to authenticated using (true);
 create policy "admin creates programs" on public.program as permissive for insert to authenticated with check (is_system_admin());
 create policy "admin updates programs" on public.program as permissive for update to authenticated using (is_system_admin()) with check (is_system_admin());
-create policy "read programs" on public.program as permissive for select to authenticated using (true);
-create policy department_manage_prospectus on public.prospectus as permissive for all to authenticated using ((program_id = my_department_program())) with check ((program_id = my_department_program()));
+create policy "programs readable before sign-in" on public.program as permissive for select to anon using (true);
 create policy prospectus_readable on public.prospectus as permissive for select to authenticated using (can_read_program(program_id));
+create policy department_manage_prospectus on public.prospectus as permissive for all to authenticated using (department_covers_program(program_id)) with check (department_covers_program(program_id));
+create policy "admin reads registrar programmes" on public.registrar_program as permissive for select to authenticated using (is_system_admin());
+create policy "registrar reads own programmes" on public.registrar_program as permissive for select to authenticated using (is_my_registrar_row(registrar_id));
 create policy admin_read_registrar on public.registrar_staff as permissive for select to authenticated using (is_system_admin());
-create policy "registrar reads own row" on public.registrar_staff as permissive for select to authenticated using ((auth.uid() = user_id));
 create policy admin_update_registrar on public.registrar_staff as permissive for update to authenticated using (is_system_admin()) with check (is_system_admin());
-create policy "faculty read advisee requests" on public.request as permissive for select to authenticated using (is_adviser_of_student(student_id));
+create policy "registrar reads own row" on public.registrar_staff as permissive for select to authenticated using ((auth.uid() = user_id));
+create policy "department reads approved enrollment requests" on public.request as permissive for select to authenticated using ((((status)::text = ANY ((ARRAY['approved'::character varying, 'partially_approved'::character varying])::text[])) AND (registrar_status IS DISTINCT FROM 'rejected'::text) AND is_department_of_student(student_id)));
 create policy students_read_own_requests on public.request as permissive for select to authenticated using ((student_id = current_student_id()));
 create policy students_create_own_requests on public.request as permissive for insert to authenticated with check (((student_id = current_student_id()) AND ((status)::text = 'submitted'::text) AND (registrar_status IS NULL) AND (registrar_id IS NULL) AND (registrar_reviewed_at IS NULL) AND (registrar_notes IS NULL)));
 create policy registrar_update_requests on public.request as permissive for update to authenticated using (is_registrar_of_student(student_id)) with check (is_registrar_of_student(student_id));
 create policy registrar_read_all_requests on public.request as permissive for select to authenticated using (is_registrar_of_student(student_id));
 create policy "faculty update own advisee requests" on public.request as permissive for update to authenticated using (faculty_can_transition_request(id)) with check (faculty_can_transition_request(id));
-create policy "department reads approved enrollment requests" on public.request as permissive for select to authenticated using ((((status)::text = ANY ((ARRAY['approved'::character varying, 'partially_approved'::character varying])::text[])) AND (registrar_status IS DISTINCT FROM 'rejected'::text) AND is_department_of_student(student_id)));
+create policy "faculty read advisee requests" on public.request as permissive for select to authenticated using (is_adviser_of_student(student_id));
 create policy "faculty update advisee request items" on public.request_item as permissive for update to authenticated using (faculty_can_update_request_item(request_id, ( SELECT faculty_staff.id
    FROM faculty_staff
   WHERE (faculty_staff.user_id = auth.uid())
@@ -2229,10 +3974,6 @@ create policy "faculty update advisee request items" on public.request_item as p
    FROM faculty_staff
   WHERE (faculty_staff.user_id = auth.uid())
  LIMIT 1)));
-create policy "faculty read advisee request items" on public.request_item as permissive for select to authenticated using (is_adviser_of_request(request_id));
-create policy registrar_read_all_request_items on public.request_item as permissive for select to authenticated using ((EXISTS ( SELECT 1
-   FROM request r
-  WHERE ((r.id = request_item.request_id) AND is_registrar_of_student(r.student_id)))));
 create policy "students insert own request items" on public.request_item as permissive for insert to authenticated with check ((((status)::text = ANY ((ARRAY['valid'::character varying, 'flagged'::character varying, 'pending'::character varying])::text[])) AND (EXISTS ( SELECT 1
    FROM (request r
      JOIN university_student s ON ((s.id = r.student_id)))
@@ -2244,18 +3985,22 @@ create policy "students read own request items" on public.request_item as permis
 create policy "department reads approved enrollment items" on public.request_item as permissive for select to authenticated using ((EXISTS ( SELECT 1
    FROM request r
   WHERE ((r.id = request_item.request_id) AND ((r.status)::text = ANY ((ARRAY['approved'::character varying, 'partially_approved'::character varying])::text[])) AND (r.registrar_status IS DISTINCT FROM 'rejected'::text) AND is_department_of_student(r.student_id)))));
-create policy "faculty update own review" on public.request_review as permissive for update to authenticated using ((EXISTS ( SELECT 1
-   FROM faculty_staff f
-  WHERE ((f.id = request_review.faculty_id) AND (f.user_id = auth.uid())))));
-create policy "students read own request review" on public.request_review as permissive for select to authenticated using ((EXISTS ( SELECT 1
-   FROM (request r
-     JOIN university_student s ON ((s.id = r.student_id)))
-  WHERE ((r.id = request_review.request_id) AND (s.user_id = auth.uid())))));
-create policy "faculty insert review for own advisees" on public.request_review as permissive for insert to authenticated with check (faculty_can_review_request(request_id, faculty_id));
+create policy "faculty read advisee request items" on public.request_item as permissive for select to authenticated using (is_adviser_of_request(request_id));
+create policy registrar_read_all_request_items on public.request_item as permissive for select to authenticated using ((EXISTS ( SELECT 1
+   FROM request r
+  WHERE ((r.id = request_item.request_id) AND is_registrar_of_student(r.student_id)))));
 create policy "registrar reads all reviews" on public.request_review as permissive for select to authenticated using ((EXISTS ( SELECT 1
    FROM request r
   WHERE ((r.id = request_review.request_id) AND is_registrar_of_student(r.student_id)))));
 create policy "faculty read own reviews" on public.request_review as permissive for select to authenticated using ((EXISTS ( SELECT 1
+   FROM faculty_staff f
+  WHERE ((f.id = request_review.faculty_id) AND (f.user_id = auth.uid())))));
+create policy "faculty insert review for own advisees" on public.request_review as permissive for insert to authenticated with check (faculty_can_review_request(request_id, faculty_id));
+create policy "students read own request review" on public.request_review as permissive for select to authenticated using ((EXISTS ( SELECT 1
+   FROM (request r
+     JOIN university_student s ON ((s.id = r.student_id)))
+  WHERE ((r.id = request_review.request_id) AND (s.user_id = auth.uid())))));
+create policy "faculty update own review" on public.request_review as permissive for update to authenticated using ((EXISTS ( SELECT 1
    FROM faculty_staff f
   WHERE ((f.id = request_review.faculty_id) AND (f.user_id = auth.uid())))));
 create policy department_stages_prerequisites on public.stg_prerequisite as permissive for all to authenticated using (((uploaded_by = auth.uid()) AND (EXISTS ( SELECT 1
@@ -2270,59 +4015,69 @@ create policy department_stages_subjects on public.stg_subject as permissive for
    FROM department_staff
   WHERE ((department_staff.user_id = auth.uid()) AND department_staff.is_approved)))));
 create policy admin_reads_stg_subject on public.stg_subject as permissive for select to authenticated using (is_system_admin());
-create policy "student changes own preference" on public.student_preference as permissive for update to authenticated using ((EXISTS ( SELECT 1
-   FROM university_student u
-  WHERE ((u.id = student_preference.student_id) AND (u.user_id = auth.uid()))))) with check ((EXISTS ( SELECT 1
-   FROM university_student u
-  WHERE ((u.id = student_preference.student_id) AND (u.user_id = auth.uid())))));
 create policy "student creates own preference" on public.student_preference as permissive for insert to authenticated with check ((EXISTS ( SELECT 1
    FROM university_student u
   WHERE ((u.id = student_preference.student_id) AND (u.user_id = auth.uid())))));
 create policy "student reads own preference" on public.student_preference as permissive for select to authenticated using ((EXISTS ( SELECT 1
    FROM university_student u
   WHERE ((u.id = student_preference.student_id) AND (u.user_id = auth.uid())))));
+create policy "student changes own preference" on public.student_preference as permissive for update to authenticated using ((EXISTS ( SELECT 1
+   FROM university_student u
+  WHERE ((u.id = student_preference.student_id) AND (u.user_id = auth.uid()))))) with check ((EXISTS ( SELECT 1
+   FROM university_student u
+  WHERE ((u.id = student_preference.student_id) AND (u.user_id = auth.uid())))));
+create policy curriculum_readable on public.subject as permissive for select to authenticated using (can_read_prospectus(prospectus_id));
 create policy department_manage_subjects on public.subject as permissive for all to authenticated using ((prospectus_id IN ( SELECT prospectus.id
    FROM prospectus
-  WHERE (prospectus.program_id = my_department_program())))) with check ((prospectus_id IN ( SELECT prospectus.id
+  WHERE department_covers_program(prospectus.program_id)))) with check ((prospectus_id IN ( SELECT prospectus.id
    FROM prospectus
-  WHERE (prospectus.program_id = my_department_program()))));
-create policy curriculum_readable on public.subject as permissive for select to authenticated using (can_read_prospectus(prospectus_id));
+  WHERE department_covers_program(prospectus.program_id))));
 create policy offerings_readable on public.subject_offering as permissive for select to authenticated using (can_read_subject(subject_id));
 create policy department_manage_offerings on public.subject_offering as permissive for all to authenticated using ((subject_id IN ( SELECT s.id
    FROM (subject s
      JOIN prospectus p ON ((p.id = s.prospectus_id)))
-  WHERE (p.program_id = my_department_program())))) with check ((subject_id IN ( SELECT s.id
+  WHERE department_covers_program(p.program_id)))) with check ((subject_id IN ( SELECT s.id
    FROM (subject s
      JOIN prospectus p ON ((p.id = s.prospectus_id)))
-  WHERE (p.program_id = my_department_program()))));
+  WHERE department_covers_program(p.program_id))));
 create policy "administrator reads own row" on public.system_administrator as permissive for select to authenticated using ((auth.uid() = user_id));
 create policy admin_update_administrators on public.system_administrator as permissive for update to authenticated using (is_system_admin()) with check (is_system_admin());
 create policy admin_read_administrators on public.system_administrator as permissive for select to authenticated using (is_system_admin());
-create policy "any authenticated user can read system_config" on public.system_config as permissive for select to authenticated using (true);
 create policy "only system admin can update system_config" on public.system_config as permissive for update to authenticated using (is_system_admin()) with check (is_system_admin());
-create policy "staff read own-programme students" on public.university_student as permissive for select to authenticated using (can_see_student(id));
-create policy students_read_own_row on public.university_student as permissive for select to authenticated using ((user_id = auth.uid()));
-create policy registrar_approves_students on public.university_student as permissive for update to authenticated using ((is_registrar_of_student(id) OR is_department_of_student(id))) with check ((is_registrar_of_student(id) OR is_department_of_student(id)));
-create policy anon_can_request_account on public.university_student as permissive for insert to anon, authenticated with check (((is_approved = false) AND (record_verified = false)));
+create policy "any authenticated user can read system_config" on public.system_config as permissive for select to authenticated using (true);
 create policy admin_read_all on public.university_student as permissive for select to authenticated using ((EXISTS ( SELECT 1
    FROM system_administrator
   WHERE (system_administrator.user_id = auth.uid()))));
+create policy students_read_own_row on public.university_student as permissive for select to authenticated using ((user_id = auth.uid()));
+create policy "staff read own-programme students" on public.university_student as permissive for select to authenticated using (can_see_student(id));
+create policy registrar_approves_students on public.university_student as permissive for update to authenticated using ((is_registrar_of_student(id) OR is_department_of_student(id))) with check ((is_registrar_of_student(id) OR is_department_of_student(id)));
+create policy anon_can_request_account on public.university_student as permissive for insert to anon, authenticated with check ((((is_approved = false) AND (record_verified = false)) OR ((created_via = 'SELF_REGISTER'::text) AND (approval_status = 'approved'::text) AND (reviewed_by IS NULL))));
 revoke all on public.academic_record from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.academic_record to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.academic_record to service_role;
+revoke all on public.account_stop_log from anon, authenticated, service_role; grant SELECT on public.account_stop_log to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.account_stop_log to service_role;
 revoke all on public.advisee_assignment from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.advisee_assignment to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.advisee_assignment to service_role;
+revoke all on public.ai_chat_conversation from anon, authenticated, service_role; grant DELETE, SELECT on public.ai_chat_conversation to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.ai_chat_conversation to service_role;
 revoke all on public.ai_chat_message from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.ai_chat_message to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.ai_chat_message to service_role;
+revoke all on public.ai_chat_reset from anon, authenticated, service_role; grant INSERT, SELECT on public.ai_chat_reset to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.ai_chat_reset to service_role;
 revoke all on public.audit_log from anon, authenticated, service_role; grant SELECT on public.audit_log to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.audit_log to service_role;
 revoke all on public.bulk_upload_history from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.bulk_upload_history to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.bulk_upload_history to service_role;
+revoke all on public.cura_usage from anon, authenticated, service_role; grant SELECT on public.cura_usage to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.cura_usage to service_role;
+revoke all on public.department_program from anon, authenticated, service_role; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.department_program to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.department_program to service_role;
 revoke all on public.department_staff from anon, authenticated, service_role; grant DELETE, INSERT, SELECT on public.department_staff to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.department_staff to service_role;
 revoke all on public.elective_group from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.elective_group to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.elective_group to service_role;
 revoke all on public.elective_group_member from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.elective_group_member to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.elective_group_member to service_role;
+revoke all on public.expected_student from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.expected_student to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.expected_student to service_role;
+revoke all on public.faculty_program from anon, authenticated, service_role; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.faculty_program to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.faculty_program to service_role;
 revoke all on public.faculty_staff from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.faculty_staff to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.faculty_staff to service_role;
+revoke all on public.form_print from anon, authenticated, service_role; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.form_print to service_role;
 revoke all on public.grade_file from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.grade_file to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.grade_file to service_role;
 revoke all on public.grade_file_row from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.grade_file_row to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.grade_file_row to service_role;
+revoke all on public.login_attempt from anon, authenticated, service_role; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.login_attempt to service_role;
 revoke all on public.maintenance_log from anon, authenticated, service_role; grant SELECT on public.maintenance_log to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.maintenance_log to service_role;
 revoke all on public.notification from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.notification to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.notification to service_role;
 revoke all on public.prerequisite from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.prerequisite to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.prerequisite to service_role;
 revoke all on public.program from anon, authenticated, service_role; grant SELECT on public.program to anon; grant DELETE, INSERT, SELECT, UPDATE on public.program to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.program to service_role;
 revoke all on public.prospectus from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.prospectus to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.prospectus to service_role;
+revoke all on public.registrar_program from anon, authenticated, service_role; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.registrar_program to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.registrar_program to service_role;
 revoke all on public.registrar_staff from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.registrar_staff to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.registrar_staff to service_role;
 revoke all on public.request from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.request to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.request to service_role;
 revoke all on public.request_item from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.request_item to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.request_item to service_role;
@@ -2336,4 +4091,5 @@ revoke all on public.subject_offering from anon, authenticated, service_role; gr
 revoke all on public.system_administrator from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.system_administrator to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.system_administrator to service_role;
 revoke all on public.system_config from anon, authenticated, service_role; grant DELETE, INSERT, SELECT, UPDATE on public.system_config to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.system_config to service_role;
 revoke all on public.university_student from anon, authenticated, service_role; grant INSERT on public.university_student to anon; grant DELETE, INSERT, SELECT, UPDATE on public.university_student to authenticated; grant DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on public.university_student to service_role;
+select cron.schedule('cura-usage-cleanup', '10 19 * * *', 'select public.cleanup_cura_usage(false);');
 select cron.schedule('curriculogic-daily-cleanup', '0 19 * * *', 'select public.cleanup_unused_data(false);');

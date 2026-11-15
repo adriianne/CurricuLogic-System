@@ -20,6 +20,8 @@
 function lockedSubjectIds(requests) {
     const latest = new Map();
     for (const req of requests ?? []) {
+        // A plan the student took back (db/113) holds nothing: its subjects are free to be requested again.
+        if (req.status === 'withdrawn') continue;
         for (const item of req.request_item ?? []) {
             if (!latest.has(item.subject_id)) latest.set(item.subject_id, { req, item });
         }
