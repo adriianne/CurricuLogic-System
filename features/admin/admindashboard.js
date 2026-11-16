@@ -2186,7 +2186,12 @@ function renderBulkPreview(ok, bad, fileName) {
                 </tbody>
             </table>
         </div>
-        <button class="btn-accent" id="commit-bulk" style="margin-top:var(--s3);"></button>
+        <div class="bulk-actions">
+            <button class="btn-accent" id="commit-bulk"></button>
+            <button type="button" class="btn-small" id="cancel-bulk" title="Remove this file and start again">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel
+            </button>
+        </div>
         <p class="dim" id="bulk-skip-note" style="margin-top:var(--s2);"></p>`;
     updateBulkStatus();
 }
@@ -2256,8 +2261,25 @@ function bindBulkTable() {
             renderBulkPreview(PENDING_BULK, PENDING_BULK_BAD, PENDING_BULK_FILE);
             return;
         }
+        if (e.target.closest('#cancel-bulk')) { cancelBulkUpload(); return; }
         if (e.target.closest('#commit-bulk')) commitBulk(PENDING_BULK_FILE, PENDING_BULK_BAD);
     });
+}
+
+/* Cancel: throw away the file that was read and everything checked from it, and empty the file box so the same
+   file can be chosen again. Nothing has been saved at this point, so there is nothing to undo. */
+function cancelBulkUpload() {
+    PENDING_BULK = [];
+    PENDING_BULK_BAD = [];
+    PENDING_BULK_FILE = '';
+    PENDING_BULK_RAW = [];
+    BULK_RESULTS = [];
+    const input = $('bulk-file');
+    if (input) input.value = '';
+    const box = $('bulk-preview');
+    if (box) box.innerHTML = '';
+    bulkStatus(null);
+    showMsg('bulk-msg', 'Upload cancelled. The file was removed and no accounts were created.', 'pending');
 }
 
 async function commitBulk(fileName, bad) {
@@ -2302,6 +2324,9 @@ async function commitBulk(fileName, bad) {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating…';
     }
+    // Once creating has started it cannot be cancelled from here.
+    const cancelBtn = $('cancel-bulk');
+    if (cancelBtn) cancelBtn.disabled = true;
 
     const success = [];
     const failed = [];

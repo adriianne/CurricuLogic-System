@@ -854,6 +854,7 @@ dl:has(> .detail) { container: detail-list / inline-size; }
 .bulk-row-bad td { background: rgba(239, 68, 68, 0.06); }
 .bulk-row-bad input, .bulk-row-bad select { border-color: rgba(239, 68, 68, 0.45); }
 html[data-theme="dark"] .bulk-why { color: #f87171; }
+.bulk-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
 .bulk-why.bulk-note { color: var(--slate); }
 html[data-theme="dark"] .bulk-why.bulk-note { color: #9ca3af; }
 
