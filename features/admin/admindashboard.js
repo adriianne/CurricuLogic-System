@@ -1429,6 +1429,9 @@ async function createAccount() {
     const middle     = $('a-role').value === 'student' ? CurriculogicNameRules.clean($('a-middle-name')?.value) : '';
     const email      = CurriculogicEmailRules.clean($('a-email').value);
     const studentId  = $('a-student-id')?.value.trim() ?? '';
+    // The official employee ID of faculty, registrar and department staff; blank means "assign one" (db/115).
+    const employeeId = ['faculty', 'registrar', 'department'].includes($('a-role').value)
+        ? ($('a-employee-id')?.value ?? '').trim().toUpperCase() : '';
     const yearLevel  = $('a-year-level')?.value ?? '';
     const curriculumYear = $('a-curriculum-year')?.value ?? '';
     const role       = $('a-role').value;
@@ -1453,8 +1456,9 @@ async function createAccount() {
     const emailProblem = CurriculogicEmailRules.problem(email);
     if (emailProblem) return showMsg(boxId, emailProblem);
 
-    // Staff (faculty, registrar, department) get their EMP- number from the
-    // database when the account is created; nothing is typed for them.
+    // Staff (faculty, registrar, department) may be given their official EMP- ID here; left blank, the database
+    // assigns the next number when the account is created (db/115).
+    if (employeeId && !STAFF_EMPLOYEE_ID.test(employeeId)) return showMsg(boxId, `The employee ID must be ${STAFF_EMPLOYEE_ID_HELP}`);
     // A student with no ID yet is fine: leave it blank and the database
     // issues one (db/045). A typed ID is checked there (8 digits, unique).
 
@@ -1492,7 +1496,7 @@ async function createAccount() {
                 middle_name: middle || null,
                 last_name: last,
                 email,
-                employee_id: 'EMP-(assigned on save)',
+                employee_id: employeeId || 'EMP-(assigned on save)',
                 program_id: PROGRAMS.find(p => p.code === programCode)?.id ?? null,
                 is_approved: true,
                 created_at: new Date().toISOString(),
@@ -1519,7 +1523,7 @@ async function createAccount() {
             // that nobody sees (db/072); the emailed link replaces it.
             p_password: sendLink ? null : password,
             p_role: role,
-            p_employee_id: null,
+            p_employee_id: employeeId || null,
             p_student_id: role === 'student' ? studentId : null,
             p_department: department,
             p_year_level: role === 'student' ? yearLevel : null,
@@ -1712,6 +1716,12 @@ const BULK_HEADERS = [
 ];
 
 const VALID_ROLES = ['student', 'faculty', 'registrar', 'department', 'admin'];
+
+/* The official employee ID of faculty, registrar and department staff may be typed (db/115): EMP- and then 3 to 12
+   letters or digits, single hyphens between groups. A blank one is assigned by the database. The same shape is in
+   db/115, supabase/functions/sign-in/index.ts and shared/js/accounts/auth.js. */
+const STAFF_EMPLOYEE_ID = /^EMP-(?=[A-Z0-9-]{3,12}$)[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
+const STAFF_EMPLOYEE_ID_HELP = 'EMP- followed by 3 to 12 letters or digits (for example EMP-00871 or EMP-2019-0123), or leave it blank to have one assigned.';
 
 let PENDING_BULK = [];
 let PENDING_BULK_BAD = [];       // rejected rows from the last validation, kept so
@@ -2058,8 +2068,8 @@ function checkBulkRows(rows) {
         if (['faculty', 'registrar', 'department', 'admin'].includes(role)) {
             if (role === 'admin') {
                 if (!/^SYS-[A-Z0-9]{3,12}$/.test(employeeId)) { fail('An admin needs an employee ID that starts with SYS- (for example SYS-ADMIN02).'); continue; }
-            } else if (employeeId) {
-                fail('Leave employee_id blank for faculty, registrar and department staff. It is assigned automatically.'); continue;
+            } else if (employeeId && !STAFF_EMPLOYEE_ID.test(employeeId)) {
+                fail(`"${employeeId}" is not a valid employee ID. Use ${STAFF_EMPLOYEE_ID_HELP}`); continue;
             }
             if (employeeId) {
                 if (seenEmployeeIds.has(employeeId)) { fail(`Duplicate employee ID in file (same as line ${seenEmployeeIds.get(employeeId)}).`); continue; }

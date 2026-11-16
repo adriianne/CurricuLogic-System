@@ -64,7 +64,7 @@ const GENERIC_FAIL = 'Invalid username or password.';
    message before anything is sent. Returns null when the shape is fine. */
 const EMAIL_SHAPE   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const STUDENT_SHAPE = /^uc-\d{1,8}$/i;
-const STAFF_SHAPE   = /^emp-[a-z0-9]{1,10}$/i;
+const STAFF_SHAPE   = /^emp-(?=[a-z0-9-]{1,12}$)[a-z0-9]+(?:-[a-z0-9]+)*$/i;
 const STAFF_ROLES   = ['faculty_staff', 'registrar_staff', 'department_staff'];
 
 function identifierProblem(identifier) {

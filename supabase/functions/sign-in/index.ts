@@ -53,7 +53,7 @@ const LOCK_MESSAGE = "Too many failed attempts. Please wait 15 minutes and try a
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const STUDENT_ID = /^uc-\d{1,8}$/i;
-const STAFF_ID = /^emp-[a-z0-9]{1,10}$/i;
+const STAFF_ID = /^emp-(?=[a-z0-9-]{1,12}$)[a-z0-9]+(?:-[a-z0-9]+)*$/i;
 
 // Used when an ID matches no account, so an unknown ID still costs one real
 // password check and cannot be told apart by how long the answer takes.
