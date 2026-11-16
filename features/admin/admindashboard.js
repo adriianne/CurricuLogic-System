@@ -1972,7 +1972,7 @@ function checkBulkRows(rows) {
     for (const r of rows) {
         const first = CurriculogicNameRules.clean(r.first_name);
         const last = CurriculogicNameRules.clean(r.last_name);
-        const middle = CurriculogicNameRules.clean(r.middle_name);
+        let middle = CurriculogicNameRules.clean(r.middle_name);
         const email = CurriculogicEmailRules.clean(r.email);
         const role = String(r.role || '').trim().toLowerCase();
         const employeeId = String(r.employee_id || '').trim().toUpperCase();
@@ -1995,7 +1995,13 @@ function checkBulkRows(rows) {
         if (lastProblem) { fail(lastProblem); continue; }
         const middleProblem = CurriculogicNameRules.middleProblem(middle);
         if (middleProblem) { fail(middleProblem); continue; }
-        if (middle && role && role !== 'student') { fail('A middle name is only kept for students. Leave it blank for this role.'); continue; }
+        // Staff have no middle-name field. A middle name on a staff row is not an error: the row is accepted, the name is
+        // left out, and the row says so, so nothing is lost without a word.
+        if (middle && role && role !== 'student') {
+            middle = '';
+            base.middle = '';
+            base.note = 'Middle name is not kept for staff accounts, so it was left out.';
+        }
         if (!email) { fail('Missing email.'); continue; }
         const emailProblem = CurriculogicEmailRules.problem(email);
         if (emailProblem) { fail(emailProblem); continue; }
@@ -2075,7 +2081,7 @@ function checkBulkRows(rows) {
         if (employeeId) seenEmployeeIds.set(employeeId, r.__line);
         seenEmails.set(email, r.__line);
         seenNames.set(nameKey, r.__line);
-        results.push({ ok: true, base });
+        results.push({ ok: true, base, note: base.note || '' });
     }
     return results;
 }
@@ -2186,7 +2192,7 @@ function updateBulkStatus() {
         if (!tr || !cell) return;
         tr.classList.toggle('bulk-row-bad', !res.ok);
         cell.innerHTML = res.ok
-            ? '<span class="pill ok">Ready</span>'
+            ? '<span class="pill ok">Ready</span>' + (res.note ? `<div class="bulk-why bulk-note">${escapeHtml(res.note)}</div>` : '')
             : `<span class="pill bad">Needs a fix</span><div class="bulk-why">${escapeHtml(res.why)}</div>`;
     });
 

@@ -50,7 +50,8 @@ describe('the Admin page', () => {
     });
     test('the bulk file has a middle_name column; staff rows with one are refused; the same-name key includes it', () => {
         assert.match(js, /'first_name', 'middle_name', 'last_name',/);
-        assert.match(js, /A middle name is only kept for students/);
+        assert.match(js, /Middle name is not kept for staff accounts/);
+        assert.doesNotMatch(js, /fail\('A middle name is only kept for students/);
         assert.match(js, /bulkNameKey = \(first, last, middle = ''\)/);
         assert.match(js, /bulkNameKey\(first, last, middle\)/);
     });
