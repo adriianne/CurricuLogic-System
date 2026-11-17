@@ -904,7 +904,6 @@ function renderIntegrity() {
     if (!body) return;
 
     const issues = [];
-    const pos = (s) => s.year_level * 10 + s.term;
 
     for (const r of RULES) {
         if (r.subject_id === r.prerequisite_subject_id) {
@@ -917,10 +916,9 @@ function renderIntegrity() {
         if (!r.prerequisite_subject_id) continue;
         const g = subjectById(r.subject_id);
         const q = subjectById(r.prerequisite_subject_id);
-        // A "taken alongside" condition may share the same term; only a
-        // later one is an error.
-        const co = r.requirement_type === 'co_requisite';
-        if (g && q && (co ? pos(q) > pos(g) : pos(q) >= pos(g))) {
+        // Only subjects that have a year and a semester can be put in order (a "taken alongside" condition may share the
+        // same semester). Elective-list courses have none, so they are never reported here: see termorder.js.
+        if (g && q && window.CurriculogicTermOrder.isOutOfOrder(g, q, r.requirement_type)) {
             issues.push(`${g.code} requires ${q.code}, which is scheduled at the same time or later.`);
         }
     }
@@ -977,10 +975,7 @@ function renderIntegrity() {
         const q = subjectById(r.prerequisite_subject_id);
         if (!g || !q) continue;
 
-        const pos = (s) => s.year_level * 10 + s.term;
-        const sameOrLater = r.requirement_type === 'co_requisite'
-            ? pos(q) > pos(g)
-            : pos(q) >= pos(g);
+        const sameOrLater = window.CurriculogicTermOrder.isOutOfOrder(g, q, r.requirement_type);
         const self = r.subject_id === r.prerequisite_subject_id;
 
         if (!sameOrLater && !self) continue;
