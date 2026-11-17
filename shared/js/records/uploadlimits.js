@@ -93,6 +93,9 @@ function aiProblem(status) {
         case 403: return 'This account is not allowed to use this tool.';
         case 413: return 'That file is too large for the reader.';
         case 503: return 'The AI service is busy right now. Please try again in a few minutes.';
+        // 546: the platform stopped the reader because the AI took too long to answer; 504: a gateway gave up.
+        case 504:
+        case 546: return 'The AI service took too long to answer. Please try again in a few minutes.';
         default:  return null;
     }
 }

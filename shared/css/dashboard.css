@@ -971,6 +971,8 @@ html[data-theme="dark"] .empty:not(:has(> .fa-triangle-exclamation))::before { f
 .msg.error   { display: block; background: #fef2f2; color: #b91c1c; border-left: 3px solid #ef4444; }
 .msg.success { display: block; background: #ecfdf5; color: #047857; border-left: 3px solid #10b981; }
 .msg.pending { display: block; background: #fef2f2; color: #b91c1c; border-left: 3px solid #ef4444; }
+.msg.warning { display: block; background: #fffbeb; color: #92400e; border-left: 3px solid #f59e0b; }
+html[data-theme="dark"] .msg.warning { background: rgba(245, 158, 11, 0.14); color: #fcd34d; border-left-color: #f59e0b; }
 
 
 /* Prose */
@@ -3077,7 +3079,7 @@ html[data-theme="dark"] .logs-role.is-picked { background: rgba(157, 151, 255, 0
     .view:not([hidden]) .dashboard-tiles > :nth-child(4) { animation-delay: 0.28s; }
 
     /* A message appears rather than snapping in */
-    .msg.error, .msg.success, .msg.pending {
+    .msg.error, .msg.success, .msg.pending, .msg.warning {
         animation: rise-in 0.28s cubic-bezier(0.23, 1, 0.32, 1) both;
     }
 

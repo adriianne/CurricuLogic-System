@@ -1423,22 +1423,42 @@ async function analyzeDocumentRun(file) {
         // version captured the element once at function entry, and by this
         // point it was already detached from the DOM -- the message was
         // written into nothing.
+        // The self-check (shared/js/curriculum/extractioncheck.js): the subjects the AI returned are added up and compared with
+        // the totals the document itself prints, so a missing block (a summer term, a whole year) shows before anything is saved.
+        // It reads the AI's raw answer, not the table, so it keeps working however the table is edited afterwards.
+        const selfCheck = window.CurriculogicExtractionCheck?.check(extracted, data.printed_totals)
+            ?? { checked: false, warnings: [], actualTotal: 0 };
+
+        const groups = [];
+        if (selfCheck.warnings.length) {
+            groups.push({
+                title: 'Check before saving \u2014 the document\u2019s own totals do not match what was read:',
+                items: selfCheck.warnings,
+            });
+        }
+        if (followUps.length || interpreted.length) {
+            groups.push({
+                title: followUps.length
+                    ? 'Check these \u2014 the document states them in words. Those marked \u2192 were turned into rules; the others must be added by hand:'
+                    : 'Check these \u2014 the document states them in words, and the system turned each into a rule:',
+                items: [...interpreted, ...followUps],
+            });
+        }
+
         showAiStatus(
             `Extracted ${extracted.length} subject${extracted.length === 1 ? '' : 's'}`
             + (gatesAdded ? `, with ${gatesAdded} year-standing gate${gatesAdded === 1 ? '' : 's'} from the document's footnotes` : '')
             + (coreqsAdded ? `, and ${coreqsAdded} goes-with link${coreqsAdded === 1 ? '' : 's'} from its co-requisite column` : '')
             + '.'
+            + (selfCheck.warnings.length
+                ? ' The totals do not match the document \u2014 see below.'
+                : selfCheck.checked
+                    ? ` The ${selfCheck.actualTotal} units match the totals printed in the document.`
+                    : ' The document prints no totals, so the units could not be checked.')
             + (needFixing ? ' Check the Issues card for rows to fix.' : '')
             + ' Review every row below, then press Create to save \u2014 nothing has been saved yet.',
-            'success',
-            (followUps.length || interpreted.length)
-                ? {
-                    title: followUps.length
-                        ? 'Check these \u2014 the document states them in words. Those marked \u2192 were turned into rules; the others must be added by hand:'
-                        : 'Check these \u2014 the document states them in words, and the system turned each into a rule:',
-                    items: [...interpreted, ...followUps],
-                }
-                : null,
+            selfCheck.warnings.length ? 'warning' : 'success',
+            groups.length ? groups : null,
         );
         resolve();
     }, 500));
@@ -1479,13 +1499,15 @@ function showAiStatus(msg, cls, details) {
     el.textContent = msg;
     el.className = 'msg' + (cls ? ' ' + cls : '');
 
-    if (details?.items?.length) {
+    // details: one { title, items } box, or a list of them (several things to check)
+    for (const d of [].concat(details ?? [])) {
+        if (!d?.items?.length) continue;
         const box = document.createElement('div');
         const head = document.createElement('strong');
-        head.textContent = details.title;
+        head.textContent = d.title;
         const ul = document.createElement('ul');
         ul.style.margin = '0.35rem 0 0 1.1rem';
-        for (const t of details.items) {
+        for (const t of d.items) {
             const li = document.createElement('li');
             li.textContent = t;
             ul.appendChild(li);

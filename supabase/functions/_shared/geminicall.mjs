@@ -14,7 +14,11 @@
 //   * stops at once on an answer that another model would repeat: a bad request
 //     (400) or a refused key (401, 403);
 //   * gives up cleanly when the time budget is used, so the function itself is
-//     not killed by the platform half-way.
+//     not killed by the platform half-way;
+//   * puts a time limit on EACH call. On 16 Nov 2026 a call that Google never answered ran until the platform
+//     killed the whole function after 150 s (status 546), twice in a row, and the person saw nothing but a
+//     bar stuck at 95%. A call that is not answered in time is cut off and the next model is tried at once
+//     (a hang is not a busy answer: waiting and asking the same model again would only hang again).
 //
 // It never puts the API key into anything it returns or logs.
 //
@@ -45,6 +49,9 @@ export async function callGemini({
     attemptsPerModel = 3,
     backoffMs = [1500, 4000],
     budgetMs = 110000,
+    callTimeoutMs = 80000,   // one call to Google may take this long at most (a four-year curriculum is a long answer)
+    hardLimitMs = 140000,    // no call may run past this, counted from the start (the platform stops at 150 s)
+    signalFn = (ms) => AbortSignal.timeout(ms),
 } = {}) {
     const started = nowFn();
     const tried = [];
@@ -63,14 +70,24 @@ export async function callGemini({
             }
             attempts++;
 
+            // This call gets the usual limit, or what is left before the hard limit, whichever is shorter.
+            const timeoutMs = Math.max(1000, Math.min(callTimeoutMs, hardLimitMs - (nowFn() - started)));
+
             let res;
             try {
                 res = await fetchFn(urlFor(model, apiKey), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
+                    signal: signalFn(timeoutMs),
                 });
             } catch (err) {
+                if (isTimeout(err)) {
+                    // Not answered in time: do not wait and ask this model again, move on to the next one.
+                    last = { status: 0, detail: `no answer from ${model} within ${Math.round(timeoutMs / 1000)} s` };
+                    tried.push({ model, status: 0, timedOut: true });
+                    break;
+                }
                 last = { status: 0, detail: `network error on ${model}` };
                 tried.push({ model, status: 0 });
                 if (attempt < attemptsPerModel) await sleepFn(backoffMs[Math.min(attempt - 1, backoffMs.length - 1)]);
@@ -81,7 +98,13 @@ export async function callGemini({
                 let data;
                 try {
                     data = await res.json();
-                } catch {
+                } catch (err) {
+                    if (isTimeout(err)) {
+                        // The answer started but did not finish in time.
+                        last = { status: 0, detail: `answer from ${model} not finished within ${Math.round(timeoutMs / 1000)} s` };
+                        tried.push({ model, status: 0, timedOut: true });
+                        break;
+                    }
                     last = { status: res.status, detail: `unreadable answer from ${model}` };
                     tried.push({ model, status: res.status });
                     if (attempt < attemptsPerModel) await sleepFn(backoffMs[Math.min(attempt - 1, backoffMs.length - 1)]);
@@ -109,6 +132,11 @@ export async function callGemini({
         }
     }
     return done({});
+}
+
+/* The error a fetch throws when its time limit (AbortSignal.timeout) runs out, or when it is aborted. */
+export function isTimeout(err) {
+    return err?.name === 'TimeoutError' || err?.name === 'AbortError';
 }
 
 /* True when the failure is Google being busy or unreachable, as opposed to a request that is wrong. */

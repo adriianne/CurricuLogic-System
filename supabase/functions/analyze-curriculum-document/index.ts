@@ -177,6 +177,36 @@ one number (for example 3) and no lec / lab split: put that number in "lecture_u
 semester ("IT Elective 1", "Free Elective 2"): those stay ordinary subjects of their year and semester, with
 "elective_type": null. If the document has no such lists, return no such subjects.
 
+IMPORTANT -- reading the elective boxes row by row:
+The IT elective list and the free elective list are usually printed SIDE BY SIDE: one on the left half of the
+page and one on the right half, each with its own units column and its own pre-requisite column. Read each list on
+its own, one row at a time. A row's pre-requisite is only the text in that row's OWN pre-requisite cell: on the same
+printed line and in the same half of the page. Never take a pre-requisite from the list beside it, from the row above
+or below, or from a different row of the same list. Many rows have an empty pre-requisite cell, or only a footnote
+mark such as ** or ***: then "prerequisites" is an empty array, and "footnote_marker" holds that mark exactly as
+printed (or null if the cell is empty). A pre-requisite that names another elective (for example ELPHP1) is a
+subject code and goes in "prerequisites". Before you answer, go through the elective rows once more and confirm
+each pre-requisite against its own printed cell.
+
+IMPORTANT -- summer terms:
+Some prospectuses print a SUMMER block between two years: a short table labelled "SUMMER" (or "Summer" / "Mid-year")
+that sits after a year's second semester, with its own rows and its own "Total" line. It is easy to miss because it is
+much shorter than a semester and carries no "1st Semester" / "2nd Semester" label. Extract every row of it as an
+ordinary subject with "term": 3 and "year_level" set to the year it follows (a summer printed after THIRD YEAR and
+before FOURTH YEAR has "year_level": 3). Do not skip it, do not merge it into the second semester and do not move
+it into the following year. Before you answer, add up the printed "Total" line of every block (each first semester,
+each second semester and each summer) and make sure your rows for that block add up to the same number; where they
+do not, look again for the missing row.
+
+IMPORTANT -- the totals the document prints (they are used only to check your rows):
+Many prospectuses print totals: a "Total" line under each semester block (and under each summer), and a grand total
+of units for the whole programme ("TOTAL 176 UNITS", "Total units: 198"). Report them in the top-level
+"printed_totals" object exactly as printed. NEVER add them up yourself and NEVER use your own row counts or sums:
+if you are not sure what the document prints, leave it out. "grand_total_units" is the programme's printed grand
+total, or null if none is printed. "blocks" has one entry for every printed per-block "Total" line, with the
+"year_level" and "term" (1, 2, or 3 for summer) of the block it sits under and its "total_units". When the document
+prints no totals, "grand_total_units" is null and "blocks" is an empty array.
+
 Respond with ONLY valid JSON, no other text, in exactly this shape:
 
 {
@@ -187,6 +217,10 @@ Respond with ONLY valid JSON, no other text, in exactly this shape:
   "footnotes": [
     { "marker": "string", "text": "string", "through_year": number or null }
   ],
+  "printed_totals": {
+    "grand_total_units": number or null,
+    "blocks": [ { "year_level": number, "term": number, "total_units": number } ]
+  },
   "subjects": [
     {
       "year_level": number or null,

@@ -112,6 +112,10 @@ describe('aiProblem', () => {
         assert.match(U.aiProblem(503), /busy/);
         assert.match(U.aiProblem('503'), /try again/);
     });
+    test('a reader the platform stopped for taking too long (546, 504) says so', () => {
+        assert.match(U.aiProblem(546), /too long/);
+        assert.match(U.aiProblem('504'), /try again/);
+    });
     test('accepts the status as a string, and stays silent otherwise', () => {
         assert.match(U.aiProblem('413'), /too large/);
         assert.equal(U.aiProblem(500), null);
