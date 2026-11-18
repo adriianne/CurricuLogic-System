@@ -56,6 +56,44 @@ function parseCurriculumYear(raw) {
     return year >= 2000 && year <= 2100 ? { value: year } : { error: 'Curriculum year must be a year such as 2024, or left blank.' };
 }
 
+/* What to tell the person when a row names a curriculum year a student cannot be given. A student can only be placed on a
+   PUBLISHED curriculum (db/105). A year that exists only as a draft is said so, with what to do, instead of "does not exist"
+   (17 Nov 2026: 2023-2024 was saved but not published, and the old wording left people looking for a mistake in the file).
+   published, drafts: Set of years, or undefined. */
+function missingCurriculumMessage(year, programCode, published, drafts, retired) {
+    const list = published && published.size ? [...published].sort().join(', ') : 'none';
+    if (retired && retired.has(year)) {
+        return `The ${year} curriculum for ${programCode} is retired, so a student cannot be given it right now. `
+            + `Ask the Department to restore it on the Prospectus page (available now: ${list}).`;
+    }
+    if (drafts && drafts.has(year)) {
+        return `The ${year} curriculum for ${programCode} exists only as a draft, so a student cannot be given it yet. `
+            + `Publish it first: on the Department's Prospectus page press Make active on it once, then make the current one active again (published now: ${list}).`;
+    }
+    return `No curriculum for ${year} exists for ${programCode} (published: ${list}).`;
+}
+
+/* The notice (never a refusal) for a staff row whose first and last name are already used by a staff account: two staff can
+   share a name, so the row stays Ready, but the person creating it is told, so a typo or a repeated row is noticed (17 Nov 2026).
+   where: what the existing account is, e.g. "Department". Returns '' when there is nothing to say. */
+function sameNameStaffNote(where, first, last) {
+    if (!where) return '';
+    return `A ${where} account named ${first} ${last} already exists. If this is a different person, that is fine; if not, check for a typo or a repeated row.`;
+}
+
+/* A listed student who is not a first-year but has no curriculum year would be placed on the ACTIVE curriculum when they register, which is
+   probably wrong for someone who started earlier (18 Nov 2026). Returns the warning text, or '' when there is nothing to say.
+     yearLevel:      1-4, or null/undefined when unknown
+     curriculumYear: a year, null when the cell is blank, undefined when the file has no such column
+     isUpdate:       the row is already on the list, so a missing column keeps the saved year (nothing to warn about) */
+const BLANK_YEAR_WARNING = 'No curriculum year: this student will be placed on the active curriculum. If they started earlier, add the year they started.';
+function blankCurriculumWarning(yearLevel, curriculumYear, isUpdate = false) {
+    if (!(Number(yearLevel) >= 2)) return '';
+    if (curriculumYear === null) return BLANK_YEAR_WARNING;
+    if (curriculumYear === undefined && !isUpdate) return BLANK_YEAR_WARNING;
+    return '';
+}
+
 /* A student ID is 8 digits, as everywhere else in the system. Spaces and dashes typed in are dropped. */
 const cleanStudentId = (raw) => String(raw ?? '').replace(/[\s-]/g, '');
 
@@ -80,7 +118,7 @@ function matchProgram(programs, raw) {
                another listed student has (the setup link and the confirmation go to that address)
    Returns { ok: [...], bad: [...] }. An ok row is { line, studentId, first, last, email, programCode,
    programId, isUpdate }. A bad row carries what could be read plus `why`. */
-function checkRows(rows, programs, existing = new Set(), existingEmails = new Map(), curricula = null) {
+function checkRows(rows, programs, existing = new Set(), existingEmails = new Map(), curricula = null, drafts = null, retired = null) {
     const ok = [];
     const bad = [];
     const seenIds = new Set();
@@ -117,8 +155,7 @@ function checkRows(rows, programs, existing = new Set(), existingEmails = new Ma
         if (cy.value && curricula) {
             const have = curricula.get(prog.program.id);
             if (!have || !have.has(cy.value)) {
-                const years = have ? [...have].sort().join(', ') : 'none';
-                reject(`No curriculum for ${cy.value} exists for ${prog.program.code} (published: ${years}).`); continue;
+                reject(missingCurriculumMessage(cy.value, prog.program.code, have, drafts?.get(prog.program.id), retired?.get(prog.program.id))); continue;
             }
         }
 
@@ -213,6 +250,6 @@ function accountCandidates(list, takenIds, takenEmails, limit) {
     return { create: eligible.slice(0, cap), skipped, later: Math.max(0, eligible.length - cap) };
 }
 
-return { COLUMNS, parseYearLevel, parseCurriculumYear, accountCandidates, pickSheet, cleanStudentId, matchProgram, checkRows, search, registrationCheck, NOT_ON_LIST_MESSAGE, NOT_OPEN_MESSAGE, statusBadge, NOT_ON_LIST_NOTE };
+return { COLUMNS, parseYearLevel, parseCurriculumYear, missingCurriculumMessage, sameNameStaffNote, blankCurriculumWarning, BLANK_YEAR_WARNING, accountCandidates, pickSheet, cleanStudentId, matchProgram, checkRows, search, registrationCheck, NOT_ON_LIST_MESSAGE, NOT_OPEN_MESSAGE, statusBadge, NOT_ON_LIST_NOTE };
 
 }));

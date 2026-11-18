@@ -31,7 +31,9 @@ let AUTH_UID = null;
 let ADMIN    = null;
 let STAFF    = [];
 let PROGRAMS = [];                 // [{ id, code, name }]
-let CURRICULA = null;              // Map: programme id -> Set of curriculum years that exist (null until loaded)
+let CURRICULA = null;              // Map: programme id -> Set of PUBLISHED curriculum years (null until loaded)
+let RETIRED_CURRICULA = new Map(); // Map: programme id -> Set of retired years (kept, but not offered for new students)
+let DRAFT_CURRICULA = new Map();   // Map: programme id -> Set of years that exist only as a draft (only used to word a message)
 
 /* The curriculum years that exist for each programme (prospectus.academic_year), read once. A file or a form that names
    a year with no curriculum is refused before anything is saved. */
@@ -42,13 +44,26 @@ async function loadCurricula(force = false) {
     if (PREVIEW) {
         for (const p of PROGRAMS) map.set(p.id, new Set([2023, 2024]));
     } else {
-        // Only published curricula can be given to a student: a draft is for the Department and Faculty to see (db/105).
-        const { data, error } = await supabase.from('prospectus').select('id, program_id, academic_year, is_active').not('published_at', 'is', null);
+        // Only PUBLISHED curricula can be given to a student (db/105). Drafts are read too, only so a message can say "it exists as a draft".
+        const { data, error } = await supabase.from('prospectus').select('id, program_id, academic_year, is_active, published_at, retired_at');
         if (error) console.warn('curricula load failed:', error.message);
+        DRAFT_CURRICULA = new Map();
+        RETIRED_CURRICULA = new Map();
         for (const r of data ?? []) {
+            if (r.academic_year == null) continue;
+            if (!r.published_at) {
+                if (!DRAFT_CURRICULA.has(r.program_id)) DRAFT_CURRICULA.set(r.program_id, new Set());
+                DRAFT_CURRICULA.get(r.program_id).add(Number(r.academic_year));
+                continue;
+            }
             CURRICULUM_BY_ID.set(r.id, { year: r.academic_year, active: !!r.is_active });
+            if (r.retired_at) {
+                if (!RETIRED_CURRICULA.has(r.program_id)) RETIRED_CURRICULA.set(r.program_id, new Set());
+                RETIRED_CURRICULA.get(r.program_id).add(Number(r.academic_year));
+                continue;
+            }
             if (!map.has(r.program_id)) map.set(r.program_id, new Set());
-            if (r.academic_year != null) map.get(r.program_id).add(Number(r.academic_year));
+            map.get(r.program_id).add(Number(r.academic_year));
         }
     }
     CURRICULA = map;
@@ -838,9 +853,9 @@ function filteredStaff() {
 }
 
 const ROLE_PILLS = {
-    faculty:    '<span class="pill info">Faculty</span>',
-    registrar:  '<span class="pill ok">Registrar</span>',
-    department: '<span class="pill waiting">Department</span>',
+    faculty:    '<span class="pill info role-pill">Faculty</span>',
+    registrar:  '<span class="pill ok role-pill">Registrar</span>',
+    department: '<span class="pill waiting role-pill">Department</span>',
 };
 
 // Where each staff role's program_id (db/030) actually lives, and the
@@ -1934,7 +1949,7 @@ async function readBulkFile(file) {
 /* ---------- bulk upload: one check for every row, used by the review table ---------- */
 
 let BULK_RESULTS = [];           // one entry per row of PENDING_BULK_RAW: { ok, base, why }
-let BULK_EXISTING = null;        // accounts that already exist: { emails, studentIds, names }
+let BULK_EXISTING = null;        // accounts that already exist: { emails, studentIds, names, staffNames (first+last -> "Faculty"/"Department"...) }
 
 /* A name without case, accents or extra spaces, so "JOSÉ  Cruz" and "jose cruz" are the same name. */
 const bulkNameKey = (first, last, middle = '') => [first, middle, last]
@@ -1944,7 +1959,7 @@ const bulkNameKey = (first, last, middle = '') => [first, middle, last]
 /* The accounts that exist now, read once per file, so a row that repeats an e-mail, a student ID or a student's
    name is marked before anything is saved. The database refuses duplicates as well; this only says so earlier. */
 async function loadExistingAccounts() {
-    BULK_EXISTING = { emails: new Set(), studentIds: new Set(), names: new Map() };
+    BULK_EXISTING = { emails: new Set(), studentIds: new Set(), names: new Map(), staffNames: new Map() };
     if (PREVIEW) return;
     const addEmail = (e) => { if (e) BULK_EXISTING.emails.add(String(e).trim().toLowerCase()); };
     try {
@@ -1959,9 +1974,14 @@ async function loadExistingAccounts() {
             }
             if ((data ?? []).length < 1000) break;
         }
-        for (const table of ['faculty_staff', 'registrar_staff', 'department_staff', 'system_administrator']) {
-            const { data } = await supabase.from(table).select('email').limit(5000);
-            for (const s of data ?? []) addEmail(s.email);
+        const staffTables = { faculty_staff: 'Faculty', registrar_staff: 'Registrar', department_staff: 'Department', system_administrator: 'System Administrator' };
+        for (const [table, label] of Object.entries(staffTables)) {
+            const { data } = await supabase.from(table).select('email, first_name, last_name').limit(5000);
+            for (const s of data ?? []) {
+                addEmail(s.email);
+                const key = bulkNameKey(s.first_name, s.last_name);
+                if (key !== '||') BULK_EXISTING.staffNames.set(key, label);
+            }
         }
     } catch (err) {
         console.warn('Existing accounts could not be read; the database still refuses duplicates:', err.message);
@@ -2055,7 +2075,7 @@ function checkBulkRows(rows) {
             const prog = PROGRAMS.find(p => p.code === base.programCode);
             const have = prog ? CURRICULA?.get(prog.id) : null;
             if (CURRICULA && (!have || !have.has(cy.value))) {
-                fail(`No curriculum for ${cy.value} exists for ${base.programCode} (published: ${have ? [...have].sort().join(', ') : 'none'}).`); continue;
+                fail(CurriculogicExpectedStudents.missingCurriculumMessage(cy.value, base.programCode, have, prog ? DRAFT_CURRICULA.get(prog.id) : undefined, prog ? RETIRED_CURRICULA.get(prog.id) : undefined)); continue;
             }
             base.curriculumYear = cy.value;
         }
@@ -2085,6 +2105,12 @@ function checkBulkRows(rows) {
         if (seenNames.has(nameKey)) { fail(`Same name as line ${seenNames.get(nameKey)}. Check for a repeated row or a typo; two people with the same name cannot be created from one file.`); continue; }
         if (role === 'student' && BULK_EXISTING?.names.has(bulkNameKey(first, last, middle))) {
             fail(`A student with this name already exists (${BULK_EXISTING.names.get(bulkNameKey(first, last, middle))}). If this is a different person, create the account by hand.`); continue;
+        }
+
+        // A staff row with the same first and last name as an existing staff account is allowed, but says so (a notice, not a refusal).
+        if (role && role !== 'student') {
+            const sameName = CurriculogicExpectedStudents.sameNameStaffNote(BULK_EXISTING?.staffNames.get(bulkNameKey(first, last)), first, last);
+            if (sameName) base.note = [base.note, sameName].filter(Boolean).join(' ');
         }
 
         if (studentId) seenStudentIds.set(studentId, r.__line);
@@ -3200,7 +3226,7 @@ function renderEdpList() {
                         <td><strong>${escapeHtml(fullName(s))}</strong></td>
                         <td>${escapeHtml(s.program_code || '—')}</td>
                         <td>${s.year_level ? escapeHtml(String(s.year_level)) : '<span class="dim">—</span>'}</td>
-                        <td>${s.curriculum_year ? escapeHtml(String(s.curriculum_year)) : '<span class="dim">Active</span>'}</td>
+                        <td>${edpCurriculumCell(s.year_level, s.curriculum_year ?? null)}</td>
                         <td class="dim">${escapeHtml(s.email)}</td>
                         <td>${registered.has(s.student_id) ? '<span class="pill ok">Registered</span>' : '<span class="pill waiting">Not yet</span>'}${EDP_ARMED === s.student_id && registered.has(s.student_id) ? '<div class="dim edp-keep">Already has an account. It stays.</div>' : ''}</td>
                         <td>
@@ -3294,7 +3320,7 @@ async function handleEdpFile(e) {
         edpProgress(t.update('check', 0, plural(rows.length, 'row')));
         await yieldToUi();
         const curricula = await loadCurricula();
-        const { ok, bad } = CurriculogicExpectedStudents.checkRows(rows, PROGRAMS, edpIds(), new Map(EDP.map(s => [String(s.email ?? '').trim().toLowerCase(), s.student_id])), curricula);
+        const { ok, bad } = CurriculogicExpectedStudents.checkRows(rows, PROGRAMS, edpIds(), new Map(EDP.map(s => [String(s.email ?? '').trim().toLowerCase(), s.student_id])), curricula, DRAFT_CURRICULA, RETIRED_CURRICULA);
         EDP_OK = ok; EDP_BAD = bad; EDP_FILE = file.name;
         renderEdpPreview();
         edpStatus('done', `${plural(rows.length, 'row')} read and checked${rows.sheetNote ? ' (' + rows.sheetNote + ')' : ''}`, t.finish().percent);
@@ -3341,12 +3367,24 @@ async function readEdpFile(file) {
     return parsed;
 }
 
+/* The Curriculum cell of an EDP row, in the preview and in the list: the year, "Active" when blank, and a warning mark when a
+   student above Year 1 has no year (they would land on the active curriculum). */
+function edpCurriculumCell(yearLevel, curriculumYear, isUpdate = false) {
+    if (curriculumYear) return escapeHtml(String(curriculumYear));
+    if (curriculumYear === undefined && isUpdate) return '<span class="dim">kept</span>';
+    const warn = CurriculogicExpectedStudents.blankCurriculumWarning(yearLevel, curriculumYear ?? null, isUpdate);
+    return warn
+        ? `<span class="edp-year-warn" title="${escapeHtml(warn)}"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Active</span>`
+        : '<span class="dim">Active</span>';
+}
+
 function renderEdpPreview() {
     const box = $('edp-preview');
     if (!box) return;
     const ok = EDP_OK, bad = EDP_BAD;
     const updates = ok.filter(r => r.isUpdate).length;
     const adds = ok.length - updates;
+    const noYear = ok.filter(r => CurriculogicExpectedStudents.blankCurriculumWarning(r.yearLevel, r.curriculumYear, r.isUpdate)).length;
 
     box.innerHTML = `
         <div class="notice ${bad.length ? 'pending' : 'info'}">
@@ -3356,6 +3394,17 @@ function renderEdpPreview() {
                 <span class="dim"> · ${escapeHtml(EDP_FILE)}${ok.length ? ` · ${adds} new, ${updates} updated` : ''}</span>
             </div>
         </div>`;
+
+    if (noYear) {
+        box.innerHTML += `
+        <div class="notice pending">
+            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+            <div>
+                <strong>${plural(noYear, 'student')} above Year 1 ${noYear === 1 ? 'has' : 'have'} no curriculum year.</strong>
+                <span class="dim"> They will be placed on the active curriculum when they register. If they started earlier, add the year they started to the file. You can still save as it is.</span>
+            </div>
+        </div>`;
+    }
 
     if (bad.length) {
         box.innerHTML += `
@@ -3380,12 +3429,14 @@ function renderEdpPreview() {
             <h3 class="group-head" style="margin-top:var(--s3);">Ready to save (${ok.length})</h3>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Student ID</th><th>Name</th><th>Programme</th><th>Email</th><th></th></tr></thead>
+                    <thead><tr><th>Student ID</th><th>Name</th><th>Programme</th><th>Year</th><th>Curriculum</th><th>Email</th><th></th></tr></thead>
                     <tbody>${ok.slice(0, 10).map(r => `
                         <tr>
                             <td class="mono">${escapeHtml(r.studentId)}</td>
                             <td>${escapeHtml(r.first)} ${escapeHtml(r.last)}</td>
                             <td>${escapeHtml(r.programCode)}</td>
+                            <td>${r.yearLevel ? escapeHtml(String(r.yearLevel)) : '<span class="dim">\u2014</span>'}</td>
+                            <td>${edpCurriculumCell(r.yearLevel, r.curriculumYear, r.isUpdate)}</td>
                             <td class="dim">${escapeHtml(r.email)}</td>
                             <td>${r.isUpdate ? '<span class="pill info">Update</span>' : '<span class="pill ok">New</span>'}</td>
                         </tr>`).join('')}</tbody>
