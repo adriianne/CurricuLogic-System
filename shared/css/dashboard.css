@@ -4325,3 +4325,19 @@ html[data-theme="dark"] .edp-reason { color: #f87171; }
 }
 .pick-bar[hidden] { display: none; }
 .pick-bar > span { margin-right: auto; font-weight: 600; }
+
+/* Under a version's Students count: how many have finished that curriculum (empty until measured). */
+.completion-note { font-size: .74rem; font-weight: 400; line-height: 1.35; color: var(--muted, #6b6b6b); max-width: 22em; margin-left: auto; text-align: right; }
+.completion-note:empty { display: none; }
+.completion-note.done { color: #166534; font-weight: 600; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .completion-note.done { color: #86efac; } }
+:root[data-theme="dark"] .completion-note.done { color: #86efac; }
+
+/* Staff management: the Role pills share one width and are centred, so the column lines up (18 Nov 2026). */
+.role-pill { display: inline-block; min-width: 7.6em; text-align: center; box-sizing: border-box; }
+
+/* EDP list: a student above Year 1 with no curriculum year (would land on the active curriculum). */
+.edp-year-warn { color: #92400e; font-weight: 600; cursor: help; }
+.edp-year-warn i { margin-right: 2px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .edp-year-warn { color: #fcd34d; } }
+:root[data-theme="dark"] .edp-year-warn { color: #fcd34d; }

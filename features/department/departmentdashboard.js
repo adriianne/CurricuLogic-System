@@ -1624,7 +1624,7 @@ async function loadProspectusList() {
 
     const { data, error } = await supabase
         .from('prospectus')
-        .select('id, program_id, academic_year, academic_term, is_active, published_at, created_at')
+        .select('id, program_id, academic_year, academic_term, is_active, published_at, retired_at, created_at')
         .order('academic_year', { ascending: false });
 
     if (error) {
@@ -1662,6 +1662,65 @@ async function loadProspectusList() {
 
     renderVersions();
     renderSourceOptions();
+    loadCompletion();
+}
+
+/* How many students on a version have finished it: passed units reach the version's total units. Only students with a
+   verified record can be judged; the rest are "no record yet", never counted as unfinished. Returns
+   { students, completed, noRecord } (pure; tested).
+     students: [{ id, record_verified }]   passedByStudent: Map student id -> records for SL().progress   total: units */
+function completionSummary(students, passedByStudent, total, progress) {
+    let completed = 0, noRecord = 0;
+    for (const s of students ?? []) {
+        if (!s.record_verified) { noRecord++; continue; }
+        if (total > 0 && progress(passedByStudent.get(s.id) ?? [], total).units >= total) completed++;
+    }
+    return { students: (students ?? []).length, completed, noRecord };
+}
+
+/* The note under the Students number of a version that is not the default (17 Nov 2026). Null when there is nothing
+   worth saying. */
+function completionNote(c) {
+    if (!c || !c.students) return null;
+    const judged = c.students - c.noRecord;
+    const tail = c.noRecord ? ` · ${c.noRecord} with no record yet` : '';
+    if (judged > 0 && c.completed === judged && !c.noRecord) {
+        return { done: true, text: `All ${c.students} completed it. No one is still studying under this curriculum, so it can be retired.` };
+    }
+    if (c.completed > 0) return { done: false, text: `${c.completed} of ${c.students} completed${tail}` };
+    return c.noRecord === c.students ? { done: false, text: `${c.noRecord} with no record yet` } : null;
+}
+
+async function loadCompletion() {
+    if (PREVIEW || !supabase) return;
+    for (const v of VERSIONS) {
+        if (v.is_active || !v.student_count) continue;
+        try {
+            const { data: studs } = await supabase.from('university_student')
+                .select('id, record_verified').eq('prospectus_id', v.id);
+            const verified = (studs ?? []).filter(s => s.record_verified);
+            const facts = await prospectusFacts([v.id]);
+            const total = facts.get(v.id)?.units ?? 0;
+            const answers = await Promise.all(chunksOf(verified.map(s => s.id), 10).map(ids =>
+                supabase.from('academic_record')
+                    .select('student_id, subject_id, status, subject:subject_id (units)')
+                    .in('student_id', ids).eq('status', 'PASSED')));
+            const by = new Map();
+            for (const a of answers) for (const r of a.data ?? []) {
+                if (!by.has(r.student_id)) by.set(r.student_id, []);
+                by.get(r.student_id).push(r);
+            }
+            v.completion = completionSummary(studs ?? [], by, total, SL().progress);
+            const note = completionNote(v.completion);
+            const cell = document.querySelector(`[data-completion="${v.id}"]`);
+            if (cell && note) {
+                cell.textContent = note.text;
+                cell.className = 'completion-note' + (note.done ? ' done' : '');
+            }
+        } catch (err) {
+            console.warn('completion check failed:', err.message);
+        }
+    }
 }
 
 function renderSourceOptions() {
@@ -1682,8 +1741,68 @@ function renderSourceOptions() {
 
 function versionStatus(v) {
     if (v.is_active)   return '<span class="pill ok">Active</span>';
+    if (v.retired_at)  return '<span class="pill waiting" title="Kept for returning students. Restore it to place students on it again.">Retired</span>';
     if (v.published_at) return '<span class="pill info">Published</span>';
     return '<span class="pill waiting">Draft</span>';
+}
+
+/* Which action a version offers (db/117, db/118, db/119). The default only moves forward, and a used curriculum is normally retired:
+     active                                      -> none (it is the default)
+     retired                                     -> 'restore'  (available for students again; never the default)
+     published, not active                       -> 'retire'
+     draft, newer than the active one (or none)  -> 'activate' (becomes the default)
+     draft, older than the active one            -> 'publish'  (students can be placed on it; never the default)
+   Delete is separate (see canDelete). The database enforces the same rules; this only hides what would be refused. */
+function versionAction(v, versions) {
+    if (v.is_active) return null;
+    if (v.retired_at) return 'restore';
+    if (v.published_at) return 'retire';
+    const active = (versions ?? []).find(x => x.is_active && (v.program_id == null || x.program_id == null || x.program_id === v.program_id));
+    return active && Number(v.academic_year) < Number(active.academic_year) ? 'publish' : 'activate';
+}
+
+/* Delete is offered on every version, including the active one (a draft activated by mistake must be removable). The database decides:
+   it refuses a version that has grades, grade uploads or advising requests under it (db/119). */
+const canDelete = () => true;
+
+async function retireOrRestore(id, fn) {
+    const v = VERSIONS.find(x => x.id === id);
+    if (!v) return;
+    const range = `${v.academic_year}\u2013${v.academic_year + 1}`;
+    const retiring = fn === 'retire_prospectus';
+    const question = retiring
+        ? `Retire the ${range} curriculum?\n\nIt is kept with all its subjects. Students already on it are not affected, but no new student can be placed on it until it is restored.`
+        : `Restore the ${range} curriculum?\n\nStudents can be placed on it again (for example a returning student). It does not become the default.`;
+    if (!window.confirm(question)) return;
+    if (PREVIEW) return showMsg('pros-msg', (retiring ? 'Retired' : 'Restored') + ' (preview only).', 'success');
+
+    const { error } = await supabase.rpc(fn, { target_id: id });
+    if (error) {
+        console.error(fn + ' failed:', error.message);
+        return showMsg('pros-msg', `Could not ${retiring ? 'retire' : 'restore'} that version. ` + error.message);
+    }
+    await loadProspectusList();
+    showMsg('pros-msg', retiring
+        ? `The ${range} curriculum is retired. It is kept; restore it any time for a returning student.`
+        : `The ${range} curriculum is restored. Students can be placed on it again.`, 'success');
+}
+
+async function publishVersion(id) {
+    const v = VERSIONS.find(x => x.id === id);
+    if (!v) return;
+    const range = `${v.academic_year}–${v.academic_year + 1}`;
+    if (!window.confirm(`Publish the ${range} curriculum?\n\nStudents can then be placed on it (for example by a curriculum year in an account upload). `
+        + `It will not become the default, and it cannot be unpublished.`)) return;
+
+    if (PREVIEW) return showMsg('pros-msg', 'Published (preview only).', 'success');
+
+    const { error } = await supabase.rpc('publish_prospectus', { target_id: id });
+    if (error) {
+        console.error('publish failed:', error.message);
+        return showMsg('pros-msg', 'Could not publish that version. ' + error.message);
+    }
+    await loadProspectusList();
+    showMsg('pros-msg', `The ${range} curriculum is published. Students can now be placed on it; it is not the default.`, 'success');
 }
 
 function renderVersions() {
@@ -1715,36 +1834,65 @@ function renderVersions() {
                         <th class="num">Subjects</th><th class="num">Students</th>
                         <th>Status</th><th></th></tr>
                 </thead>
-                <tbody>${VERSIONS.map(v => `
+                <tbody>${VERSIONS.map(v => { const act = versionAction(v, VERSIONS); return `
                     <tr>
                         <td class="mono">${escapeHtml(v.academic_year)}</td>
                         <td class="dim">${termLabel(v.academic_term)}</td>
                         <td class="num">${v.subject_count}</td>
                         <td class="num">${v.student_count
                             ? escapeHtml(v.student_count)
-                            : '<span class="dim">\u2014</span>'}</td>
+                            : '<span class="dim">\u2014</span>'}${v.student_count && !v.is_active
+                            ? `<div data-completion="${v.id}" class="completion-note"></div>` : ''}</td>
                         <td>${versionStatus(v)}</td>
                         <td class="num">
                             ${v.is_active
-                                ? '<span class="dim">Default</span>'
-                                : `<div style="display:flex; gap:6px; justify-content:flex-end;">
-                                    <button class="btn-small" data-activate="${v.id}"
-                                    ${v.subject_count === 0 ? 'disabled title="Encode subjects first"' : ''}>
-                                    Make active
-                                    </button>
+                                ? `<div style="display:flex; gap:6px; justify-content:flex-end; align-items:center;">
+                                    <span class="dim">Default</span>
                                     <button class="btn-small" data-delete="${v.id}"
+                                    title="For a version activated by mistake. The newest other published curriculum becomes the default again."
                                     style="color:#b91c1c; border-color:#fecaca;">
                                     Delete
                                     </button>
+                                </div>`
+                                : `<div style="display:flex; gap:6px; justify-content:flex-end;">
+                                    ${act === 'activate' ? `<button class="btn-small" data-activate="${v.id}"
+                                    ${v.subject_count === 0 ? 'disabled title="Encode subjects first"' : ''}>
+                                    Make active
+                                    </button>` : ''}
+                                    ${act === 'publish' ? `<button class="btn-small" data-publish="${v.id}"
+                                    ${v.subject_count === 0 ? 'disabled' : ''}
+                                    title="${v.subject_count === 0 ? 'Encode subjects first' : 'Lets students be placed on this older curriculum. It does not become the default.'}">
+                                    Publish
+                                    </button>` : ''}
+                                    ${act === 'retire' ? `<button class="btn-small" data-retire="${v.id}"
+                                    title="Keeps the curriculum and its students. No new student can be placed on it until it is restored.">
+                                    Retire
+                                    </button>` : ''}
+                                    ${act === 'restore' ? `<button class="btn-small" data-restore="${v.id}"
+                                    title="Lets students, such as a returnee, be placed on this curriculum again. It does not become the default.">
+                                    Restore
+                                    </button>` : ''}
+                                    ${canDelete(v) ? `<button class="btn-small" data-delete="${v.id}"
+                                    style="color:#b91c1c; border-color:#fecaca;">
+                                    Delete
+                                    </button>` : ''}
                                 </div>`}
                         </td>
-                    </tr>`).join('')}
+                    </tr>`; }).join('')}
                 </tbody>
             </table>
         </div>`;
 
     body.querySelectorAll('[data-activate]').forEach(b =>
         b.addEventListener('click', () => activateVersion(Number(b.dataset.activate))));
+
+    body.querySelectorAll('[data-publish]').forEach(b =>
+        b.addEventListener('click', () => publishVersion(Number(b.dataset.publish))));
+
+    body.querySelectorAll('[data-retire]').forEach(b =>
+        b.addEventListener('click', () => retireOrRestore(Number(b.dataset.retire), 'retire_prospectus')));
+    body.querySelectorAll('[data-restore]').forEach(b =>
+        b.addEventListener('click', () => retireOrRestore(Number(b.dataset.restore), 'restore_prospectus')));
 
     body.querySelectorAll('[data-delete]').forEach(b =>
         b.addEventListener('click', () => deleteVersion(Number(b.dataset.delete))));
@@ -1930,7 +2078,7 @@ async function activateVersion(id) {
     await loadCurriculum();
 
     showMsg('pros-msg',
-        `New students will be placed on ${v.academic_year}\u2013${v.academic_year + 1}.`,
+        `New students will be placed on ${v.academic_year}\u2013${v.academic_year + 1}. Next: add this term's schedule on the Schedule tab, so students can be given sections.`,
         'success');
 }
 
@@ -2000,9 +2148,12 @@ async function deleteVersion(id) {
         return showMsg('pros-msg', 'Deleted (preview only).', 'success');
     }
 
+    // A draft goes through the original function; a version that was published or is active through the one that moves its students (db/119).
+    const deleteFn = (v.published_at || v.is_active) ? 'delete_curriculum_version' : 'delete_draft_prospectus';
+
     // ── Phase 1: what would be removed? ──────────────────────────
     const { data: check, error: e1 } = await supabase.rpc(
-        'delete_draft_prospectus',
+        deleteFn,
         { target_id: id, confirm: false }
     );
 
@@ -2023,7 +2174,7 @@ async function deleteVersion(id) {
 
     // ── Phase 3: actually delete ─────────────────────────────────
     const { data: result, error: e2 } = await supabase.rpc(
-        'delete_draft_prospectus',
+        deleteFn,
         { target_id: id, confirm: true }
     );
 
@@ -2044,10 +2195,16 @@ async function deleteVersion(id) {
     await loadProspectusList();
     await loadCurriculum();
 
-    showMsg('pros-msg',
-        `Deleted ${yearRange}: ${result.subjects} subjects, ` +
-        `${result.prerequisites} rules removed.`,
-        'success');
+    showMsg('pros-msg', deletedMessage(yearRange, result), 'success');
+}
+
+/* What the page says once a version is deleted. result is what the database returned (db/119 adds students and moves_to_year). */
+function deletedMessage(yearRange, result) {
+    const parts = [`Deleted ${yearRange}: ${result.subjects} subjects`];
+    if (result.prerequisites != null) parts[0] += `, ${result.prerequisites} rules removed.`; else parts[0] += ' removed.';
+    if (result.students) parts.push(`${result.students} student${result.students === 1 ? ' was' : 's were'} moved to the ${result.moves_to_year}\u2013${result.moves_to_year + 1} curriculum.`);
+    if (result.becomes_active) parts.push(`The ${result.moves_to_year}\u2013${result.moves_to_year + 1} curriculum is the default again.`);
+    return parts.join(' ');
 }
 
 /* Populate and open the delete-draft modal defined in the HTML.
@@ -2068,11 +2225,16 @@ function confirmDeleteDraft(version, check) {
         $('del-year-range').textContent = yearRange;
         $('del-year-code').textContent  = yearStr;
 
+        const target = check.moves_to_year ? `${check.moves_to_year}\u2013${check.moves_to_year + 1}` : '';
         const bullets = [
             check.subjects           ? `${check.subjects} subject(s)` : '',
             check.prerequisites      ? `${check.prerequisites} prerequisite rule(s)` : '',
             check.elective_groups    ? `${check.elective_groups} elective group(s)` : '',
+            check.sections           ? `${check.sections} scheduled section(s)` : '',
+            check.students           ? `${check.students} student(s) on it will be moved to the ${target} curriculum` : '',
+            check.becomes_active     ? `${target} becomes the active curriculum again` : '',
         ].filter(Boolean);
+        $('del-title').textContent = (version.published_at || version.is_active) ? 'Delete this curriculum?' : 'Delete this draft?';
 
         const list = $('del-removal-list');
         if (bullets.length) {

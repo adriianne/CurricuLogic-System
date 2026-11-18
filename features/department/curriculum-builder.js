@@ -789,6 +789,7 @@ function actionsHtml() {
     const n   = filled().length;
     const bad = badRows().length;
     const hasExisting = filled().some(r => r.dbId);
+    let edited = 0;   // saved subjects whose prerequisites were changed on screen and not stored yet
 
     // Create Curriculum must stay available even when every row was
     // already saved by Save (unpublished) -- "already saved to the
@@ -806,6 +807,8 @@ function actionsHtml() {
         <span class="cb-hint">${
             !n ? 'Add at least one subject'
             : bad ? `Fix ${bad} issue${bad === 1 ? '' : 's'}`
+            : (edited = window.CurriculogicRuleSync.changedRows(filled(), RULE_DEPS).length)
+                ? `${edited} saved subject${edited === 1 ? ' has' : 's have'} edited prerequisites \u2014 press Save (unpublished) to store ${edited === 1 ? 'it' : 'them'}`
             : hasExisting ? `${n} subject${n === 1 ? '' : 's'} saved \u2014 ready to publish`
             : 'Ready'
         }</span>
@@ -1888,6 +1891,45 @@ function toSubjectRows() {
     }));
 }
 
+/* Reads a row the way rulesync.js needs (see there). */
+const RULE_DEPS = {
+    key:             (code) => SC.key(code),
+    requirementType: (p) => window.CurriculogicCorequisites.requirementType(p),
+    standingToDb:    (p) => standingToDb(p),
+};
+
+/* Subjects that were already saved are skipped by the inserts below, so edits to THEIR prerequisites used to be lost without a
+   word (17 Nov 2026). This rewrites the rules of every saved subject whose conditions changed since it was loaded or last
+   saved. The new rules go in first and the old ones are deleted afterwards, so a failure never leaves a subject with none.
+   Returns { count, dropped, error }. */
+async function syncExistingRules(byCode) {
+    const RS = window.CurriculogicRuleSync;
+    const result = { count: 0, dropped: 0, error: null };
+
+    for (const r of RS.changedRows(filled(), RULE_DEPS)) {
+        const { rules, dropped } = RS.ruleRows(r.dbId, r, ROWS, byCode, RULE_DEPS, OPTS.staffId);
+        result.dropped += dropped;
+
+        const old = await SB.from('prerequisite').select('id').eq('subject_id', r.dbId);
+        if (old.error) { result.error = 'Could not read the saved rules of ' + r.code + '. ' + old.error.message; break; }
+
+        if (rules.length) {
+            const ins = await SB.from('prerequisite').insert(rules);
+            if (ins.error) { result.error = 'Could not store the prerequisites of ' + r.code + ' (nothing was changed for it). ' + ins.error.message; break; }
+        }
+
+        const oldIds = (old.data ?? []).map(x => x.id);
+        if (oldIds.length) {
+            const del = await SB.from('prerequisite').delete().in('id', oldIds);
+            if (del.error) { result.error = 'The new prerequisites of ' + r.code + ' were stored, but the old ones could not be removed. ' + del.error.message; break; }
+        }
+
+        r.savedRules = RS.signature(r, ROWS, RULE_DEPS);
+        result.count++;
+    }
+    return result;
+}
+
 async function saveDraft() {
     // Check if there's anything to save
     const rowsToSave = filled();
@@ -1989,6 +2031,9 @@ if (freshVersion) {
         if (newRows.length) {
             return OPTS.onError?.('Cannot save: ' + newRows.filter(r => r.errors.length).length + ' row(s) have errors. Fix them first.');
         }
+        // No new subjects, but a saved subject's prerequisites may have been edited.
+        var syncedOnly = await syncExistingRules(new Map((existingSubjects ?? []).map(s => [SC.key(s.code), s.id])));
+        if (syncedOnly.error) { render(); return OPTS.onError?.(syncedOnly.error); }
         render();
         const versionToUpdate = OPTS.versions?.find(v => v.id === OPTS.prospectusId);
         if (versionToUpdate) {
@@ -2003,7 +2048,9 @@ if (freshVersion) {
                 render();
             }
         }
-        return OPTS.onDone?.('All subjects already exist in this curriculum.');
+        return OPTS.onDone?.(syncedOnly.count
+            ? window.CurriculogicRuleSync.message(syncedOnly.count, syncedOnly.dropped)
+            : 'All subjects already exist in this curriculum.');
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -2123,6 +2170,9 @@ if (freshVersion) {
         }
     }
 
+    // Saved subjects whose prerequisites were edited on screen (they were skipped by the inserts above).
+    const syncedExisting = await syncExistingRules(byCode);
+
     // ──────────────────────────────────────────────────────────────
     // STEP 8: Mark rows as saved and update counts
     // ──────────────────────────────────────────────────────────────
@@ -2161,7 +2211,10 @@ if (freshVersion) {
         OPTS.onVersionChange(OPTS.prospectusId);
     }
 
+    if (syncedExisting.error) return OPTS.onError?.(syncedExisting.error);
+
     const message = `${inserted.length} subject${inserted.length === 1 ? '' : 's'} saved with ${ruleRows.length} prerequisite${ruleRows.length === 1 ? '' : 's'}. `
+        + (syncedExisting.count ? window.CurriculogicRuleSync.message(syncedExisting.count, syncedExisting.dropped) + ' ' : '')
         + 'Not yet published \u2014 use Create Curriculum when ready.';
     OPTS.onDone?.(message);
 }
@@ -2229,6 +2282,9 @@ function applyExisting(data) {
                 ? { uid: target.uid, co: true } : { uid: target.uid });
         }
     }
+
+    // What the rules are NOW, remembered so a later Save can tell which saved subjects were edited (rulesync.js).
+    for (const row of ROWS) row.savedRules = window.CurriculogicRuleSync.signature(row, ROWS, RULE_DEPS);
 
     validate();
     render();
@@ -2425,6 +2481,13 @@ async function commit() {
         }
     }
 
+    // Saved subjects whose prerequisites were edited on screen are not inserted again, so their rules are rewritten here.
+    const syncedExisting = await syncExistingRules(byCode);
+    if (syncedExisting.error) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Create curriculum'; }
+        return OPTS.onError?.(syncedExisting.error);
+    }
+
     // The draft has become a curriculum; it should not be offered again.
     if (DRAFT_BATCH) {
         await SB.from('stg_prerequisite').delete().eq('batch_id', DRAFT_BATCH);
@@ -2434,7 +2497,8 @@ async function commit() {
 
     const n = data.length;
     ROWS = [];
-    OPTS.onDone?.(`${n} subjects and ${rules.length} rules created.`);
+    OPTS.onDone?.(`${n} subjects and ${rules.length} rules created.`
+        + (syncedExisting.count ? ' ' + window.CurriculogicRuleSync.message(syncedExisting.count, syncedExisting.dropped) : ''));
     render();
 }
 
