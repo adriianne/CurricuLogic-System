@@ -218,3 +218,25 @@ describe('student IDs are 8 digits only (db/090)', () => {
         }
     });
 });
+
+// 17 Nov 2026: a curriculum year that exists only as a draft gets its own message (db/105: students need a published one).
+import { createRequire as __cr } from 'node:module';
+{
+    const ES = __cr(import.meta.url)('../shared/js/accounts/expectedstudents.js');
+    const progs = [{ id: 1, code: 'BSIT' }];
+    const row = (cy) => ({ __line: 2, student_id: '24000001', first_name: 'Ana', last_name: 'Cruz', email: 'ana@example.com', program_code: 'BSIT', year_level: '1', curriculum_year: cy });
+    test('draft-only curriculum year: says it is a draft and how to publish it', () => {
+        const { bad } = ES.checkRows([row('2023')], progs, new Set(), new Map(), new Map([[1, new Set([2020, 2024])]]), new Map([[1, new Set([2023])]]));
+        assert.match(bad[0].why, /2023 curriculum for BSIT exists only as a draft/);
+        assert.match(bad[0].why, /Make active/);
+        assert.match(bad[0].why, /published now: 2020, 2024/);
+    });
+    test('year that does not exist at all keeps the old wording', () => {
+        const { bad } = ES.checkRows([row('2019')], progs, new Set(), new Map(), new Map([[1, new Set([2020, 2024])]]), new Map([[1, new Set([2023])]]));
+        assert.match(bad[0].why, /No curriculum for 2019 exists for BSIT \(published: 2020, 2024\)/);
+    });
+    test('without the drafts list the old wording is used', () => {
+        const { bad } = ES.checkRows([row('2023')], progs, new Set(), new Map(), new Map([[1, new Set([2020, 2024])]]));
+        assert.match(bad[0].why, /No curriculum for 2023 exists/);
+    });
+}

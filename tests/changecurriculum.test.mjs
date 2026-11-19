@@ -18,7 +18,9 @@ describe('a draft curriculum is never given to a student', () => {
         assert.match(pub, /p_year is null and pr\.is_active/);
     });
     test('the Admin lists offer only published curricula', () => {
-        assert.match(adm, /\.not\('published_at', 'is', null\)/);
+        // Drafts are read only to word a message (17 Nov 2026); the offered years come from published rows alone.
+        assert.match(adm, /if \(!r\.published_at\) \{[\s\S]{0,260}DRAFT_CURRICULA[\s\S]{0,120}continue;/);
+        assert.match(adm, /CURRICULUM_BY_ID\.set\(r\.id[\s\S]{0,500}map\.get\(r\.program_id\)\.add/);
     });
 });
 
