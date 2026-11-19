@@ -22,6 +22,8 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 /* The term helper reads system_config with this signed-in client (db/052). */
 window.CurriculogicTerm?.setClient(supabase);
+/* Backups are recorded in the audit log (db/122). */
+window.ReportFile?.setClient(supabase);
 
 const $ = (id) => document.getElementById(id);
 
@@ -116,6 +118,7 @@ const VIEWS = {
     programs:  'Programs',
     students:  'Students',
     edplist:   'EDP student list',
+    backup:    'Backup',
     logs:      'System logs',
     profile:   'Profile',
 };
@@ -161,6 +164,7 @@ function showView(name) {
     if (name === 'students') loadStudents();
     if (name === 'bulk')     initBulkUpload();
     if (name === 'edplist')  initEdpList();
+    if (name === 'backup')   initBackup();
     if (name === 'logs')     initLogs();
 }
 
@@ -2172,10 +2176,14 @@ function bulkCurriculumOptions(r) {
     const prog = PROGRAMS.find(p => p.code === code);
     const years = prog ? [...(CURRICULA?.get(prog.id) ?? [])].sort((a, b) => b - a) : [];
     const current = String(r.curriculum_year ?? '').trim();
-    const extra = current && !years.map(String).includes(current)
+    // "2024-2025" and "2024" are the same curriculum (parseCurriculumYear reads both). Compare the year, not the text, so a row
+    // that says 2024-2025 selects 2024 instead of being marked "not published" (17 Nov 2026).
+    const typedYear = current ? CurriculogicExpectedStudents.parseCurriculumYear(current).value : null;
+    const matches = (y) => typedYear !== null && Number(y) === typedYear;
+    const extra = current && !years.some(matches)
         ? `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} (not published)</option>` : '';
     return '<option value="">The active curriculum</option>'
-        + years.map(y => `<option value="${y}"${String(y) === current ? ' selected' : ''}>${y}</option>`).join('')
+        + years.map(y => `<option value="${y}"${matches(y) ? ' selected' : ''}>${y}</option>`).join('')
         + extra;
 }
 
@@ -4171,6 +4179,7 @@ async function loadHealth() {
 
 const LOGS_TAB_LOADERS = {
     users: loadUsers,
+    activity: loadActivity,
     uploads: loadUploadsLog,
     health: loadHealth,
 };
@@ -4185,6 +4194,328 @@ function setLogsTab(name) {
     });
     document.querySelectorAll('[data-logs-panel]').forEach((panel) => { panel.hidden = panel.dataset.logsPanel !== name; });
     LOGS_TAB_LOADERS[name]();
+}
+
+/* ---- Activity: who did what, from audit_log (search, filter, export) ---- */
+
+const ACT = { page: 0, total: 0, rows: [], seq: 0 };
+const ACT_PAGE = 25;
+const ACT_EXPORT_MAX = 5000;
+let activityReady = false;
+
+function activityChoices() {
+    return {
+        group: $('logs-a-action')?.value ?? '',
+        role: $('logs-a-role')?.value ?? '',
+        range: $('logs-a-range')?.value ?? '7d',
+        term: $('logs-a-term')?.value ?? '',
+    };
+}
+
+/* People whose name matches what was typed: their sign-in ids, so a search for "Pedro" finds what Pedro did. */
+async function activityActorIds(term) {
+    if (!term || term.length < 2) return [];
+    const like = `*${term}*`;
+    const found = await Promise.all(LOG_ROLE_TABLES.map(async (table) => {
+        const { data } = await supabase.from(table).select('user_id').or(`first_name.ilike.${like},last_name.ilike.${like}`).limit(25);
+        return (data ?? []).map((p) => p.user_id);
+    }));
+    return found.flat().filter(Boolean);
+}
+
+/* What the current choices mean for the database, with the sign-in ids of any people the search text names. Async because the
+   names are looked up first: the QUERY is then built by activityQuery, which is NOT async (a query builder must not be awaited
+   before .range(), or it runs without paging). */
+async function activityFilter() {
+    const spec = SL.activitySpec(activityChoices());
+    const ids = spec.term ? await activityActorIds(spec.term) : [];
+    return { spec, ids };
+}
+
+/* The audit_log query for a filter (no paging yet). Returns the builder: add .range() and then await it. */
+function activityQuery(filter, select, options) {
+    const { spec, ids } = filter;
+    let q = supabase.from('audit_log').select(select, options).order('id', { ascending: false });
+    if (spec.prefixes) q = q.or(spec.prefixes.map((p) => `action.like.${p}*`).join(','));
+    if (spec.roles) q = q.in('actor_role', spec.roles);
+    if (spec.since) q = q.gte('created_at', spec.since);
+    if (spec.term) {
+        const like = `*${spec.term}*`;
+        const parts = [`action.ilike.${like}`, `table_name.ilike.${like}`, `record_id.ilike.${like}`];
+        if (ids.length) parts.push(`actor_id.in.(${ids.join(',')})`);
+        q = q.or(parts.join(','));
+    }
+    return q;
+}
+
+const ACT_COLUMNS = 'id, actor_id, actor_role, action, table_name, record_id, old_values, new_values, created_at';
+
+function renderActivity() {
+    const body = $('logs-activity-body');
+    if (!body) return;
+    setText('logs-activity-count', SL.activityCount(ACT.rows.length, ACT.total) || '');
+    if (!ACT.rows.length) { body.innerHTML = logsEmpty('Nothing matches these choices.'); renderActivityPager(); return; }
+    body.innerHTML = `<div class="table-wrap logs-scroll"><table class="data-table">
+        <thead><tr><th>When</th><th>Who</th><th>What happened</th><th>Area</th><th>Change</th></tr></thead>
+        <tbody>${ACT.rows.map((r) => {
+            const who = SL.splitPerson(logsPerson(r.actor_id, r.actor_role));
+            return `<tr>
+                <td>${escapeHtml(logsWhen(r.created_at))}<br><span class="dim">${escapeHtml(SL.agoLabel(r.created_at))}</span></td>
+                <td><strong>${escapeHtml(who.name)}</strong><br><span class="dim">${escapeHtml(SL.roleLabel(r.actor_role))}</span></td>
+                <td><span class="pill ${SL.actionTone(r.action)}">${escapeHtml(SL.actionLabel(r.action))}</span></td>
+                <td>${escapeHtml(SL.tableLabel(r.table_name))}${r.record_id ? `<br><span class="dim mono">${escapeHtml(r.record_id)}</span>` : ''}</td>
+                <td class="dim">${escapeHtml(SL.entrySummary(r))}</td>
+            </tr>`;
+        }).join('')}</tbody></table></div>`;
+    renderActivityPager();
+}
+
+function renderActivityPager() {
+    const pager = $('logs-activity-pager');
+    if (!pager) return;
+    const pages = Math.max(1, Math.ceil(ACT.total / ACT_PAGE));
+    pager.hidden = ACT.total <= ACT_PAGE;
+    setText('logs-a-page', `Page ${ACT.page + 1} of ${pages}`);
+    const prev = $('logs-a-prev');
+    const next = $('logs-a-next');
+    if (prev) prev.disabled = ACT.page === 0;
+    if (next) next.disabled = ACT.page + 1 >= pages;
+}
+
+async function loadActivity() {
+    const body = $('logs-activity-body');
+    if (!activityReady) {
+        activityReady = true;
+        const again = () => { ACT.page = 0; loadActivity(); };
+        for (const id of ['logs-a-action', 'logs-a-role', 'logs-a-range']) $(id)?.addEventListener('change', again);
+        let timer = null;
+        $('logs-a-term')?.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(again, 350); });
+        $('logs-a-prev')?.addEventListener('click', () => { if (ACT.page > 0) { ACT.page--; loadActivity(); } });
+        $('logs-a-next')?.addEventListener('click', () => { ACT.page++; loadActivity(); });
+        $('logs-a-export')?.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-export]');
+            if (b) exportActivity(b.dataset.export);
+        });
+    }
+    if (PREVIEW || !supabase) { if (body) body.innerHTML = logsEmpty('The activity log needs the live database.'); return; }
+    const seq = ++ACT.seq;
+    if (body) body.innerHTML = logsLoading();
+    const from = ACT.page * ACT_PAGE;
+    const filter = await activityFilter();
+    const { data, error, count } = await activityQuery(filter, ACT_COLUMNS, { count: 'exact' }).range(from, from + ACT_PAGE - 1);
+    if (seq !== ACT.seq) return;                       // a newer choice replaced this one while it loaded
+    if (error) { console.warn('logs: activity failed:', error.message); if (body) body.innerHTML = logsEmpty('Could not load the activity log.'); return; }
+    ACT.rows = data ?? [];
+    ACT.total = count ?? ACT.rows.length;
+    await logsLearnPeople(ACT.rows.map((r) => r.actor_id));
+    if (seq !== ACT.seq) return;
+    setText('logs-tabcount-activity', ACT.total ? String(ACT.total) : '');
+    renderActivity();
+}
+
+/* Save everything the current choices match (up to ACT_EXPORT_MAX entries) as CSV or Excel, and record the export. */
+async function exportActivity(kind) {
+    if (PREVIEW || !supabase) return;
+    const btns = document.querySelectorAll('#logs-a-export [data-export]');
+    btns.forEach((b) => { b.disabled = true; });
+    showMsg('logs-msg', '');
+    try {
+        const entries = [];
+        const filter = await activityFilter();
+        for (let from = 0; from < ACT_EXPORT_MAX; from += 1000) {
+            const { data, error } = await activityQuery(filter, ACT_COLUMNS, {}).range(from, Math.min(from + 999, ACT_EXPORT_MAX - 1));
+            if (error) throw new Error(error.message);
+            entries.push(...(data ?? []));
+            if ((data ?? []).length < 1000) break;
+        }
+        await logsLearnPeople(entries.map((r) => r.actor_id));
+        const rows = SL.activityRows(entries, (r) => logsPerson(r.actor_id, r.actor_role));
+        const stamp = new Date().toISOString().slice(0, 10);
+        const name = `Activity-log-${stamp}`;
+        window.ReportFile.logExport('system_logs', kind, null, entries.length);
+        if (kind === 'xlsx') window.ReportFile.downloadXlsx(name + '.xlsx', [{ name: 'Activity', rows }]);
+        else window.ReportFile.download(name + '.csv', window.ReportFile.csv(rows));
+        const capped = entries.length >= ACT_EXPORT_MAX ? ` Only the newest ${ACT_EXPORT_MAX} are included: narrow the choices to get the rest.` : '';
+        showMsg('logs-msg', `Saved ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}.${capped}`, capped ? 'warning' : 'success');
+    } catch (err) {
+        console.warn('logs: export failed:', err.message);
+        showMsg('logs-msg', `The export could not be created: ${err.message}`, 'error');
+    } finally {
+        btns.forEach((b) => { b.disabled = false; });
+    }
+}
+
+/* ---------- Backup (manual; shared/js/reports/backup.js, db/127) ---------- */
+
+let backupInitialized = false;
+let backupRunning = false;
+
+const sizeText = (chars) => (chars >= 1048576 ? `${(chars / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(chars / 1024))} KB`);
+
+async function loadLastBackup() {
+    const el = $('backup-last');
+    if (!el || PREVIEW || !supabase) return;
+    // Every finished backup writes one EXPORT_REPORT row for report 'backup' (ReportFile.logExport).
+    const { data, error } = await supabase.from('audit_log')
+        .select('created_at, actor_id, new_values')
+        .eq('action', 'EXPORT_REPORT').eq('new_values->>report', 'backup')
+        .order('id', { ascending: false }).limit(1);
+    if (error) { el.textContent = 'Last backup: could not be checked.'; return; }
+    const row = data?.[0];
+    if (!row) { el.textContent = 'No backup has been made yet.'; return; }
+    // the log stores the time without a zone, in UTC
+    const when = new Date(String(row.created_at).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(row.created_at) ? '' : 'Z'));
+    let who = '';
+    const { data: admin } = await supabase.from('system_administrator').select('first_name, last_name').eq('user_id', row.actor_id).maybeSingle();
+    if (admin) who = ` by ${[admin.first_name, admin.last_name].filter(Boolean).join(' ')}`;
+    const rows = row.new_values?.rows;
+    el.textContent = `Last backup: ${when.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${who}${rows ? ` · ${rows} rows` : ''}`;
+}
+
+async function createBackup() {
+    if (backupRunning) return;
+    const btn = $('backup-create');
+    const box = $('backup-progress');
+    const bar = $('backup-bar');
+    const text = $('backup-progress-text');
+    if (PREVIEW || !supabase) { showMsg('backup-msg', 'A backup needs the live database (this is the preview).', 'error'); return; }
+    backupRunning = true;
+    btn.disabled = true;
+    showMsg('backup-msg', '');
+    box.hidden = false;
+    bar.style.width = '0%';
+    text.textContent = 'Starting.';
+    try {
+        const made = await window.DatabaseBackup.create(supabase, {
+            onProgress: (p) => {
+                bar.style.width = `${p.total ? Math.round((p.done / p.total) * 100) : 0}%`;
+                text.textContent = `Table ${p.tableIndex + 1} of ${p.tables}: ${p.table} (${p.tableRows} of ${p.tableTotal} rows)`;
+            },
+        });
+        bar.style.width = '100%';
+        window.ReportFile.download(window.DatabaseBackup.fileName(new Date()), made.text, 'application/json', { bom: false });
+        await window.ReportFile.logExport('backup', 'file', null, made.rows);
+        text.textContent = `Done: ${made.rows} rows in ${Object.keys(made.file.tables).length} tables, ${sizeText(made.text.length)}.`;
+        const extra = made.warnings.length ? ` Note: ${made.warnings.join(' ')}` : '';
+        showMsg('backup-msg', `Backup saved to your downloads. Keep it somewhere safe: it contains student data.${extra}`, made.warnings.length ? 'warning' : 'success');
+        loadLastBackup();
+    } catch (err) {
+        console.warn('backup failed:', err.message);
+        text.textContent = '';
+        showMsg('backup-msg', `The backup could not be completed: ${err.message}`, 'error');
+    } finally {
+        backupRunning = false;
+        btn.disabled = false;
+    }
+}
+
+let BK_FILE = null;          // the parsed file being looked at, for the table previews
+
+function backupTable(summary) {
+    const max = Math.max(1, ...summary.tables.map((t) => t.rows));
+    const day = (d) => (d ? escapeHtml(d) : '<span class="dim">—</span>');
+    return `<div class="table-wrap logs-scroll"><table class="data-table">
+        <thead><tr><th>Table</th><th>Area</th><th class="num">Rows</th><th>Oldest</th><th>Newest</th><th></th></tr></thead>
+        <tbody>${summary.tables.map((t) => `<tr data-bk-table="${escapeHtml(t.name)}">
+            <td><strong>${escapeHtml(t.label)}</strong><br><span class="dim mono">${escapeHtml(t.name)}</span></td>
+            <td class="dim">${escapeHtml(t.areaLabel)}</td>
+            <td class="num">${t.rows} <span class="bk-bar"><i style="width:${t.rows ? Math.max(3, Math.round((t.rows / max) * 100)) : 0}%"></i></span></td>
+            <td>${day(t.oldest)}</td><td>${day(t.newest)}</td>
+            <td>${t.rows ? `<button type="button" class="btn-small" data-bk-preview="${escapeHtml(t.name)}">Preview</button>` : '<span class="dim">empty</span>'}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+}
+
+function backupChart(summary) {
+    const max = Math.max(1, ...summary.areas.map((a) => a.rows));
+    return `<div class="bk-chart" role="img" aria-label="Rows in each area of the backup">${summary.areas.map((a) => `
+        <div class="bk-row">
+            <span class="bk-label">${escapeHtml(a.label)}</span>
+            <span class="bk-track"><i style="width:${a.rows ? Math.max(2, Math.round((a.rows / max) * 100)) : 0}%"></i></span>
+            <span class="bk-num">${a.rows}</span>
+        </div>`).join('')}</div>`;
+}
+
+function backupContents(summary) {
+    // the date is the big number and the time sits in the label, so the tile stays one short line
+    const when = summary.createdAt ? new Date(summary.createdAt) : null;
+    const made = when ? when.toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
+    const madeLabel = when ? `Made at ${when.toLocaleTimeString(undefined, { timeStyle: 'short' })}` : 'Made';
+    const tile = (value, label) => `<div class="stat"><span class="stat-value">${escapeHtml(value)}</span><span class="stat-label">${escapeHtml(label)}</span></div>`;
+    return `
+        <div class="stats is-slim bk-tiles">
+            ${tile(made, madeLabel)}
+            ${tile(String(summary.tables.length), 'Tables')}
+            ${tile(String(summary.totalRows), 'Rows')}
+            ${tile(summary.bytes ? sizeText(summary.bytes) : '—', 'File size')}
+        </div>
+        ${summary.checksum ? `<p class="dim">Checksum ${escapeHtml(summary.checksum)}…</p>` : ''}
+        <h4 class="bk-h">What is inside</h4>
+        ${summary.facts.length ? `<ul class="bk-facts">${summary.facts.map((f) => `<li>${escapeHtml(f)}</li>`).join('')}</ul>` : '<p class="dim">Nothing yet.</p>'}
+        <h4 class="bk-h">Rows by area</h4>
+        ${backupChart(summary)}
+        <h4 class="bk-h">Every table</h4>
+        ${backupTable(summary)}
+        <p class="dim">This file was read on this computer only: nothing was sent anywhere. Previews hide passwords, photo links and phone numbers, and shorten emails.</p>`;
+}
+
+/* The first rows of one table, in a row under it. A second press closes it. */
+function toggleBackupPreview(tr) {
+    const next = tr.nextElementSibling;
+    if (next?.classList.contains('bk-preview-row')) { next.remove(); return; }
+    const name = tr.dataset.bkTable;
+    const p = window.DatabaseBackup.preview(BK_FILE, name);
+    const open = document.createElement('tr');
+    open.className = 'bk-preview-row';
+    open.innerHTML = `<td colspan="6">
+        <div class="bk-preview">
+            <table class="data-table"><thead><tr>${p.columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+            <tbody>${p.rows.map((r) => `<tr>${r.map((v) => `<td>${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+        </div>
+        <p class="dim">First ${p.rows.length} of ${p.total} rows${p.more ? `, ${p.more} more column${p.more === 1 ? '' : 's'} not shown` : ''}.</p>
+    </td>`;
+    tr.after(open);
+}
+
+async function checkBackupFile(file) {
+    const out = $('backup-check-result');
+    if (!out) return;
+    BK_FILE = null;
+    if (!file) { out.innerHTML = ''; return; }
+    out.textContent = 'Checking.';
+    let result;
+    let text = '';
+    try {
+        text = await file.text();
+        result = await window.DatabaseBackup.verify(text);
+    } catch (err) { result = { ok: false, problems: [`The file could not be read: ${err.message}`], warnings: [], info: null }; }
+    const list = (items) => items.length ? `<ul>${items.map((x) => `<li>${escapeHtml(x)}</li>`).join('')}</ul>` : '';
+    const made = result.info?.createdAt ? new Date(result.info.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    let head = result.ok
+        ? `<p><span class="pill ok">Complete</span> Made ${escapeHtml(made)}: ${result.info.tables} tables, ${result.info.rows} rows. The data is unchanged since it was made.</p>${list(result.warnings)}`
+        : `<p><span class="pill waiting">Not usable</span> This file has problems:</p>${list(result.problems)}${list(result.warnings)}`;
+    // A file that is a backup but fails the check still shows what it holds, so the problem can be understood.
+    let contents = '';
+    try {
+        const parsed = JSON.parse(text);
+        if (parsed && parsed.format === window.DatabaseBackup.FORMAT && parsed.tables && typeof parsed.tables === 'object') {
+            BK_FILE = parsed;
+            contents = backupContents(window.DatabaseBackup.summarize(parsed, { bytes: text.length }));
+        }
+    } catch (err) { /* not JSON: the problem list already says so */ }
+    out.innerHTML = head + contents;
+}
+
+function initBackup() {
+    if (!backupInitialized) {
+        backupInitialized = true;
+        $('backup-create')?.addEventListener('click', createBackup);
+        $('backup-check-file')?.addEventListener('change', (e) => checkBackupFile(e.target.files?.[0]));
+        $('backup-check-result')?.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-bk-preview]');
+            if (b) toggleBackupPreview(b.closest('tr'));
+        });
+    }
+    loadLastBackup();
 }
 
 function initLogs() {

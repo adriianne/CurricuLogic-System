@@ -323,6 +323,107 @@ function changeSummary(changes) {
     return { text: first.field + ': ' + first.from + ' → ' + first.to + (extra > 0 ? ' +' + extra + ' more' : ''), total };
 }
 
+/* ---- the Activity log: filter, search and export (System logs > Activity) ---- */
+
+/* The kinds of action the Administrator can pick. Each is a set of action-code prefixes, matched at the start of audit_log.action. */
+const ACTION_GROUPS = [
+    { value: '', label: 'All actions', prefixes: null },
+    { value: 'PROVISION', label: 'Accounts created', prefixes: ['PROVISION'] },
+    { value: 'INSERT', label: 'Added', prefixes: ['INSERT'] },
+    { value: 'UPDATE', label: 'Changed', prefixes: ['UPDATE'] },
+    { value: 'DELETE', label: 'Deleted', prefixes: ['DELETE'] },
+    { value: 'REPORTS', label: 'Reports and backups', prefixes: ['EXPORT_REPORT', 'BACKUP'] },
+    { value: 'PRINT', label: 'Forms printed', prefixes: ['PRINT'] },
+    { value: 'CURRICULUM', label: 'Curriculum steps', prefixes: ['ACTIVATE', 'RETIRE', 'RESTORE', 'PUBLISH', 'COPY'] },
+];
+
+/* The role of whoever did it, as audit_log.actor_role stores it (older rows used the short forms). */
+const ACTIVITY_ROLES = [
+    { value: '', label: 'Everyone', stored: null },
+    { value: 'administrator', label: 'Administrator', stored: ['system_administrator'] },
+    { value: 'registrar', label: 'Registrar', stored: ['registrar_staff', 'registrar'] },
+    { value: 'faculty', label: 'Faculty', stored: ['faculty_staff', 'faculty'] },
+    { value: 'department', label: 'Department', stored: ['department_staff'] },
+    { value: 'student', label: 'Student', stored: ['student'] },
+    { value: 'system', label: 'System (automatic)', stored: ['system'] },
+];
+
+const ACTIVITY_RANGES = [
+    { value: '24h', label: 'Last 24 hours', hours: 24 },
+    { value: '7d', label: 'Last 7 days', hours: 24 * 7 },
+    { value: '30d', label: 'Last 30 days', hours: 24 * 30 },
+    { value: 'all', label: 'All time', hours: null },
+];
+
+const MAX_TERM = 60;
+
+/* What a person typed, made safe to put inside a filter: the characters that carry meaning in a filter or a LIKE are dropped. */
+function cleanTerm(term) {
+    return String(term ?? '').replace(/[,()%*_\\"'`;:<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_TERM);
+}
+
+/*
+ * The choices on the Activity page, as what to ask the database:
+ *   { prefixes: [...] | null, roles: [...] | null, since: 'YYYY-MM-DDTHH:MM:SS' (UTC, no zone: audit_log has none) | null, term: 'cleaned text' }
+ * An unknown choice means "no filter" for that part, so a stale selection never hides everything.
+ */
+function activitySpec({ group = '', role = '', range = '7d', term = '' } = {}, nowMs = Date.now()) {
+    const g = ACTION_GROUPS.find((x) => x.value === group);
+    const r = ACTIVITY_ROLES.find((x) => x.value === role);
+    const t = ACTIVITY_RANGES.find((x) => x.value === range);
+    return {
+        prefixes: g?.prefixes ?? null,
+        roles: r?.stored ?? null,
+        since: t?.hours ? new Date(nowMs - t.hours * 3600000).toISOString().slice(0, 19) : null,
+        term: cleanTerm(term),
+    };
+}
+
+const REPORT_NAMES = {
+    student_report: 'Student report', program_report: 'Programme report', analytics: 'Academic analytics',
+    system_logs: 'Activity log', backup: 'Database backup',
+};
+
+/* The one line shown (and exported) for an entry. Exports and backups say what they were; everything else shows the first change. */
+function entrySummary(row) {
+    const v = isObject(row?.new_values) ? row.new_values : {};
+    if (row?.action === 'EXPORT_REPORT') {
+        const name = REPORT_NAMES[v.report] ?? titleCase(v.report ?? 'report');
+        const how = { print: 'printed', csv: 'saved as CSV', xlsx: 'saved as Excel', file: 'file saved' }[v.format] ?? v.format ?? '';
+        const rows = Number.isFinite(Number(v.rows)) && v.rows !== null && v.rows !== undefined ? `${Number(v.rows)} rows` : '';
+        return [name, how, rows].filter(Boolean).join(' · ');
+    }
+    if (row?.action === 'BACKUP_DATA_READ') return `Database read for a backup (${Number(v.tables) || 0} tables)`;
+    return changeSummary(changesOf(row)).text;
+}
+
+/* One line for "N of M entries", or why there are none. */
+function activityCount(shown, total) {
+    if (!total) return '';
+    return shown === total ? `${total} ${total === 1 ? 'entry' : 'entries'}` : `${shown} of ${total} entries`;
+}
+
+/* The rows of an export file: a header, then one line per entry. Same masking as the page (changesOf), so a file never
+   shows more than the screen does. personOf(row) -> 'Name (Role)' or a plain label. */
+function activityRows(entries, personOf = (r) => roleLabel(r.actor_role)) {
+    const out = [['When (UTC)', 'Who', 'Role', 'What happened', 'Action code', 'Area', 'Record', 'Change']];
+    for (const r of entries ?? []) {
+        const ms = parseTime(r.created_at);
+        const person = splitPerson(personOf(r));
+        out.push([
+            Number.isFinite(ms) ? new Date(ms).toISOString().replace('T', ' ').slice(0, 19) : '',
+            person.name,
+            roleLabel(r.actor_role),
+            actionLabel(r.action),
+            r.action ?? '',
+            tableLabel(r.table_name),
+            r.record_id ?? '',
+            entrySummary(r),
+        ]);
+    }
+    return out;
+}
+
 /* ---- the User status page ---- */
 
 const USER_ROLES = ['student', 'faculty', 'registrar', 'department'];
@@ -448,6 +549,7 @@ return {
     parseTime, agoLabel, durationLabel, curaSummary, statusPill, lastCleanup,
     perDay, dayNote, axisMax, changeSummary, actionTone, initials, splitPerson,
     buildUsers, statusCounts, filterUsers, signInText, toggleUserFilter, userFilterNote, USER_ROLES, USER_STATES,
+    ACTION_GROUPS, ACTIVITY_ROLES, ACTIVITY_RANGES, cleanTerm, activitySpec, activityCount, activityRows, entrySummary,
     CLEANUP_LATE_HOURS,
 };
 

@@ -16,6 +16,11 @@ secrets/
 # Test data (spreadsheets, PDFs, screenshots). Real names and grades: never commit.
 tests/fixtures/
 
+# Database backups and the restore scripts made from them (Admin > Backup, docs/BACKUP-RESTORE.md).
+# They hold student information: never commit.
+curriculogic-backup-*.json
+restore-scripts/
+
 # Personal working material: screenshots, design references, the progress log.
 workspace/
 

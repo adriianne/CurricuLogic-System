@@ -53,6 +53,9 @@ const CONSTANT = 'a fixed label written in the code, never typed or uploaded';
 const SAFE = [
     ['features/admin/admindashboard.js',          'capCell(',                'a number and a role limit'],
     ['features/admin/admindashboard.js',          'rolePills',               'pills built only from counts (numbers) and fixed words'],
+    ['features/admin/admindashboard.js',          'tile(',                   'the backup tile escapes its own value and label'],
+    ['features/admin/admindashboard.js',          'backupChart(',            'backupChart escapes every area label; the rest are numbers'],
+    ['features/admin/admindashboard.js',          'backupTable(',            'backupTable escapes every table name, label, date and area'],
     ['features/department/curriculum-builder.js', 'o.label',                 'built from academic-year numbers and fixed words'],
     ['features/department/curriculum-builder.js', 'hasFile ?',               'a fixed button; the file name is escaped inside it'],
     ['features/department/curriculum-builder.js', 'scheduled()',             'a count of subjects, a number'],
