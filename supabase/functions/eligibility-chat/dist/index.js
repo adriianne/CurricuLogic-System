@@ -167,7 +167,18 @@ var require_core = __commonJS({
         had_wishes: hadWishes === true
       };
     }
-    module.exports = { interpretAssessment, cleanWishes, usageRow, NOT_READY, TRY_AGAIN };
+    var CALL_LIMITS = {
+      attemptsPerModel: 2,
+      // a quick "busy" answer is tried twice on a model, then the next model
+      backoffMs: [1200],
+      budgetMs: 29e3,
+      // no NEW call is started once 29 s have passed (the check is 'more than', so a call that ends at exactly 30 s is the last)
+      callTimeoutMs: 15e3,
+      // one call to Google may take 15 s at most
+      hardLimitMs: 4e4
+      // and no call may run past 40 s from the start (a safety net: the budget normally ends it at 30 s)
+    };
+    module.exports = { interpretAssessment, cleanWishes, usageRow, NOT_READY, TRY_AGAIN, CALL_LIMITS };
   }
 });
 
@@ -189,7 +200,12 @@ async function callGemini({
   nowFn = () => Date.now(),
   attemptsPerModel = 3,
   backoffMs = [1500, 4e3],
-  budgetMs = 11e4
+  budgetMs = 11e4,
+  callTimeoutMs = 8e4,
+  // one call to Google may take this long at most (a four-year curriculum is a long answer)
+  hardLimitMs = 14e4,
+  // no call may run past this, counted from the start (the platform stops at 150 s)
+  signalFn = (ms) => AbortSignal.timeout(ms)
 } = {}) {
   const started = nowFn();
   const tried = [];
@@ -204,14 +220,21 @@ async function callGemini({
         return done({});
       }
       attempts++;
+      const timeoutMs = Math.max(1e3, Math.min(callTimeoutMs, hardLimitMs - (nowFn() - started)));
       let res;
       try {
         res = await fetchFn(urlFor(model, apiKey), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
+          body: JSON.stringify(body),
+          signal: signalFn(timeoutMs)
         });
       } catch (err) {
+        if (isTimeout(err)) {
+          last = { status: 0, detail: `no answer from ${model} within ${Math.round(timeoutMs / 1e3)} s` };
+          tried.push({ model, status: 0, timedOut: true });
+          break;
+        }
         last = { status: 0, detail: `network error on ${model}` };
         tried.push({ model, status: 0 });
         if (attempt < attemptsPerModel) await sleepFn(backoffMs[Math.min(attempt - 1, backoffMs.length - 1)]);
@@ -221,7 +244,12 @@ async function callGemini({
         let data;
         try {
           data = await res.json();
-        } catch {
+        } catch (err) {
+          if (isTimeout(err)) {
+            last = { status: 0, detail: `answer from ${model} not finished within ${Math.round(timeoutMs / 1e3)} s` };
+            tried.push({ model, status: 0, timedOut: true });
+            break;
+          }
           last = { status: res.status, detail: `unreadable answer from ${model}` };
           tried.push({ model, status: res.status });
           if (attempt < attemptsPerModel) await sleepFn(backoffMs[Math.min(attempt - 1, backoffMs.length - 1)]);
@@ -243,6 +271,9 @@ async function callGemini({
     }
   }
   return done({});
+}
+function isTimeout(err) {
+  return err?.name === "TimeoutError" || err?.name === "AbortError";
 }
 function isBusy(status) {
   return status === 0 || RETRY_STATUSES.has(status);
@@ -483,9 +514,7 @@ async function handle(req, usage) {
     ];
     const call = await callGemini({
       apiKey,
-      attemptsPerModel: 2,
-      backoffMs: [1200],
-      budgetMs: 45e3,
+      ...import_core.default.CALL_LIMITS,
       body: {
         systemInstruction: {
           parts: [{ text: buildSystemInstruction(summary, client) }]

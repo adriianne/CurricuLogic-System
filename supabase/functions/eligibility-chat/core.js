@@ -200,4 +200,24 @@ function usageRow({ userId, client, ms, httpStatus, busy, model, attempts, hadWi
     };
 }
 
-module.exports = { interpretAssessment, cleanWishes, usageRow, NOT_READY, TRY_AGAIN };
+/*
+ * How long a student waits for Cura's answer, at most (callGemini options, supabase/functions/_shared/geminicall.mjs).
+ *
+ * On 19 Nov 2026 Google's model answered "high demand" (HTTP 503) only after about 70 s. The chat then used its
+ * whole wait on ONE call (the per-call limit was the readers' 80 s) and the student watched typing dots for 70 s.
+ * A chat answer is short (1024 tokens, normally 3 to 6 s), so a call that has not answered in 15 s is cut off and the
+ * next model is tried at once. The budget is only checked BETWEEN calls, so the worst case is the budget plus
+ * the time left before the hard limit:
+ *
+ *   one model hangs 15 s -> the next is tried -> it answers, or hangs 15 s too -> stop at 30 s (not 40: a third call would start at
+ *   exactly 30 s if the budget were 30 s).
+ */
+const CALL_LIMITS = {
+    attemptsPerModel: 2,   // a quick "busy" answer is tried twice on a model, then the next model
+    backoffMs: [1200],
+    budgetMs: 29000,       // no NEW call is started once 29 s have passed (the check is 'more than', so a call that ends at exactly 30 s is the last)
+    callTimeoutMs: 15000,  // one call to Google may take 15 s at most
+    hardLimitMs: 40000,    // and no call may run past 40 s from the start (a safety net: the budget normally ends it at 30 s)
+};
+
+module.exports = { interpretAssessment, cleanWishes, usageRow, NOT_READY, TRY_AGAIN, CALL_LIMITS };

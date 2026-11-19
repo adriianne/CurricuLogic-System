@@ -688,6 +688,16 @@ var require_engine = __commonJS({
           if (!isSlot(e.subject)) continue;
           e.slotOptions = eligible.filter((o) => isCatalogue(o.subject) && typeOf(o.subject) === typeOf(e.subject)).map((o) => ({ code: o.subject.code, title: o.subject.title, units: o.subject.units }));
         }
+        for (const e of [...eligible]) {
+          if (!isSlot(e.subject) || e.slotOptions && e.slotOptions.length) continue;
+          const type = typeOf(e.subject);
+          if (!subjects.some((c) => isCatalogue(c) && typeOf(c) === type)) continue;
+          eligible.splice(eligible.indexOf(e), 1);
+          const kind = type === "FREE" ? "free elective" : "programme elective";
+          e.lockedReason = `No ${kind} course is open to you yet: each one needs a prerequisite or a year standing you have not reached.`;
+          e.unmet = [{ met: false, noElectives: true, detail: e.lockedReason }];
+          locked.push(e);
+        }
         for (const e of eligible) {
           e.unlocks = unlockImpact(e.subject.id, facts, kb);
           e.priority = scoreSubject(e, facts);
@@ -732,9 +742,11 @@ var require_engine = __commonJS({
           if (picked.has(e.subject.id)) continue;
           if (isCatalogue(e.subject)) continue;
           if (!e.availableThisTerm) continue;
+          const aheadOfYear = (x) => options.allowAheadOfYear !== true && !x.retake && facts.yearLevel && x.subject.year_level != null && x.subject.year_level > facts.yearLevel;
+          if (aheadOfYear(e)) continue;
           const bundle = bundleOf(e);
           if (!bundle) continue;
-          if (bundle.some((b) => isCatalogue(b.subject) || !b.availableThisTerm)) continue;
+          if (bundle.some((b) => isCatalogue(b.subject) || !b.availableThisTerm || aheadOfYear(b))) continue;
           const fresh = bundle.filter((b) => !picked.has(b.subject.id));
           const need = fresh.reduce((t, b) => t + (Number(b.subject.units) || 0), 0);
           if (units + need > availableUnits) continue;
@@ -748,7 +760,7 @@ var require_engine = __commonJS({
         recommended.sort((a, b) => rank.get(a.subject.id) - rank.get(b.subject.id));
         const baseline = chainForward(facts, kb);
         for (const l of locked) {
-          l.termsAway = baseline.get(l.subject.id) ?? null;
+          l.termsAway = l.lockedReason ? null : baseline.get(l.subject.id) ?? null;
         }
         return {
           facts: {
@@ -803,9 +815,13 @@ var require_engine = __commonJS({
         if (facts.yearLevel && entry.subject.year_level != null && entry.subject.year_level < facts.yearLevel) {
           return "Outstanding from an earlier year level.";
         }
+        if (facts.yearLevel && entry.subject.year_level != null && entry.subject.year_level > facts.yearLevel) {
+          return `Ahead of your year level: a Year ${entry.subject.year_level} subject.`;
+        }
         return "On track for this year level.";
       }
       function explain2(entry) {
+        if (entry.lockedReason) return ["\u2717 " + entry.lockedReason];
         if (!entry.trace || entry.trace.length === 0) {
           return ["No conditions \u2014 this subject is open to any student."];
         }
@@ -934,11 +950,22 @@ var require_scheduleconflicts = __commonJS({
         }
         return clashes;
       }
+      function describeMeetings(section, meetings) {
+        const list = [...meetings ?? []].sort((a, b) => (MEETING_ORDER[a.meeting_type] ?? 9) - (MEETING_ORDER[b.meeting_type] ?? 9));
+        if (!list.length) return "";
+        const one = (m) => {
+          const time = m.start_time && m.end_time ? `${String(m.start_time).slice(0, 5)}\u2013${String(m.end_time).slice(0, 5)}` : "";
+          const label = m.meeting_type && m.meeting_type !== "LEC" ? m.meeting_type + " " : "";
+          return label + [m.schedule_days, time].filter(Boolean).join(" ");
+        };
+        return [section, list.map(one).join(" + ")].filter(Boolean).join(" \xB7 ");
+      }
       return {
         parseDays,
         minutesOf,
         meetingsClash,
         groupSections,
+        describeMeetings,
         timeOfDay,
         sectionTimeOfDay,
         formatClock,

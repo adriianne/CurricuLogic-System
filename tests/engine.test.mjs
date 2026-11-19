@@ -1074,3 +1074,132 @@ describe('availableThisTerm (what the Build your plan picker may offer)', () => 
         for (const r of out.recommended) assert.equal(r.availableThisTerm, true);
     });
 });
+
+/* 19 Nov 2026: a subject of a LATER year than the student's own is eligible but not suggested. */
+describe('subjects ahead of the student\'s year', () => {
+    const opts = { ...ignoreOfferings, term: 2, maxUnits: 24, yearGate: false };   // the live BSIT curriculum has its own standing rules, so the default gate is off
+    const codes = (list) => list.map(r => r.subject.code).sort();
+    const ahead = () => {
+        const y1 = subj('AHEAD-Y1', { year: 1, term: 2 });
+        const y1locked = subj('AHEAD-Y1-LOCKED', { year: 1, term: 2 });
+        const gate = subj('AHEAD-GATE', { year: 1, term: 1 });
+        const y2 = subj('AHEAD-Y2', { year: 2, term: 2 });       // no rule: open to anyone
+        const y3 = subj('AHEAD-Y3', { year: 3, term: 2 });
+        const subjects = [y1, y1locked, gate, y2, y3];
+        return { y1, y1locked, gate, y2, y3, subjects, rules: [rule(y1locked, gate)] };
+    };
+
+    test('a Year 1 student is not suggested a Year 2 or Year 3 subject, though both stay eligible', () => {
+        const k = ahead();
+        const out = assess(student({ year: 1 }), [], kbOf(k.subjects, k.rules), opts);
+        assert.deepEqual(codes(out.recommended), ['AHEAD-Y1']);
+        const eligible = codes(out.eligible);
+        assert.ok(eligible.includes('AHEAD-Y2') && eligible.includes('AHEAD-Y3'), 'still eligible, so still choosable under Also open to you');
+    });
+
+    test('a Year 2 student is suggested the Year 2 subject, but not the Year 3 one', () => {
+        const k = ahead();
+        const out = assess(student({ year: 2 }), [], kbOf(k.subjects, k.rules), opts);
+        const rec = codes(out.recommended);
+        assert.ok(rec.includes('AHEAD-Y2'));
+        assert.ok(!rec.includes('AHEAD-Y3'));
+    });
+
+    test('a subject owed from an earlier year is still suggested', () => {
+        const k = ahead();
+        const out = assess(student({ year: 3 }), [], kbOf(k.subjects, k.rules), opts);
+        assert.ok(codes(out.recommended).includes('AHEAD-Y1'), 'an earlier year is owed, never ahead');
+    });
+
+    test('a student whose year is not known is not filtered', () => {
+        const k = ahead();
+        const out = assess({ id: 'stu-x', year_level: null }, [], kbOf(k.subjects, k.rules), opts);
+        assert.ok(codes(out.recommended).includes('AHEAD-Y3'));
+    });
+
+    test('an elective slot of a later year is held back too', () => {
+        const slot = { ...subj('AHEAD-SLOT', { year: 3, term: 2, elective: true }) };
+        const y1 = subj('AHEAD-Y1B', { year: 1, term: 2 });
+        const out = assess(student({ year: 2 }), [], kbOf([y1, slot]), opts);
+        assert.ok(!codes(out.recommended).includes('AHEAD-SLOT'));
+    });
+
+    test('a subject that must be taken together with one that is ahead is held back as a pair', () => {
+        const lec = subj('AHEAD-PAIR-A', { year: 1, term: 2 });
+        const co = subj('AHEAD-PAIR-B', { year: 2, term: 2 });
+        const rules = [rule(lec, co, { type: 'co_requisite' }), rule(co, lec, { type: 'co_requisite' })];
+        const out = assess(student({ year: 1 }), [], kbOf([lec, co], rules), opts);
+        assert.deepEqual(codes(out.recommended), []);
+    });
+
+    test('allowAheadOfYear switches it off, and then the reason says the subject is ahead', () => {
+        const k = ahead();
+        const out = assess(student({ year: 1 }), [], kbOf(k.subjects, k.rules), { ...opts, allowAheadOfYear: true });
+        const why = (c) => out.recommended.find(r => r.subject.code === c)?.reason;
+        assert.equal(why('AHEAD-Y1'), 'On track for this year level.');
+        assert.equal(why('AHEAD-Y2'), 'Ahead of your year level: a Year 2 subject.');
+    });
+});
+
+/* 19 Nov 2026: an elective slot with no elective course open to the student is locked, not offered empty. */
+describe('an elective slot with nothing to fill it', () => {
+    const opts = { ...ignoreOfferings, term: 2, maxUnits: 24, yearGate: false };
+    const slot = (code, opts2 = {}) => ({ ...subj(code, { year: 3, term: 2, elective: true }), elective_type: opts2.type ?? 'IT' });
+    const catalogue = (code, opts2 = {}) => ({ ...subj(code, { elective: true }), year_level: null, term: null, elective_type: opts2.type ?? 'IT' });
+    const codes = (list) => list.map(e => e.subject.code).sort();
+
+    test('every course of its type is locked: the slot is locked too, with the reason, and is not suggested', () => {
+        const gate = subj('SLOT-GATE', { year: 1, term: 1 });
+        const sl = slot('SLOT-A');
+        const c1 = catalogue('SLOT-CAT1'), c2 = catalogue('SLOT-CAT2');
+        const rules = [rule(c1, gate), rule(c2, gate)];
+        const out = assess(student({ year: 2 }), [], kbOf([gate, sl, c1, c2], rules), opts);
+        assert.ok(!codes(out.eligible).includes('SLOT-A'));
+        const lockedSlot = out.locked.find(e => e.subject.code === 'SLOT-A');
+        assert.ok(lockedSlot, 'the slot is in the locked list');
+        assert.match(lockedSlot.lockedReason, /^No programme elective course is open to you yet/);
+        assert.deepEqual(E.explain(lockedSlot), ['\u2717 ' + lockedSlot.lockedReason]);
+        assert.ok(!out.recommended.some(r => r.subject.code === 'SLOT-A'));
+    });
+
+    test('the wording follows the kind of elective', () => {
+        const gate = subj('SLOT-GATE2', { year: 1, term: 1 });
+        const sl = slot('SLOT-FREE', { type: 'FREE' });
+        const c = catalogue('SLOT-FCAT', { type: 'FREE' });
+        const out = assess(student({ year: 2 }), [], kbOf([gate, sl, c], [rule(c, gate)]), opts);
+        assert.match(out.locked.find(e => e.subject.code === 'SLOT-FREE').lockedReason, /^No free elective course is open/);
+    });
+
+    test('one open course is enough: the slot stays eligible and lists it', () => {
+        const gate = subj('SLOT-GATE3', { year: 1, term: 1 });
+        const sl = slot('SLOT-B');
+        const open = catalogue('SLOT-OPEN'), shut = catalogue('SLOT-SHUT');
+        const out = assess(student({ year: 3 }), [], kbOf([gate, sl, open, shut], [rule(shut, gate)]), opts);
+        const e = out.eligible.find(x => x.subject.code === 'SLOT-B');
+        assert.ok(e, 'still eligible');
+        assert.deepEqual(e.slotOptions.map(o => o.code), ['SLOT-OPEN']);
+    });
+
+    test('a curriculum that lists no elective courses at all is left as it was', () => {
+        const sl = slot('SLOT-C');
+        const out = assess(student({ year: 3 }), [], kbOf([sl]), opts);
+        assert.ok(codes(out.eligible).includes('SLOT-C'));
+    });
+
+    test('a slot of one kind is not locked by the closed courses of the other kind', () => {
+        const gate = subj('SLOT-GATE4', { year: 1, term: 1 });
+        const sl = slot('SLOT-D', { type: 'IT' });
+        const itOpen = catalogue('SLOT-ITOPEN', { type: 'IT' });
+        const freeShut = catalogue('SLOT-FREESHUT', { type: 'FREE' });
+        const out = assess(student({ year: 3 }), [], kbOf([gate, sl, itOpen, freeShut], [rule(freeShut, gate)]), opts);
+        assert.ok(codes(out.eligible).includes('SLOT-D'));
+    });
+});
+
+test('a slot locked for want of an open elective carries no "terms away" count', () => {
+    const gate = subj('TA-GATE', { year: 1, term: 1 });
+    const sl = { ...subj('TA-SLOT', { year: 3, term: 2, elective: true }), elective_type: 'IT' };
+    const c = { ...subj('TA-CAT', { elective: true }), year_level: null, term: null, elective_type: 'IT' };
+    const out = assess(student({ year: 2 }), [], kbOf([gate, sl, c], [rule(c, gate)]), { ...ignoreOfferings, term: 2, yearGate: false });
+    assert.equal(out.locked.find(e => e.subject.code === 'TA-SLOT').termsAway, null);
+});

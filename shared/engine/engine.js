@@ -657,6 +657,22 @@ function assess(student, records, knowledgeBase, options = {}) {
             .map(o => ({ code: o.subject.code, title: o.subject.title, units: o.subject.units }));
     }
 
+    /* A slot is a place to put an elective. When the curriculum lists real elective courses of its type and NONE is open to this
+       student (each needs a prerequisite or a year standing not yet reached), the slot cannot be filled, so it is locked with that
+       reason instead of being offered with nothing to fill it (19 Nov 2026: a Year 2 student was offered IT Elective 2 although
+       every elective course was closed to him). A curriculum that lists no elective courses at all is left as it was: there is
+       nothing to judge by. */
+    for (const e of [...eligible]) {
+        if (!isSlot(e.subject) || (e.slotOptions && e.slotOptions.length)) continue;
+        const type = typeOf(e.subject);
+        if (!subjects.some(c => isCatalogue(c) && typeOf(c) === type)) continue;
+        eligible.splice(eligible.indexOf(e), 1);
+        const kind = type === 'FREE' ? 'free elective' : 'programme elective';
+        e.lockedReason = `No ${kind} course is open to you yet: each one needs a prerequisite or a year standing you have not reached.`;
+        e.unmet = [{ met: false, noElectives: true, detail: e.lockedReason }];
+        locked.push(e);
+    }
+
     /* Ranking, then the unit cap. */
 
     for (const e of eligible) {
@@ -750,11 +766,20 @@ function assess(student, records, knowledgeBase, options = {}) {
            section is the failure this replaces. */
         if (!e.availableThisTerm) continue;
 
+        /* Ahead of the student's own year: still eligible (it stays in the eligible list, shown as "Also open to you"), but not
+           put in the suggested plan (19 Nov 2026). A Year 1 student whose real subjects were locked was being handed Year 2 and
+           Year 3 subjects only because the curriculum states no rule for them. The year follows the student's grades (db/120), so
+           this moves up each semester. An owed subject (an earlier year), a retake and a catalogue elective are never "ahead".
+           options.allowAheadOfYear === true switches it off. */
+        const aheadOfYear = (x) => options.allowAheadOfYear !== true && !x.retake
+            && facts.yearLevel && x.subject.year_level != null && x.subject.year_level > facts.yearLevel;
+        if (aheadOfYear(e)) continue;
+
         /* A subject that must be taken together with others goes in with all
            of them, or not at all. */
         const bundle = bundleOf(e);
         if (!bundle) continue;
-        if (bundle.some(b => isCatalogue(b.subject) || !b.availableThisTerm)) continue;
+        if (bundle.some(b => isCatalogue(b.subject) || !b.availableThisTerm || aheadOfYear(b))) continue;
         const fresh = bundle.filter(b => !picked.has(b.subject.id));
         const need = fresh.reduce((t, b) => t + (Number(b.subject.units) || 0), 0);
         if (units + need > availableUnits) continue;
@@ -773,7 +798,8 @@ function assess(student, records, knowledgeBase, options = {}) {
        is — one term, two, or unreachable within the horizon. */
     const baseline = chainForward(facts, kb);
     for (const l of locked) {
-        l.termsAway = baseline.get(l.subject.id) ?? null;
+        // A slot locked for want of an open elective has no chain of its own to count terms along.
+        l.termsAway = l.lockedReason ? null : (baseline.get(l.subject.id) ?? null);
     }
 
     return {
@@ -856,6 +882,13 @@ function recommendationReason(entry, facts) {
         return 'Outstanding from an earlier year level.';
     }
 
+    /* A subject of a later year is open to the student only because the curriculum states no rule for it; calling it "on track"
+       was wrong (18 Nov 2026: a Year 1 student was shown Year 2 and Year 3 subjects as on track). */
+    if (facts.yearLevel && entry.subject.year_level != null
+        && entry.subject.year_level > facts.yearLevel) {
+        return `Ahead of your year level: a Year ${entry.subject.year_level} subject.`;
+    }
+
     return 'On track for this year level.';
 }
 
@@ -864,6 +897,7 @@ function recommendationReason(entry, facts) {
    panel. Kept here rather than in the UI so every client explains a
    result the same way. */
 function explain(entry) {
+    if (entry.lockedReason) return ['✗ ' + entry.lockedReason];
     if (!entry.trace || entry.trace.length === 0) {
         return ['No conditions — this subject is open to any student.'];
     }

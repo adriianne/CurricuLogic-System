@@ -336,12 +336,11 @@ async function handle(req: Request, usage: Usage): Promise<Response> {
 
     // The call (a busy answer retried after a short wait, the next model tried when one is gone or
     // still busy, the key never logged) is the helper shared with the document readers. A student is
-    // waiting on this reply, so it waits less and gives up sooner than the readers do.
+    // waiting on this reply, so it waits less and gives up sooner than the readers do: core.CALL_LIMITS holds the
+    // numbers and why (a call is cut off after 15 s, the whole wait ends by about 30 s).
     const call = await callGemini({
       apiKey,
-      attemptsPerModel: 2,
-      backoffMs: [1200],
-      budgetMs: 45000,
+      ...core.CALL_LIMITS,
       body: {
         systemInstruction: {
           parts: [{ text: buildSystemInstruction(summary, client) }],
