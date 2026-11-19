@@ -248,6 +248,17 @@
 
                 <section class="card">
                     <div class="card-head">
+                        <span class="card-title">Programme report</span>
+                        <span class="card-note" id="report-program-note"></span>
+                    </div>
+                    <div class="card-body">
+                        <p class="prose" id="report-program-line">Loading.</p>
+                        <div class="report-bar" id="report-program-actions"></div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
                         <span class="card-title">Student list</span>
                         <span class="card-note" id="students-count"></span>
                     </div>
@@ -302,6 +313,7 @@
                         <h1 class="prof-name" id="detail-name">Student</h1>
                         <p class="prof-sub" id="detail-sub"></p>
                         <div class="prof-pills" id="detail-pills"></div>
+                        <div class="report-bar" id="detail-report"></div>
                     </div>
                     <div class="stu-hero-actions review-actions" id="detail-actions"></div>
                 </section>
@@ -501,7 +513,12 @@
 <script src="../../shared/js/curriculum/curriculumprint.js"></script>
 <script src="../../shared/js/enrolment/advisingslip.js"></script>
 <script src="../../shared/js/schedule/scheduleconflicts.js"></script>
+<script src="../../shared/js/schedule/sectionmeetings.js"></script>
 <script src="../../shared/js/enrolment/enrollmentform.js"></script>
+<script src="../../shared/js/vendor/xlsx.full.min.js"></script>
+<script src="../../shared/js/reports/reportfile.js"></script>
+<script src="../../shared/js/reports/studentreport.js"></script>
+<script src="../../shared/js/reports/programreport.js"></script>
 <script src="../../shared/js/accounts/passwordrules.js"></script>
 <script src="../../shared/js/app/forcepasswordchange.js"></script>
 <script src="../../shared/js/accounts/accountmatches.js"></script>

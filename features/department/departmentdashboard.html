@@ -58,6 +58,9 @@
             <a href="#students" data-view="students">
                 <i class="fa-solid fa-users" aria-hidden="true"></i> Students
             </a>
+            <a href="#reports" data-view="reports">
+                <i class="fa-solid fa-chart-column" aria-hidden="true"></i> Reports
+            </a>
             <a href="#grades" data-view="grades">
                 <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i> Grade upload
             </a>
@@ -612,6 +615,44 @@
 
             </section>
 
+<!-- Reports -->
+<section class="view view-wide" id="view-reports" hidden>
+
+    <div class="page-head">
+        <h1 class="page-title">Reports</h1>
+        <p class="page-sub">
+            How the students of this programme stand. Print a report, or save it as an Excel or CSV file.
+        </p>
+    </div>
+
+    <div id="report-msg" class="msg" role="status"></div>
+
+    <section class="card">
+        <div class="card-head">
+            <span class="card-title">Programme report</span>
+            <span class="card-note" id="report-program-note"></span>
+        </div>
+        <div class="card-body">
+            <div class="report-bar" id="report-program-actions"></div>
+        </div>
+    </section>
+
+    <div id="report-program-body"><p class="dim">Loading.</p></div>
+
+    <section class="card">
+        <div class="card-head">
+            <span class="card-title">Academic analytics</span>
+            <span class="card-note">Where students struggle, and what is in demand</span>
+        </div>
+        <div class="card-body">
+            <div class="report-bar" id="report-analytics-actions"></div>
+        </div>
+    </section>
+
+    <div id="report-analytics-body"><p class="dim">Loading.</p></div>
+
+</section>
+
 <!-- Grade upload -->
 <section class="view view-wide" id="view-grades" hidden>
 
@@ -1128,6 +1169,10 @@
 <script src="../../shared/engine/engine.js"></script>
 <script src="../../shared/js/records/recordgrades.js"></script>
 <script src="../../shared/js/records/studentlist.js"></script>
+<script src="../../shared/js/reports/reportfile.js"></script>
+<script src="../../shared/js/reports/studentreport.js"></script>
+<script src="../../shared/js/reports/programreport.js"></script>
+<script src="../../shared/js/reports/analytics.js"></script>
 <script src="../../shared/js/app/profilephoto.js"></script>
 <script src="../../shared/js/curriculum/curriculumprint.js"></script>
 <script src="../../shared/js/curriculum/prospectusgrid.js"></script>
@@ -1141,6 +1186,7 @@
 <script src="../../shared/js/app/singleflight.js"></script>
 <script src="curriculum-builder.js"></script>
 <script src="../../shared/js/accounts/passwordrules.js"></script>
+<script src="../../shared/js/accounts/namerules.js"></script>
 <script src="../../shared/js/app/forcepasswordchange.js"></script>
 <script src="../../shared/js/app/motion.js"></script>
 <script src="../../shared/js/app/theme.js"></script>

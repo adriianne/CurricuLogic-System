@@ -4341,3 +4341,33 @@ html[data-theme="dark"] .edp-reason { color: #f87171; }
 .edp-year-warn i { margin-right: 2px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .edp-year-warn { color: #fcd34d; } }
 :root[data-theme="dark"] .edp-year-warn { color: #fcd34d; }
+
+/* Student report buttons under the name on a student's page (Registrar and Faculty adviser) */
+.report-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.report-bar:empty { display: none; }
+.report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+@media (max-width: 800px) { .report-grid { grid-template-columns: 1fr; } }
+.an-bar { display: inline-block; vertical-align: middle; width: 64px; height: 6px; margin-left: 8px; background: var(--line, #e3e3e3); border-radius: 3px; overflow: hidden; }
+.an-bar i { display: block; height: 100%; background: var(--indigo, #4f46e5); border-radius: 3px; }
+#report-analytics-body { margin-top: 16px; }
+
+/* Admin > Backup > Check a backup file: what is inside */
+.bk-h { margin: 18px 0 6px; font-size: 0.95rem; }
+.bk-facts { margin: 0; padding-left: 18px; line-height: 1.7; }
+.bk-chart { display: grid; gap: 8px; max-width: 640px; }
+.bk-row { display: grid; grid-template-columns: 170px 1fr 56px; align-items: center; gap: 10px; }
+.bk-label { font-size: 0.85rem; }
+.bk-track { display: block; height: 12px; background: var(--line, #e8ecf3); border-radius: 6px; overflow: hidden; }
+.bk-track i { display: block; height: 100%; background: var(--indigo, #4f46e5); border-radius: 6px; }
+.bk-num { text-align: right; font-variant-numeric: tabular-nums; }
+.bk-bar { display: inline-block; vertical-align: middle; width: 56px; height: 6px; margin-left: 6px; background: var(--line, #e8ecf3); border-radius: 3px; overflow: hidden; }
+.bk-bar i { display: block; height: 100%; background: var(--indigo, #4f46e5); border-radius: 3px; }
+.bk-preview { overflow-x: auto; max-width: 100%; }
+.bk-preview .data-table { font-size: 0.78rem; }
+.bk-preview-row > td { background: rgba(0, 0, 0, 0.02); }
+.bk-tiles { margin-top: 12px; }
+@media (max-width: 600px) { .bk-row { grid-template-columns: 110px 1fr 48px; } }
+.bk-result { width: 100%; }
+.bk-result p, .bk-result ul { max-width: none; }
+.bk-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 700px) { .bk-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

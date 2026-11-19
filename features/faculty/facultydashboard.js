@@ -24,6 +24,8 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 /* The term helper reads system_config with this signed-in client (db/052). */
 window.CurriculogicTerm?.setClient(supabase);
+/* Exports of reports are recorded in the audit log (db/122). */
+window.ReportFile?.setClient(supabase);
 
 const $ = (id) => document.getElementById(id);
 
@@ -1105,7 +1107,7 @@ async function loadStudentPlan(s, seq) {
             .select(`
                 id, status, registrar_status, requested_term, requested_year, created_at,
                 request_item (
-                    id, status, remarks,
+                    id, status, remarks, subject_id,
                     subject:subject_id (code, title, units),
                     offering:offering_id (section, schedule_days, start_time, end_time, room)
                 )`)
@@ -1146,11 +1148,9 @@ async function loadStudentPlan(s, seq) {
         : plan.status === 'rejected' ? '<span class="pill bad">Not approved</span>'
         : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Waiting for your review</span>';
 
-    const sched = (o) => {
-        if (!o) return '—';
-        const time = (o.start_time && o.end_time) ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}` : '';
-        return [o.section, o.schedule_days, time].filter(Boolean).join(' · ') || '—';
-    };
+    // The lecture AND the lab of each section (shared/js/schedule/sectionmeetings.js).
+    if (!PREVIEW) await window.CurriculogicSectionMeetings.attach(supabase, items, plan.requested_year, plan.requested_term);
+    const sched = (item) => window.CurriculogicSectionMeetings.scheduleText(item, window.ScheduleConflicts.describeMeetings);
 
     body.innerHTML = `
         <div class="stu-plan-head">${stage}
@@ -1163,7 +1163,7 @@ async function loadStudentPlan(s, seq) {
                     <tr>
                         <td class="mono">${escapeHtml(i.subject?.code ?? '')}</td>
                         <td>${escapeHtml(i.subject?.title ?? '')}
-                            <span class="row-sub">${escapeHtml(sched(i.offering))}</span></td>
+                            <span class="row-sub">${escapeHtml(sched(i))}</span></td>
                         <td class="num">${escapeHtml(i.subject?.units ?? '—')}</td>
                     </tr>`).join('')}
                 </tbody>
@@ -1178,17 +1178,22 @@ async function renderStudentProgress(s, records, seq) {
 
     let total = 0;
     let curriculum = '';
+    let curriculumLabel = '';
     if (PREVIEW) {
         total = 161;
         curriculum = '2024–2025 <span class="pill ok">Active</span>';
+        curriculumLabel = '2024–2025';
     } else if (s.prospectus_id) {
         const facts = await prospectusFacts([s.prospectus_id]);
         if (seq !== DETAIL_SEQ) return;
         const f = facts.get(s.prospectus_id);
         total = f?.units ?? 0;
-        if (f?.label) curriculum = `${escapeHtml(f.label)} ${f.active ? '<span class="pill ok">Active</span>' : '<span class="pill waiting">Older version</span>'}`;
+        if (f?.label) { curriculum = `${escapeHtml(f.label)} ${f.active ? '<span class="pill ok">Active</span>' : '<span class="pill waiting">Older version</span>'}`; curriculumLabel = f.label; }
     }
     renderStudentDetails(s, curriculum);
+    window.StudentReport.mount($('detail-report'), () => window.StudentReport.build({
+        student: s, program: programName(s), curriculum: curriculumLabel, totalUnits: total, records,
+    }));
 
     const key = (r) => r.subject_id ?? r.subject_code;
     const kinds = (status) => new Set(records.filter(r => r.status === status).map(key));
@@ -1712,6 +1717,7 @@ async function loadRequestDetail(requestId) {
     }
 
     const items = req.request_item ?? [];
+    if (!PREVIEW) await window.CurriculogicSectionMeetings.attach(supabase, items, req.requested_year, req.requested_term);
     const withdrawn = !!window.CurriculogicRequestStatus?.withdrawn(req);
     const undecided = items.filter(i =>
         i.status !== 'approved' && i.status !== 'rejected');
@@ -1854,9 +1860,8 @@ function renderRequestTable(items, { closed = false } = {}) {
         const time = (o?.start_time && o?.end_time)
             ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}`
             : '';
-        const sched = o
-            ? [o.section, o.schedule_days, time].filter(Boolean).join(' · ')
-            : '—';
+        // The lecture AND the lab of the section, when the section has both (shared/js/schedule/sectionmeetings.js).
+        const sched = window.CurriculogicSectionMeetings.scheduleText(item, window.ScheduleConflicts.describeMeetings);
 
         // Every undecided subject can be approved or rejected on its own,
         // not only flagged ones: an adviser may want to reject one subject

@@ -23,6 +23,8 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 /* The term helper reads system_config with this signed-in client (db/052). */
 window.CurriculogicTerm?.setClient(supabase);
+/* Exports of reports are recorded in the audit log (db/122). */
+window.ReportFile?.setClient(supabase);
 
 const $ = (id) => document.getElementById(id);
 
@@ -114,7 +116,7 @@ function showView(name, param) {
 
     shell?.classList.remove('nav-open');
 
-    if (name === 'students') openStudentList();
+    if (name === 'students') { openStudentList(); loadProgramReport(); }
     if (name === 'student' && param) openStudent(param);
     if (name === 'prospectus') loadProspectus();
 
@@ -1024,6 +1026,29 @@ async function loadStudentList() {
     enrichStudentRows(result.rows, seq);
 }
 
+/* The Programme report for the programme(s) this Registrar covers (follows the header programme switch). */
+let PROGRAM_REPORT = null;
+async function loadProgramReport() {
+    const line = $('report-program-line');
+    if (!line || PREVIEW || !supabase) return;
+    const P = window.CurriculogicPrograms;
+    const name = PROGRAM_SCOPE === 'all'
+        ? coveredProgramIds().map(id => P?.codeOf(id, '')).filter(Boolean).join(', ')
+        : (P?.nameOf(PROGRAM_SCOPE, '') || '');
+    setText('report-program-note', name);
+    window.ProgramReport.mount($('report-program-actions'), () => PROGRAM_REPORT);
+    try {
+        const raw = await window.ProgramReport.load(supabase, { programId: PROGRAM_SCOPE === 'all' ? null : PROGRAM_SCOPE });
+        PROGRAM_REPORT = window.ProgramReport.build(raw, { programName: name });
+        const r = PROGRAM_REPORT;
+        line.textContent = `${r.total} student${r.total === 1 ? '' : 's'} · average progress ${r.averagePercent === null ? '—' : r.averagePercent + '%'} · ${r.nearGraduation} within ${r.near} units of graduating · ${r.noGrades} without grades yet.`;
+    } catch (err) {
+        console.warn('programme report failed:', err.message);
+        PROGRAM_REPORT = null;
+        line.textContent = 'Could not load the report. Try again.';
+    }
+}
+
 function openStudentList() {
     renderStudentChips();
     if (!LIST.loaded) { loadStudentList(); return; }
@@ -1332,7 +1357,7 @@ async function loadStudentPlan(s, seq) {
             .select(`
                 id, status, registrar_status, requested_term, requested_year, created_at,
                 request_item (
-                    id, status, remarks,
+                    id, status, remarks, subject_id,
                     subject:subject_id (code, title, units),
                     offering:offering_id (section, schedule_days, start_time, end_time, room)
                 )`)
@@ -1373,11 +1398,9 @@ async function loadStudentPlan(s, seq) {
         : plan.status === 'rejected' ? '<span class="pill bad">Not approved</span>'
         : '<span class="pill waiting"><i class="fa-solid fa-clock"></i> Waiting for the adviser</span>';
 
-    const sched = (o) => {
-        if (!o) return '—';
-        const time = (o.start_time && o.end_time) ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}` : '';
-        return [o.section, o.schedule_days, time].filter(Boolean).join(' · ') || '—';
-    };
+    // The lecture AND the lab of each section (shared/js/schedule/sectionmeetings.js).
+    if (!PREVIEW) await window.CurriculogicSectionMeetings.attach(supabase, items, plan.requested_year, plan.requested_term);
+    const sched = (item) => window.CurriculogicSectionMeetings.scheduleText(item, window.ScheduleConflicts.describeMeetings);
 
     body.innerHTML = `
         <div class="stu-plan-head">${stage}
@@ -1390,7 +1413,7 @@ async function loadStudentPlan(s, seq) {
                     <tr>
                         <td class="mono">${escapeHtml(i.subject?.code ?? '')}</td>
                         <td>${escapeHtml(i.subject?.title ?? '')}
-                            <span class="row-sub">${escapeHtml(sched(i.offering))}</span></td>
+                            <span class="row-sub">${escapeHtml(sched(i))}</span></td>
                         <td class="num">${escapeHtml(i.subject?.units ?? '—')}</td>
                     </tr>`).join('')}
                 </tbody>
@@ -1503,19 +1526,24 @@ async function renderStudentProgress(s, records, seq) {
 
     let total = 0;
     let curriculum = '';
+    let curriculumLabel = '';
     if (PREVIEW) {
         total = 161;
         curriculum = '2024–2025 <span class="pill ok">Active</span>';
+        curriculumLabel = '2024–2025';
     } else {
         const pid = await prospectusIdOf(s);
         const facts = await prospectusFacts([pid]);
         if (seq !== DETAIL_SEQ) return;
         const f = pid != null ? facts.get(pid) : null;
         total = f?.units ?? 0;
-        if (f?.label) curriculum = `${escapeHtml(f.label)} ${f.active ? '<span class="pill ok">Active</span>' : '<span class="pill waiting">Older version</span>'}`;
+        if (f?.label) { curriculum = `${escapeHtml(f.label)} ${f.active ? '<span class="pill ok">Active</span>' : '<span class="pill waiting">Older version</span>'}`; curriculumLabel = f.label; }
     }
     CURRICULUM_HTML.set(s.id, curriculum);
     renderStudentDetails(s, null, curriculum);
+    window.StudentReport.mount($('detail-report'), () => window.StudentReport.build({
+        student: s, program: programName(s), curriculum: curriculumLabel, totalUnits: total, records,
+    }));
 
     const p = SL().progress(records, total);
     const subjects = (status) => new Set(records.filter(r => r.status === status).map(r => r.subject_id ?? r.subject_code)).size;
@@ -2164,7 +2192,7 @@ async function loadAdvisingDetail(requestId) {
             id, status, registrar_status, requested_term, requested_year, created_at,
             student:student_id (id, first_name, last_name, student_id, year_level),
             request_item (
-                id, status, remarks, offering_id,
+                id, status, remarks, offering_id, subject_id,
                 subject:subject_id (code, title, units),
                 offering:offering_id (section, schedule_days, start_time, end_time, room)
             )
@@ -2184,6 +2212,7 @@ async function loadAdvisingDetail(requestId) {
     }
 
     const items = req.request_item ?? [];
+    await window.CurriculogicSectionMeetings.attach(supabase, items, req.requested_year, req.requested_term);
     const units = items.reduce((sum, i) =>
         i.status === 'approved' ? sum + Number(i.subject?.units || 0) : sum, 0);
 
@@ -2242,9 +2271,7 @@ function renderAdvisingTable(items) {
         const time = (o?.start_time && o?.end_time)
             ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}`
             : '';
-        const sched = o
-            ? [o.section, o.schedule_days, time].filter(Boolean).join(' · ')
-            : '—';
+        const sched = window.CurriculogicSectionMeetings.scheduleText(item, window.ScheduleConflicts.describeMeetings);
 
         let statusHtml;
         if (item.status === 'approved') {

@@ -130,11 +130,29 @@ function findClashes(labeledSections) {
     return clashes;
 }
 
+/* One section's meetings as one line, lecture first and each other kind labelled:
+     "BSIT-1A \u00b7 F 07:30\u201309:30 + LAB F 13:00\u201316:00"
+   A request item stores only the lecture's offering; the lab of the same section is its own schedule row (its own EDP code), so
+   the adviser's page passes all of the section's meetings here (18 Nov 2026). meetings: [{ meeting_type, schedule_days,
+   start_time, end_time }]. Returns '' when there are none. */
+function describeMeetings(section, meetings) {
+    const list = [...(meetings ?? [])].sort((a, b) =>
+        (MEETING_ORDER[a.meeting_type] ?? 9) - (MEETING_ORDER[b.meeting_type] ?? 9));
+    if (!list.length) return '';
+    const one = (m) => {
+        const time = (m.start_time && m.end_time) ? `${String(m.start_time).slice(0, 5)}\u2013${String(m.end_time).slice(0, 5)}` : '';
+        const label = m.meeting_type && m.meeting_type !== 'LEC' ? m.meeting_type + ' ' : '';
+        return label + [m.schedule_days, time].filter(Boolean).join(' ');
+    };
+    return [section, list.map(one).join(' + ')].filter(Boolean).join(' \u00b7 ');
+}
+
 return {
     parseDays,
     minutesOf,
     meetingsClash,
     groupSections,
+    describeMeetings,
     timeOfDay,
     sectionTimeOfDay,
     formatClock,

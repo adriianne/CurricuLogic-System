@@ -26,6 +26,8 @@ const supabase = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 
 /* The term helper reads system_config with this signed-in client (db/052). */
 window.CurriculogicTerm?.setClient(supabase);
+/* Exports of reports are recorded in the audit log (db/122). */
+window.ReportFile?.setClient(supabase);
 
 const $ = (id) => document.getElementById(id);
 
@@ -263,6 +265,7 @@ const VIEWS = {
     schedule:   'Schedule',
     students:   'Students',
     student:    'Student detail',
+    reports:    'Reports',
     grades:     'Grade upload',
     profile:    'Profile',
 };
@@ -297,6 +300,7 @@ function showView(name, param) {
     if (name === 'schedule') initSchedule();
     if (name === 'students') openStudentList();
     if (name === 'student' && param) openStudent(param);
+    if (name === 'reports') initReports();
     if (name === 'grades') initGrades();
 }
 
@@ -306,6 +310,47 @@ function route() {
 }
 
 window.addEventListener('hashchange', route);
+
+/* Reports (Programme report). The numbers are read with this account's own permissions, so a programme's
+   staff only ever see their own programme. */
+let PROGRAM_REPORT = null;
+let ANALYTICS = null;
+
+async function initReports() {
+    const body = $('report-program-body');
+    const note = $('report-program-note');
+    if (!body) return;
+    const name = PROGRAM?.name || PROGRAM?.code || '';
+    if (note) note.textContent = name;
+    body.innerHTML = '<p class="dim">Loading.</p>';
+    const abody = $('report-analytics-body');
+    window.ProgramReport.mount($('report-program-actions'), () => PROGRAM_REPORT);
+    window.Analytics.mount($('report-analytics-actions'), () => ANALYTICS);
+    if (abody) abody.innerHTML = '<p class="dim">Loading.</p>';
+    try {
+        if (PREVIEW || !supabase) {
+            PROGRAM_REPORT = ANALYTICS = null;
+            body.innerHTML = '<p class="dim">The report needs the live database.</p>';
+            if (abody) abody.innerHTML = '';
+            return;
+        }
+        const raw = await window.ProgramReport.load(supabase, { programId: programScoped() && PROGRAM ? PROGRAM.id : null });
+        PROGRAM_REPORT = window.ProgramReport.build(raw, { programName: name });
+        body.innerHTML = window.ProgramReport.screen(PROGRAM_REPORT);
+        // The analytics reuse the same data, plus the current term's section demand.
+        let term = null;
+        try { term = await window.CurriculogicTerm?.load() ?? null; } catch (_) { term = null; }
+        const demand = await window.Analytics.loadDemand(supabase, { year: term?.year, term: term?.term });
+        const totals = await window.Analytics.loadTotals(supabase, { year: term?.year, term: term?.term });
+        ANALYTICS = window.Analytics.build(raw, demand, { programName: name, totals });
+        if (abody) abody.innerHTML = window.Analytics.screen(ANALYTICS);
+    } catch (err) {
+        console.warn('programme report failed:', err.message);
+        PROGRAM_REPORT = ANALYTICS = null;
+        body.innerHTML = '<p class="dim">Could not load the report. Try again.</p>';
+        if (abody) abody.innerHTML = '';
+    }
+}
 
 /* mobile nav + logout */
 
@@ -499,13 +544,18 @@ function fillProfileForm(staff) {
 async function saveProfile() {
     if (!STAFF_ID) return;
 
-    const first = $('p-first')?.value.trim();
-    const last  = $('p-last')?.value.trim();
-    const dept  = $('p-dept')?.value.trim();
+    // The same name rule as the register page and the Admin's forms (namerules.js; the database enforces it again, db/060).
+    const first = CurriculogicNameRules.clean($('p-first')?.value);
+    const last  = CurriculogicNameRules.clean($('p-last')?.value);
+    const dept  = ($('p-dept')?.value ?? '').trim();
 
-    if (!first || !last) {
-        return showMsg('profile-msg', 'First and last name are required.');
-    }
+    const firstProblem = CurriculogicNameRules.problem(first, 'first name');
+    if (firstProblem) return showMsg('profile-msg', firstProblem);
+    const lastProblem = CurriculogicNameRules.problem(last, 'last name');
+    if (lastProblem) return showMsg('profile-msg', lastProblem);
+
+    const unchanged = first === (STAFF?.first_name ?? '') && last === (STAFF?.last_name ?? '') && dept === (STAFF?.department ?? '');
+    if (unchanged) return showMsg('profile-msg', 'Nothing to save: no details were changed.');
 
     const btn = $('p-save');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
@@ -521,15 +571,17 @@ async function saveProfile() {
         return finish('Saved (preview only \u2014 not stored).', 'success');
     }
 
-    console.log('DEBUG: about to update where id =', STAFF_ID);
     const { error } = await supabase.from('department_staff')
         .update({ first_name: first, last_name: last, department: dept || null })
         .eq('id', STAFF_ID);
-    console.log('DEBUG: update finished, error =', error);
 
     if (error) {
         console.error('profile update failed:', error.message);
-        return finish('Could not save changes. ' + error.message);
+        // A name the database refuses (db/060) gets the same plain sentence as the form, not the raw constraint text.
+        if (/check constraint .*_(first|last)_name_chars/.test(error.message)) {
+            return finish("The name can only contain letters, spaces, and the characters ' . - ,");
+        }
+        return finish('Could not save your changes. Please try again.');
     }
 
     STAFF = { ...STAFF, first_name: first, last_name: last, department: dept };
@@ -582,6 +634,8 @@ async function submitPasswordChange(close) {
     const pwProblem = CurriculogicPasswordRules.problem(next);
     if (pwProblem) return showMsg('pw-msg', pwProblem);
     if (next !== confirm) return showMsg('pw-msg', 'New passwords do not match.');
+    // Checked here, before anything is sent: a wrong "current" password would otherwise count as a failed sign-in.
+    if (next === current) return showMsg('pw-msg', 'Choose a password different from your current one.');
 
     const btn = $('pw-submit');
     if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
@@ -6899,12 +6953,17 @@ async function showDemandNames(tr) {
         list = data ?? [];
     }
 
-    const others = Math.max(0, (Number(row?.selected) || 0) - list.length);
+    // A student the EDP office turned away (full or time clash) is listed with the reason but is not in the count.
+    const turnedDown = (n) => n.edp_reason === 'full' || n.edp_reason === 'conflict';
+    const others = Math.max(0, (Number(row?.selected) || 0) - list.filter(n => !turnedDown(n)).length);
+    const statusOf = (n) => n.edp_reason === 'full' ? 'reported full at the EDP office'
+        : n.edp_reason === 'conflict' ? 'EDP office found a time clash'
+        : n.request_status === 'submitted' ? 'waiting for the adviser' : 'approved';
     open.firstElementChild.innerHTML = `
         <ul class="demand-names">
             ${list.map(n => `<li><strong>${escapeHtml(n.last_name)}, ${escapeHtml(n.first_name)}</strong>
                 <span class="dim">${escapeHtml(n.student_id ?? '')}${n.year_level ? ' \u00b7 year ' + n.year_level : ''}
-                \u00b7 ${n.request_status === 'submitted' ? 'waiting for the adviser' : 'approved'}</span></li>`).join('') || '<li class="dim">No students of this department yet.</li>'}
+                \u00b7 ${statusOf(n)}${turnedDown(n) ? ' \u00b7 not counted' : ''}</span></li>`).join('') || '<li class="dim">No students of this department yet.</li>'}
         </ul>
         ${others ? `<p class="dim">\u002b ${others} student${others === 1 ? '' : 's'} from other programmes.</p>` : ''}`;
 }

@@ -5,6 +5,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -102,7 +103,7 @@ describe('prepare and summarize', () => {
 
     test('summarize counts each level, the sections and the students', () => {
         const sum = SD.summarize(SD.prepare(rows));
-        assert.deepEqual(sum, { full: 2, near: 1, ok: 1, closed: 1, sections: 5, students: 150 });
+        assert.deepEqual(sum, { full: 2, near: 1, ok: 1, closed: 1, sections: 5, students: 150, reportedFull: 0 });
     });
 
     test('nothing in, nothing out', () => {
@@ -287,5 +288,51 @@ describe('stress: odd data never breaks the totals or the sentences', () => {
             const s = SD.classify(row({ selected }));
             assert.ok(Number.isFinite(s.share) && s.share >= 0 && s.share <= 1, String(selected));
         }
+    });
+});
+
+describe('what the EDP office told the students (db/123)', () => {
+    test('reported_full is summed in the summary and the section groups', () => {
+        const rows = [row({ selected: 30, reported_full: 3 }), row({ subject_id: 2, subject_code: 'ENG 101', selected: 10, reported_full: 2 })];
+        assert.equal(SD.summarize(SD.prepare(rows)).reportedFull, 5);
+        assert.equal(SD.groupBySection(SD.prepare(rows))[0].reportedFull, 5);
+    });
+    test('the headline says so, once, and only when there are reports', () => {
+        const with3 = SD.headline(SD.summarize(SD.prepare([row({ selected: 10, reported_full: 3 })])));
+        assert.match(with3, /3 students reported a section full at the EDP office./);
+        assert.match(SD.headline(SD.summarize(SD.prepare([row({ selected: 10, reported_full: 1 })]))), /1 student reported a section full/);
+        assert.doesNotMatch(SD.headline(SD.summarize(SD.prepare([row({ selected: 10 })]))), /EDP/);
+    });
+    test('a row says how many reported it full, after its own advice', () => {
+        const r = SD.prepare([row({ selected: 10, reported_full: 2 })])[0];
+        assert.match(SD.advice(r), /seats left of 45 by student choices. 2 students reported it full at the EDP office./);
+        assert.equal(SD.edpNote({ reported_full: 1 }), '1 student reported it full at the EDP office.');
+        assert.equal(SD.edpNote({ reported_full: 0 }), '');
+        assert.equal(SD.edpNote({}), '');
+    });
+    test('rows from before the migration (no reported_full) still work', () => {
+        const r = SD.prepare([row({ selected: 10 })])[0];
+        assert.doesNotMatch(SD.advice(r), /EDP/);
+        assert.equal(SD.summarize([r]).reportedFull, 0);
+    });
+});
+
+describe('the Names list and the migration', () => {
+    const j = readFileSync(new URL('../features/department/departmentdashboard.js', import.meta.url), 'utf8');
+    const sql = readFileSync(new URL('../db/123_section_demand_edp_reports.sql', import.meta.url), 'utf8');
+    test('turned-away students are listed but not counted in "others"', () => {
+        assert.ok(j.includes("const turnedDown = (n) => n.edp_reason === 'full' || n.edp_reason === 'conflict';"));
+        assert.ok(j.includes('list.filter(n => !turnedDown(n)).length'));
+        assert.ok(j.includes('not counted'));
+    });
+    test('only full and conflict take a student out of the count; student-side reasons do not', () => {
+        assert.ok(sql.includes("ri.edp_result = 'rejected' and ri.edp_reason in ('full', 'conflict')"));
+        assert.ok(sql.includes("(ri.edp_result = 'rejected' and ri.edp_reason = 'full')"));
+        assert.ok(!sql.includes("edp_reason in ('full', 'conflict', 'hold'"));
+        assert.equal((sql.match(/edp_reason in/g) || []).length, 1);          // one place decides who is turned away
+    });
+    test('the grants are the same as db/076: signed-in staff only', () => {
+        assert.ok(sql.includes('grant execute on function public.section_demand(integer, integer) to authenticated;'));
+        assert.ok(sql.includes('revoke all on function public.section_demand_students(integer, text, integer, integer) from public, anon, authenticated, service_role;'));
     });
 });

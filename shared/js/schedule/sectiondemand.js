@@ -23,7 +23,13 @@
 //     'ok'      room to spare
 //     'closed'  the Department has closed it: no longer offered to students
 //
-// The rows are what db/076_section_demand.sql returns.
+// WHAT THE EDP OFFICE TOLD THE STUDENTS (db/123)
+//
+// A student who reports "full" or "time clash" for a subject at the EDP office did not get that section, so the
+// database no longer counts them in "selected". "reported_full" is how many different students reported the section FULL:
+// the sign to raise its capacity or open another one.
+//
+// The rows are what db/123_section_demand_edp_reports.sql returns.
 
 (function (root, factory) {
     if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -70,11 +76,12 @@ function prepare(rows) {
 
 /* Counts for the headline, from prepared rows. */
 function summarize(prepared) {
-    const out = { full: 0, near: 0, ok: 0, closed: 0, sections: 0, students: 0 };
+    const out = { full: 0, near: 0, ok: 0, closed: 0, sections: 0, students: 0, reportedFull: 0 };
     for (const r of prepared ?? []) {
         out[r.state.level]++;
         out.sections++;
         out.students += Math.max(0, Number(r.selected) || 0);
+        out.reportedFull += Math.max(0, Number(r.reported_full) || 0);
     }
     return out;
 }
@@ -85,8 +92,11 @@ function headline(summary) {
     const parts = [];
     if (summary.full) parts.push(`${summary.full} full`);
     if (summary.near) parts.push(`${summary.near} near full`);
-    if (!parts.length) return `No section is near its limit. ${summary.sections} section${summary.sections === 1 ? '' : 's'} checked.`;
-    return `${parts.join(' and ')}: students may need another section.`;
+    const edp = summary.reportedFull
+        ? ` ${summary.reportedFull} student${summary.reportedFull === 1 ? '' : 's'} reported a section full at the EDP office.`
+        : '';
+    if (!parts.length) return `No section is near its limit. ${summary.sections} section${summary.sections === 1 ? '' : 's'} checked.${edp}`;
+    return `${parts.join(' and ')}: students may need another section.${edp}`;
 }
 
 /* The prepared rows grouped by section (BSIT-1A, BSIT-3C ...), one group per section, in name order with the
@@ -106,6 +116,7 @@ function groupBySection(prepared) {
         g.level = g.counts.full ? 'full' : g.counts.near ? 'near' : g.counts.ok ? 'ok' : 'closed';
         g.subjects = g.rows.length;
         g.students = g.rows.reduce((t, r) => t + Math.max(0, Number(r.selected) || 0), 0);
+        g.reportedFull = g.rows.reduce((t, r) => t + Math.max(0, Number(r.reported_full) || 0), 0);
     }
     return out.sort((a, b) => a.section.localeCompare(b.section, undefined, { numeric: true, sensitivity: 'base' }));
 }
@@ -158,7 +169,19 @@ function headlineBySection(groups) {
 }
 
 /* What to tell the Department about one section. */
+/* The EDP office's side of one row, or ''. */
+function edpNote(row) {
+    const n = Math.max(0, Number(row?.reported_full) || 0);
+    return n ? `${n} student${n === 1 ? '' : 's'} reported it full at the EDP office.` : '';
+}
+
 function advice(row) {
+    const note = edpNote(row);
+    const base = adviceBase(row);
+    return note ? `${base} ${note}` : base;
+}
+
+function adviceBase(row) {
     const s = row.state ?? classify(row);
     const sel = Number(row.selected) || 0;
     if (s.level === 'closed') return 'Closed. Students are no longer offered it.';
@@ -172,6 +195,6 @@ function advice(row) {
     return `${s.left} seats left of ${s.capacity} by student choices.`;
 }
 
-return { classify, prepare, summarize, headline, groupBySection, headlineBySection, yearOf, yearLabel, groupByYear, advice, capacityOf, DEFAULT_CAPACITY, WARN_MARGIN };
+return { classify, prepare, summarize, headline, groupBySection, headlineBySection, yearOf, yearLabel, groupByYear, advice, edpNote, capacityOf, DEFAULT_CAPACITY, WARN_MARGIN };
 
 }));
