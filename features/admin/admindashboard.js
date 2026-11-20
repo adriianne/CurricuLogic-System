@@ -851,7 +851,11 @@ function filteredStaff() {
     return STAFF.filter((s) => {
         if (filter !== 'all' && s.role !== filter) return false;
         if (!term) return true;
-        return [s.first_name, s.last_name, s.email, s.employee_id]
+        // Name, email and employee ID, the role ("faculty", "registrar", "department"), and every programme the person
+        // covers (its code and its name: "BSIT", "computer science").
+        const programmes = staffProgramIds(s).map(id => PROGRAMS.find(p => p.id === id)).filter(Boolean)
+            .map(p => p.code + ' ' + p.name);
+        return [s.first_name, s.last_name, s.email, s.employee_id, s.role, ...programmes]
             .filter(Boolean).join(' ').toLowerCase().includes(term);
     });
 }
@@ -874,6 +878,18 @@ const ROLE_LIMIT = { faculty: 10, registrar: 2, department: 1 };
 
 const STAFF_PAGE_SIZE = 20;
 let STAFF_PAGE = 1;
+
+/* Tick boxes in Staff management (db/129): the accounts the admin has ticked, one role at a time, kept across pages.
+   Only faculty and registrars can be ticked: a Department account stays per person (one account per programme). */
+const BULK_ROLES = ['faculty', 'registrar'];
+const STAFF_SEL = { role: null, ids: new Set() };
+
+function clearStaffSelection() { STAFF_SEL.role = null; STAFF_SEL.ids.clear(); }
+
+/* The ticked accounts that still exist, so a stale tick (an account deleted since) is never sent. */
+function selectedStaff() {
+    return STAFF.filter(s => s.role === STAFF_SEL.role && STAFF_SEL.ids.has(s.id));
+}
 
 function renderStaff() {
     const body  = $('staff-body');
@@ -914,11 +930,27 @@ function renderStaff() {
         return;
     }
 
+    // Select-all follows the role filter and covers every page of it, not just the 20 shown.
+    const roleFilter = $('staff-filter')?.value || 'all';
+    const pickable = BULK_ROLES.includes(roleFilter) ? list : [];
+    const allPicked = pickable.length > 0 && STAFF_SEL.role === roleFilter && pickable.every(s => STAFF_SEL.ids.has(s.id));
+    const picked = selectedStaff();
+    const roleNoun = (MULTI_ROLES[STAFF_SEL.role]?.noun ?? 'account');
+
     body.innerHTML = `
+        ${picked.length ? `
+        <div class="bulk-bar" role="region" aria-label="Selected accounts">
+            <span class="bulk-bar-text"><strong>${picked.length}</strong> ${escapeHtml(roleNoun)} account${picked.length === 1 ? '' : 's'} selected</span>
+            <button type="button" class="btn-primary btn-small" data-bulk-open>Set programmes…</button>
+            <button type="button" class="btn-small" data-bulk-clear>Clear</button>
+        </div>` : ''}
         <div class="table-wrap">
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th class="col-pick"><input type="checkbox" data-bulk-all ${pickable.length ? '' : 'disabled'} ${allPicked ? 'checked' : ''}
+                            aria-label="Select all ${escapeHtml(roleFilter)} accounts in this list"
+                            title="${pickable.length ? `Select all ${pickable.length} ${escapeHtml(roleFilter)} account${pickable.length === 1 ? '' : 's'} in this list` : 'Choose Faculty or Registrar in the role filter to select them all'}"></th>
                         <th>Employee ID</th>
                         <th>Name</th>
                         <th>Email</th>
@@ -933,8 +965,12 @@ function renderStaff() {
                     ${shown.map(s => {
                         const state = CurriculogicAccountStop.accountState(s.role, s, STOPPED);
                         const badge = CurriculogicAccountStop.stateBadge(s.role, state);
+                        const isPicked = STAFF_SEL.role === s.role && STAFF_SEL.ids.has(s.id);
                         return `
-                        <tr>
+                        <tr${isPicked ? ' class="is-picked"' : ''}>
+                            <td class="col-pick">${BULK_ROLES.includes(s.role)
+                                ? `<input type="checkbox" data-bulk-pick="${escapeHtml(s.id)}" data-role="${escapeHtml(s.role)}" ${isPicked ? 'checked' : ''} aria-label="Select ${escapeHtml(fullName(s) || s.employee_id || 'this account')}">`
+                                : ''}</td>
                             <td class="mono">${escapeHtml(s.employee_id || '—')}</td>
                             <td><strong>${escapeHtml(fullName(s) || '—')}</strong></td>
                             <td class="dim">${escapeHtml(s.email || '—')}</td>
@@ -944,7 +980,7 @@ function renderStaff() {
                             <td class="dim">${daysAgo(s.created_at)}</td>
                             <td>${acctActionCell(s.role, s, state)}</td>
                         </tr>
-                        ${acctPanelRow(s.role, s, state, 8)}`;
+                        ${acctPanelRow(s.role, s, state, 9)}`;
                     }).join('')}
                 </tbody>
             </table>
@@ -1236,6 +1272,214 @@ $('staff-body')?.addEventListener('click', (e) => {
 
 $('staff-search')?.addEventListener('input', () => { STAFF_PAGE = 1; renderStaff(); });
 $('staff-filter')?.addEventListener('change', () => { STAFF_PAGE = 1; renderStaff(); });
+
+/* ---------- tick many accounts, set their programmes in one action (db/129) ---------- */
+
+$('staff-body')?.addEventListener('change', (e) => {
+    const one = e.target.closest('[data-bulk-pick]');
+    if (one) {
+        // One role at a time: ticking an account of the other role starts a new selection.
+        if (STAFF_SEL.role !== one.dataset.role) { clearStaffSelection(); STAFF_SEL.role = one.dataset.role; }
+        if (one.checked) STAFF_SEL.ids.add(one.dataset.bulkPick); else STAFF_SEL.ids.delete(one.dataset.bulkPick);
+        if (!STAFF_SEL.ids.size) STAFF_SEL.role = null;
+        return renderStaff();
+    }
+
+    const all = e.target.closest('[data-bulk-all]');
+    if (all) {
+        const role = $('staff-filter')?.value || 'all';
+        if (!BULK_ROLES.includes(role)) return;
+        const ids = filteredStaff().map(s => s.id);
+        if (all.checked) { clearStaffSelection(); STAFF_SEL.role = role; ids.forEach(id => STAFF_SEL.ids.add(id)); }
+        else clearStaffSelection();
+        renderStaff();
+    }
+});
+
+$('staff-body')?.addEventListener('click', (e) => {
+    if (e.target.closest('[data-bulk-clear]')) { clearStaffSelection(); return renderStaff(); }
+    if (e.target.closest('[data-bulk-open]')) openBulkDialog();
+});
+
+const BD = { role: null, ids: [], chosen: new Set(), mode: 'add', previewKey: null, previewChanged: 0, busy: false, done: false, search: '' };
+
+const bdKey = () => BD.mode + '|' + [...BD.chosen].sort((a, b) => a - b).join(',') + '|' + BD.ids.join(',');
+
+function bdMessage(text) {
+    const msg = $('bulk-dlg-msg');
+    if (!msg) return;
+    msg.textContent = text || '';
+    msg.hidden = !text;
+}
+
+function bdRender() {
+    const list = $('bulk-dlg-list');
+    if (!list) return;
+    // The search only decides which programmes are shown: a ticked programme that is filtered out stays chosen.
+    const term = BD.search.trim().toLowerCase();
+    const shown = PROGRAMS.filter(p => !term || (p.code + ' ' + p.name + ' ' + (p.college || '')).toLowerCase().includes(term));
+    const colleges = [...new Set(shown.map(p => p.college || 'Other'))].sort((x, y) => x.localeCompare(y));
+    list.innerHTML = colleges.length ? colleges.map(c => `
+        <div class="prog-dlg-group">${escapeHtml(c)}</div>
+        ${shown.filter(p => (p.college || 'Other') === c).sort((x, y) => x.code.localeCompare(y.code)).map(p => `
+            <div class="prog-dlg-row${BD.chosen.has(p.id) ? ' is-on' : ''}">
+                <label class="prog-dlg-pick">
+                    <input type="checkbox" data-bd-pick="${p.id}" ${BD.chosen.has(p.id) ? 'checked' : ''} ${BD.busy || BD.done ? 'disabled' : ''}>
+                    <span class="prog-dlg-code">${escapeHtml(p.code)}</span>
+                    <span class="prog-dlg-name">${escapeHtml(p.name)}</span>
+                </label>
+            </div>`).join('')}`).join('')
+        : `<p class="prog-dlg-empty">${term ? 'No programme matches that search.' : 'No programmes yet.'}</p>`;
+
+    const n = BD.chosen.size;
+    $('bulk-dlg-count').textContent = n ? `${n} programme${n === 1 ? '' : 's'} chosen` : 'Choose at least one programme';
+    $('bulk-dlg-preview-btn').disabled = BD.busy || BD.done || n === 0;
+    $('bulk-dlg-apply').disabled = BD.busy || BD.done || BD.previewKey !== bdKey() || BD.previewChanged === 0;
+}
+
+/* The answer of bulk_set_staff_programs, as a summary line and a table: who changes, who is skipped and why. */
+function bdShowResult(out, applied) {
+    const box = $('bulk-dlg-preview');
+    const results = Array.isArray(out?.results) ? out.results : [];
+    const chip = (r) => r.status === 'changed'
+        ? `<span class="pill ok">${applied ? 'Changed' : 'Will change'}</span>`
+        : r.status === 'unchanged'
+            ? '<span class="pill waiting">Already so</span>'
+            : '<span class="pill bad">Skipped</span>';
+    const codes = (a) => (Array.isArray(a) && a.length ? a.map(escapeHtml).join(', ') : '—');
+
+    box.innerHTML = `
+        <div class="bulk-sum">
+            <span>${applied ? 'Done' : 'Preview'}:</span>
+            <span>${out.changed} ${applied ? 'changed' : 'will change'}</span>
+            <span>· ${out.unchanged} already so</span>
+            <span>· ${out.skipped} skipped</span>
+        </div>
+        <table>
+            <thead><tr><th>Account</th><th>Programmes</th><th>Result</th></tr></thead>
+            <tbody>${results.map(r => `
+                <tr>
+                    <td><strong>${escapeHtml(r.name || '—')}</strong><br><span class="dim">${escapeHtml(r.employee_id || '')}</span></td>
+                    <td>${codes(r.before)}<span class="bulk-arrow">→</span>${codes(r.after)}</td>
+                    <td>${chip(r)}${r.reason ? `<div class="bulk-reason">${escapeHtml(r.reason)}</div>` : ''}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+    box.hidden = false;
+}
+
+function openBulkDialog() {
+    const dlg = $('bulk-dialog');
+    const picked = selectedStaff();
+    if (!dlg || !picked.length) return;
+
+    BD.role = STAFF_SEL.role;
+    BD.ids = picked.map(s => s.id).sort();
+    BD.chosen = new Set();
+    BD.mode = 'add';
+    BD.previewKey = null;
+    BD.previewChanged = 0;
+    BD.busy = false;
+    BD.done = false;
+    BD.search = '';
+    $('bulk-dlg-search').value = '';
+
+    const cfg = MULTI_ROLES[BD.role];
+    $('bulk-dlg-title').textContent = `Set programmes for ${picked.length} ${cfg.noun} account${picked.length === 1 ? '' : 's'}`;
+    $('bulk-dlg-sub').textContent = cfg.oneCollege
+        ? 'Faculty can cover programmes from one college only. Someone who cannot take the change is skipped, with the reason.'
+        : 'A registrar can cover programmes from any college. A programme with its two registrars already is skipped for the rest.';
+    document.querySelectorAll('input[name="bulk-mode"]').forEach(r => { r.checked = r.value === 'add'; r.disabled = false; });
+    $('bulk-dlg-cancel').textContent = 'Cancel';
+    $('bulk-dlg-preview').hidden = true;
+    $('bulk-dlg-preview').innerHTML = '';
+    bdMessage('');
+    bdRender();
+    if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+}
+
+function closeBulkDialog() {
+    const dlg = $('bulk-dialog');
+    if (!dlg) return;
+    if (typeof dlg.close === 'function') dlg.close(); else dlg.removeAttribute('open');
+}
+
+/* apply = false: the preview (does the work and undoes it); apply = true: keeps it. Same function, same answer. */
+async function bdRun(apply) {
+    if (BD.busy || BD.done || !BD.chosen.size) return;
+    if (PREVIEW || !supabase) return bdMessage('This is the preview page: nothing can be saved here.');
+
+    BD.busy = true;
+    bdMessage('');
+    bdRender();
+    $(apply ? 'bulk-dlg-apply' : 'bulk-dlg-preview-btn').textContent = apply ? 'Applying…' : 'Checking…';
+
+    const key = bdKey();
+    const { data, error } = await supabase.rpc('bulk_set_staff_programs', {
+        p_role: BD.role, p_staff_ids: BD.ids, p_mode: BD.mode, p_program_ids: [...BD.chosen], p_apply: apply,
+    });
+
+    BD.busy = false;
+    $('bulk-dlg-apply').textContent = 'Apply';
+    $('bulk-dlg-preview-btn').textContent = 'Preview';
+
+    if (error || !data) {
+        console.warn('bulk programmes failed:', error?.message);
+        bdMessage(/Only an administrator/.test(error?.message ?? '')
+            ? 'Only the System Administrator can change programmes.'
+            : 'Could not do that. Please try again.');
+        return bdRender();
+    }
+
+    bdShowResult(data, apply);
+
+    if (!apply) {
+        BD.previewKey = key;
+        BD.previewChanged = data.changed;
+        if (!data.changed) bdMessage('Nothing would change, so there is nothing to apply.');
+        return bdRender();
+    }
+
+    BD.done = true;
+    document.querySelectorAll('input[name="bulk-mode"]').forEach(r => { r.disabled = true; });
+    $('bulk-dlg-cancel').textContent = 'Close';
+    clearStaffSelection();
+    await loadStaff(true);
+    showMsg('staff-msg',
+        `Programmes updated for ${data.changed} account${data.changed === 1 ? '' : 's'}` +
+        (data.skipped ? `; ${data.skipped} skipped.` : '.'),
+        'success');
+    bdRender();
+}
+
+$('bulk-dlg-list')?.addEventListener('change', (e) => {
+    const pick = e.target.closest('[data-bd-pick]');
+    if (!pick) return;
+    const id = Number(pick.dataset.bdPick);
+    if (pick.checked) BD.chosen.add(id); else BD.chosen.delete(id);
+    BD.previewKey = null;          // what was previewed is no longer what is chosen
+    BD.previewChanged = 0;
+    $('bulk-dlg-preview').hidden = true;
+    bdMessage('');
+    bdRender();
+});
+
+$('bulk-dlg-form')?.addEventListener('change', (e) => {
+    if (!e.target.matches('input[name="bulk-mode"]')) return;
+    BD.mode = e.target.value;
+    BD.previewKey = null;
+    BD.previewChanged = 0;
+    $('bulk-dlg-preview').hidden = true;
+    bdMessage('');
+    bdRender();
+});
+
+$('bulk-dlg-search')?.addEventListener('input', (e) => { BD.search = e.target.value; bdRender(); });
+
+$('bulk-dlg-preview-btn')?.addEventListener('click', () => bdRun(false));
+$('bulk-dlg-apply')?.addEventListener('click', () => bdRun(true));
+$('bulk-dlg-cancel')?.addEventListener('click', closeBulkDialog);
+$('bulk-dlg-close')?.addEventListener('click', closeBulkDialog);
 
 
 /* ---------- students listing ---------- */

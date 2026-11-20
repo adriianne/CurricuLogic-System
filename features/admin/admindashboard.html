@@ -518,7 +518,7 @@
                             <div class="search-wrap">
                                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                                 <input type="search" id="staff-search"
-                                       placeholder="Search name, email, or employee ID"
+                                       placeholder="Search name, email, employee ID, role, or programme"
                                        autocomplete="off" aria-label="Search staff" maxlength="100">
                             </div>
                             <select id="staff-filter" aria-label="Filter by role">
@@ -1173,6 +1173,44 @@
             <span class="prog-dlg-btns">
                 <button type="button" class="btn-small" id="prog-dlg-cancel">Cancel</button>
                 <button type="button" class="btn-primary btn-small" id="prog-dlg-save" disabled>Save changes</button>
+            </span>
+        </footer>
+    </form>
+</dialog>
+
+<!-- Staff management: set the programmes of many faculty or registrars in one action (db/129). -->
+<dialog id="bulk-dialog" class="prog-dlg bulk-dlg" aria-labelledby="bulk-dlg-title">
+    <form class="prog-dlg-form" id="bulk-dlg-form" novalidate>
+        <header class="prog-dlg-head">
+            <div>
+                <h2 id="bulk-dlg-title">Set programmes</h2>
+                <p class="prog-dlg-sub" id="bulk-dlg-sub"></p>
+            </div>
+            <button type="button" class="prog-dlg-x" id="bulk-dlg-close" aria-label="Close">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+        </header>
+        <div class="bulk-modes" role="radiogroup" aria-label="What to do with the programmes you tick">
+            <label class="bulk-mode"><input type="radio" name="bulk-mode" value="add" checked>
+                <span><strong>Add</strong> to what they have now</span></label>
+            <label class="bulk-mode"><input type="radio" name="bulk-mode" value="remove">
+                <span><strong>Remove</strong> from what they have now</span></label>
+            <label class="bulk-mode"><input type="radio" name="bulk-mode" value="replace">
+                <span><strong>Replace</strong> everything with only these</span></label>
+        </div>
+        <div class="prog-dlg-search">
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            <input type="search" id="bulk-dlg-search" placeholder="Search programme" autocomplete="off" aria-label="Search programme">
+        </div>
+        <div class="prog-dlg-list" id="bulk-dlg-list"></div>
+        <div class="bulk-preview" id="bulk-dlg-preview" hidden></div>
+        <p class="prog-dlg-msg" id="bulk-dlg-msg" role="alert" hidden></p>
+        <footer class="prog-dlg-foot">
+            <span class="prog-dlg-count" id="bulk-dlg-count"></span>
+            <span class="prog-dlg-btns">
+                <button type="button" class="btn-small" id="bulk-dlg-cancel">Cancel</button>
+                <button type="button" class="btn-small" id="bulk-dlg-preview-btn" disabled>Preview</button>
+                <button type="button" class="btn-primary btn-small" id="bulk-dlg-apply" disabled>Apply</button>
             </span>
         </footer>
     </form>
