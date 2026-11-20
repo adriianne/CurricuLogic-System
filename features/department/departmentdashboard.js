@@ -1957,7 +1957,7 @@ function renderVersions() {
 
     sel.innerHTML = VERSIONS
         .map(v => `<option value="${v.id}">${v.academic_year}–${v.academic_year + 1}` +
-        `${v.is_active ? ' · Active' : ' · Draft'}</option>`)
+        `${v.is_active ? ' · Active' : v.retired_at ? ' · Retired' : v.published_at ? ' · Published' : ' · Draft'}</option>`)
         .join('');
 
     const active = VERSIONS.find(v => v.is_active) ?? VERSIONS[0];

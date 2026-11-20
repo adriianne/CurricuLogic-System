@@ -1581,12 +1581,19 @@ function renderChatContext(summary) {
     const box = $('chat-context');
     if (!box) return;
 
+    // Subjects already sent to the adviser are kept out of "suggested", so say so instead of showing "0 suggested"
+    // beside a Dashboard that still counts them in the term.
+    const sent = Array.isArray(summary.inReview) ? summary.inReview : [];
+    const suggested = sent.length && !summary.recommended.length
+        ? `<strong>${sent.length}</strong> subjects already submitted (${summary.inReviewUnits} units)`
+        : `<strong>${summary.recommended.length}</strong> subjects suggested (${summary.recommendedUnits} units)` +
+          (sent.length ? ` · <strong>${sent.length}</strong> already submitted` : '');
+
     box.innerHTML = `
         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
         <span>Cura is reading your record:
             <strong>${summary.unitsEarned}</strong> units earned ·
-            <strong>${summary.recommended.length}</strong> subjects suggested
-            (${summary.recommendedUnits} units) ·
+            ${suggested} ·
             <strong>${summary.lockedCount}</strong> locked</span>`;
     box.hidden = false;
 }
