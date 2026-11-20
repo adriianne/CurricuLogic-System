@@ -191,39 +191,27 @@ serve(async (req) => {
     const limit = core.submissionLimit(requestsRes.data ?? []);
     if (!limit.ok) return json(429, { error: limit.error });
 
-    const { data: request, error: requestError } = await db
-      .from("request")
-      .insert({
-        student_id: student.id,
-        prospectus_id: prospectusId,
-        requested_term: body?.term ?? null,
-        requested_year: body?.year ?? null,
-        status: "submitted",
-      })
-      .select("id")
-      .single();
-    if (requestError) {
-      console.error("request insert failed:", requestError.message);
-      return json(500, { error: "Could not create the request." });
-    }
-
-    const { error: itemsError } = await db.from("request_item").insert(
-      evaluated.map((e: any) => ({
-        request_id: request.id,
+    // The re-check and both inserts happen in ONE database transaction behind a per-student lock (db/128), so two
+    // submissions sent at the same moment cannot both get through, and a request is never left without its subjects.
+    const { data: requestId, error: submitError } = await db.rpc("submit_advising_request", {
+      p_prospectus_id: prospectusId,
+      p_term: body?.term ?? null,
+      p_year: body?.year ?? null,
+      p_items: evaluated.map((e: any) => ({
         subject_id: e.subjectId,
         offering_id: e.offeringId,
         status: e.valid ? "valid" : "flagged",
         remarks: e.reason,
       })),
-    );
-    if (itemsError) {
-      console.error("request_item insert failed:", itemsError.message);
-      return json(500, {
-        error: "The request was created but its subjects failed to save. Contact support with request ID " + request.id + ".",
-      });
+    });
+    if (submitError) {
+      const known = core.describeSubmitError(submitError.message);
+      if (known) return json(known.status, { error: known.error });
+      console.error("submit_advising_request failed:", submitError.message);
+      return json(500, { error: "Could not create the request." });
     }
 
-    return json(200, { requestId: request.id, items: evaluated, flaggedCount });
+    return json(200, { requestId, items: evaluated, flaggedCount });
   } catch (err) {
     console.error("Unexpected error in submit-advising-request:", err);
     return json(500, { error: "Something went wrong submitting your request." });

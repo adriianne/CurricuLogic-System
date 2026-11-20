@@ -137,4 +137,30 @@ function evaluateSelections(deps, input) {
     });
 }
 
-module.exports = { lockedSubjectIds, evaluateSelections, submissionLimit, MAX_PER_DAY, MIN_GAP_SECONDS };
+/* What the database function submit_advising_request (db/128) answers when it refuses, turned into the HTTP status and
+   the sentence the student reads. The function re-checks inside a lock, so these are the cases where two submissions
+   raced: the same sentences the early checks above give.
+   message: the error message from the database. Returns { status, error } or null if it is not one of ours. */
+function describeSubmitError(message) {
+    const m = String(message ?? '');
+    let hit;
+    if ((hit = m.match(/ALREADY_SUBMITTED:(.*)$/))) {
+        const codes = hit[1].trim();
+        return { status: 409, error: codes
+            ? `Already submitted and awaiting a decision: ${codes}. Refresh Build Your Plan and try again.`
+            : 'One or more selected subjects already have a request awaiting a decision. Refresh Build Your Plan and try again.' };
+    }
+    if ((hit = m.match(/RATE_GAP:(\d+)/))) {
+        const wait = Number(hit[1]);
+        return { status: 429, error: `Please wait ${wait} second${wait === 1 ? '' : 's'} before sending another request.` };
+    }
+    if ((hit = m.match(/RATE_DAY:(\d+)/))) {
+        const hours = Number(hit[1]);
+        return { status: 429, error: `You have already sent ${MAX_PER_DAY} requests in the last 24 hours. Try again in about ${hours} hour${hours === 1 ? '' : 's'}, or talk to your adviser.` };
+    }
+    if (/NOT_A_STUDENT/.test(m)) return { status: 403, error: 'No student record found for this account.' };
+    if (/NO_ITEMS/.test(m)) return { status: 400, error: 'Select at least one subject.' };
+    return null;
+}
+
+module.exports = { lockedSubjectIds, evaluateSelections, submissionLimit, describeSubmitError, MAX_PER_DAY, MIN_GAP_SECONDS };

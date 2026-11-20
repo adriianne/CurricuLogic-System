@@ -121,7 +121,26 @@ var require_core = __commonJS({
         return { ...base, valid: true, reason: null };
       });
     }
-    module.exports = { lockedSubjectIds, evaluateSelections, submissionLimit, MAX_PER_DAY, MIN_GAP_SECONDS };
+    function describeSubmitError(message) {
+      const m = String(message ?? "");
+      let hit;
+      if (hit = m.match(/ALREADY_SUBMITTED:(.*)$/)) {
+        const codes = hit[1].trim();
+        return { status: 409, error: codes ? `Already submitted and awaiting a decision: ${codes}. Refresh Build Your Plan and try again.` : "One or more selected subjects already have a request awaiting a decision. Refresh Build Your Plan and try again." };
+      }
+      if (hit = m.match(/RATE_GAP:(\d+)/)) {
+        const wait = Number(hit[1]);
+        return { status: 429, error: `Please wait ${wait} second${wait === 1 ? "" : "s"} before sending another request.` };
+      }
+      if (hit = m.match(/RATE_DAY:(\d+)/)) {
+        const hours = Number(hit[1]);
+        return { status: 429, error: `You have already sent ${MAX_PER_DAY} requests in the last 24 hours. Try again in about ${hours} hour${hours === 1 ? "" : "s"}, or talk to your adviser.` };
+      }
+      if (/NOT_A_STUDENT/.test(m)) return { status: 403, error: "No student record found for this account." };
+      if (/NO_ITEMS/.test(m)) return { status: 400, error: "Select at least one subject." };
+      return null;
+    }
+    module.exports = { lockedSubjectIds, evaluateSelections, submissionLimit, describeSubmitError, MAX_PER_DAY, MIN_GAP_SECONDS };
   }
 });
 
@@ -805,33 +824,24 @@ serve(async (req) => {
     if (dryRun) return json(200, { requestId: null, items: evaluated, flaggedCount, dryRun: true });
     const limit = import_core.default.submissionLimit(requestsRes.data ?? []);
     if (!limit.ok) return json(429, { error: limit.error });
-    const { data: request, error: requestError } = await db.from("request").insert({
-      student_id: student.id,
-      prospectus_id: prospectusId,
-      requested_term: body?.term ?? null,
-      requested_year: body?.year ?? null,
-      status: "submitted"
-    }).select("id").single();
-    if (requestError) {
-      console.error("request insert failed:", requestError.message);
-      return json(500, { error: "Could not create the request." });
-    }
-    const { error: itemsError } = await db.from("request_item").insert(
-      evaluated.map((e) => ({
-        request_id: request.id,
+    const { data: requestId, error: submitError } = await db.rpc("submit_advising_request", {
+      p_prospectus_id: prospectusId,
+      p_term: body?.term ?? null,
+      p_year: body?.year ?? null,
+      p_items: evaluated.map((e) => ({
         subject_id: e.subjectId,
         offering_id: e.offeringId,
         status: e.valid ? "valid" : "flagged",
         remarks: e.reason
       }))
-    );
-    if (itemsError) {
-      console.error("request_item insert failed:", itemsError.message);
-      return json(500, {
-        error: "The request was created but its subjects failed to save. Contact support with request ID " + request.id + "."
-      });
+    });
+    if (submitError) {
+      const known = import_core.default.describeSubmitError(submitError.message);
+      if (known) return json(known.status, { error: known.error });
+      console.error("submit_advising_request failed:", submitError.message);
+      return json(500, { error: "Could not create the request." });
     }
-    return json(200, { requestId: request.id, items: evaluated, flaggedCount });
+    return json(200, { requestId, items: evaluated, flaggedCount });
   } catch (err) {
     console.error("Unexpected error in submit-advising-request:", err);
     return json(500, { error: "Something went wrong submitting your request." });
