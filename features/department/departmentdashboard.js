@@ -1889,7 +1889,7 @@ function renderVersions() {
                         <th>Status</th><th></th></tr>
                 </thead>
                 <tbody>${VERSIONS.map(v => { const act = versionAction(v, VERSIONS); return `
-                    <tr>
+                    <tr class="version-row" data-open-version="${v.id}" title="Open this curriculum to edit its subjects">
                         <td class="mono">${escapeHtml(v.academic_year)}</td>
                         <td class="dim">${termLabel(v.academic_term)}</td>
                         <td class="num">${v.subject_count}</td>
@@ -1901,6 +1901,10 @@ function renderVersions() {
                         <td class="num">
                             ${v.is_active
                                 ? `<div style="display:flex; gap:6px; justify-content:flex-end; align-items:center;">
+                                    <button class="btn-small" data-open-version-btn="${v.id}"
+                                    title="Open the active curriculum. Its subjects are changed one at a time in the Curriculum tab.">
+                                    Open
+                                    </button>
                                     <span class="dim">Default</span>
                                     <button class="btn-small" data-delete="${v.id}"
                                     title="For a version activated by mistake. The newest other published curriculum becomes the default again."
@@ -1909,6 +1913,10 @@ function renderVersions() {
                                     </button>
                                 </div>`
                                 : `<div style="display:flex; gap:6px; justify-content:flex-end;">
+                                    <button class="btn-small" data-open-version-btn="${v.id}"
+                                    title="Open this version in the Curriculum tab, with its subjects, to carry on editing.">
+                                    Edit subjects
+                                    </button>
                                     ${act === 'activate' ? `<button class="btn-small" data-activate="${v.id}"
                                     ${v.subject_count === 0 ? 'disabled title="Encode subjects first"' : ''}>
                                     Make active
@@ -1950,6 +1958,15 @@ function renderVersions() {
 
     body.querySelectorAll('[data-delete]').forEach(b =>
         b.addEventListener('click', () => deleteVersion(Number(b.dataset.delete))));
+
+    /* Open a version in the Curriculum tab: the button, or a click anywhere else on its row. A click on another button of
+       the row (Make active, Delete ...) does its own thing and does not also open it. */
+    body.querySelectorAll('[data-open-version]').forEach(row =>
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('button, a, input, select, textarea')
+                && !e.target.closest('[data-open-version-btn]')) return;
+            openVersionForEditing(Number(row.dataset.openVersion));
+        }));
 
     // Curriculum grid, switchable by version.
     const sel = $('pg-version');
@@ -2059,7 +2076,9 @@ async function createVersion() {
 
     if (error) {
         console.error('create version failed:', error.message);
-        return showMsg('pros-msg', 'Could not create that version. ' + error.message);
+        return showMsg('pros-msg', /prospectus_program_year_key|duplicate key/.test(error.message)
+            ? 'That year already exists for this programme.'
+            : 'Could not create that version. ' + error.message);
     }
 
     await loadProspectusList();
@@ -2476,6 +2495,8 @@ function mountCurriculumBuilder() {
         mountEl:      $('cb-grid'),
         prospectusId: EDITING.id,
         programId:    EDITING.program_id,
+        programCode:  PROGRAM?.code ?? null,
+        programName:  PROGRAM?.name ?? null,
         versions:     VERSIONS,
         staffId:      STAFF_ID,
         userId:       AUTH_UID,
@@ -2491,6 +2512,20 @@ function mountCurriculumBuilder() {
             loadCurriculum();
         },
     });
+}
+
+/* "Edit subjects" / "Open" on a Prospectus row (or a click on the row): go to the Curriculum tab with that version, so
+   the person can carry on where they left off. A draft or published version opens in the builder WITH its saved subjects
+   (the builder asks first if it holds work that is not saved). The active version cannot be edited in the builder, so it
+   opens the Curriculum tab, where its subjects are changed one at a time. */
+function openVersionForEditing(id) {
+    const v = VERSIONS.find(x => x.id === id);
+    if (!v) return;
+    if (!v.is_active && window.CurriculumBuilder && !window.CurriculumBuilder.open(v)) return;   // the person said no
+    EDITING = v;
+    renderEditingSelector();
+    window.location.hash = '#curriculum';
+    loadCurriculum();            // refreshes the subject list; the builder re-mounts to the year just opened
 }
 
 /* schedule */

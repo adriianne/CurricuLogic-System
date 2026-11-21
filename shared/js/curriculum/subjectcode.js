@@ -54,6 +54,16 @@ function problem(raw) {
     return null;
 }
 
-return { MAX, clean, key, problem };
+/* A code as a scan reads it from a printed prospectus. Some documents print an elective slot with the rest of the code left as
+   a blank line to write on: "CS-EL____", "CS-FRE _ _ _". The blanks are not part of any code, so trailing underscores, spaces and
+   hyphens are dropped and the slot reads "CS-EL" / "CS-FRE", which the builder numbers (CS-EL1, CS-EL2...) like any other
+   placeholder. An underscore inside a code ("AI-EL_FUNDAI") is part of it and stays. */
+function fromPrinted(raw) {
+    const c = clean(raw);
+    const stripped = c.replace(/[\s_-]+$/, '');
+    return /^[A-Z]/.test(stripped) ? stripped : c;      // never strip a code down to nothing
+}
+
+return { MAX, clean, key, problem, fromPrinted };
 
 }));

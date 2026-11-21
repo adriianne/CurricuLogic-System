@@ -153,13 +153,26 @@ describe('the curriculum page shows the result', () => {
     test('runs it on the reader\u2019s raw answer and passes the printed totals', () => {
         assert.match(js, /CurriculogicExtractionCheck\?\.check\(extracted, data\.printed_totals\)/);
     });
-    test('says so in three cases: a mismatch, a match, and no totals to compare', () => {
-        assert.match(js, /The totals do not match the document/);
-        assert.match(js, /units match the totals printed in the document/);
-        assert.match(js, /The document prints no totals, so the units could not be checked/);
+    test('says so in three cases (a mismatch, a match, no totals to compare): in the scan check card, not in the status line', () => {
+        const card = read('shared/js/curriculum/extractioncheck.js');
+        assert.match(card, /Units do not match the document/);
+        assert.match(card, /Units match the document/);
+        assert.match(card, /The document prints no totals/);
+        // the status line no longer repeats it (21 Nov 2026 tidy-up)
+        assert.doesNotMatch(js, /The totals do not match the document/);
+        assert.doesNotMatch(js, /units match the totals printed in the document/);
     });
-    test('a mismatch uses a warning style, and the list of details accepts several boxes', () => {
-        assert.match(js, /selfCheck\.warnings\.length \? 'warning' : 'success'/);
+    test('the status line is short: how many were extracted, a pointer to the card if something needs a look, and that nothing is saved', () => {
+        assert.match(js, /`Extracted \$\{extracted\.length\} subject\$\{extracted\.length === 1 \? '' : 's'\}\.`/);
+        assert.match(js, /Some checks need a look: see the scan check below\./);
+        assert.match(js, /Review every row below, then press Create to save\. Nothing has been saved yet\./);
+        // nothing the card says again: no totals, no gates, no co-requisite count in the line
+        assert.doesNotMatch(js, /year-standing gate\$\{gatesAdded/);
+        assert.doesNotMatch(js, /goes-with link\$\{coreqsAdded/);
+    });
+    test('a scan that needs a look uses a warning style, and the list of details accepts several boxes', () => {
+        assert.match(js, /const needsLook = selfCheck\.warnings\.length > 0 \|\| SCAN_REPORT\?\.verdict === 'warn';/);
+        assert.match(js, /needsLook \? 'warning' : 'success'/);
         assert.match(js, /for \(const d of \[\]\.concat\(details \?\? \[\]\)\)/);
         assert.match(css, /\.msg\.warning\s*\{[^}]*#fffbeb/);
         assert.match(css, /html\[data-theme="dark"\] \.msg\.warning/);
