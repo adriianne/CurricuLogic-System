@@ -11,7 +11,8 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { BUSY_MESSAGE, callGemini, DEFAULT_MODELS } from "./geminicall.mjs";
+import { BUSY_MESSAGE, callGeminiHedged, DEFAULT_MODELS } from "./geminicall.mjs";
+import { judge } from "./curriculumjudge.mjs";
 
 // A curriculum is read once per upload, and telling the colours of the titles apart is where the smaller
 // model went wrong, so the stronger model goes first here; the others stay as fallbacks if it is busy.
@@ -95,6 +96,15 @@ as representative of the rest, and do not summarize or sample. If the
 document shows four years of curriculum, your subjects array must
 contain rows from all four years, not just the first one you encounter.
 Process the entire document from beginning to end before responding.
+
+IMPORTANT -- copy every code and title EXACTLY as printed:
+Copy each subject code, each descriptive title and each pre-requisite code letter for letter and digit for digit, exactly
+as they are printed in THIS document. A code that looks unusual, or that does not follow the prefix of the codes around
+it, is still what the document prints (for example a course printed "CS-DISCRET12" stays "CS-DISCRET12", never
+"CC-DISCRET12" because other curricula use "CC-"). Never correct, complete, normalise or "fix" a code or a title from what
+you know of other curricula, from the pattern of nearby codes, or from how it ought to be spelled. A pre-requisite is copied
+exactly as printed in that row's own pre-requisite cell, and a subject's own code exactly as printed in its own row. If a
+character is hard to read, give your best LITERAL reading of the printed characters, not a guess at what it should be.
 
 IMPORTANT -- reading lecture_units vs laboratory_units correctly:
 Units are typically printed as three adjacent sub-columns under a
@@ -243,26 +253,35 @@ If the document is clearly NOT a curriculum or prospectus (e.g. it is a resume, 
 
 Be conservative: if you are not confident a field's value is correct, use null rather than guessing. Do not invent subjects that are not clearly present in the document.`;
 
-// The call itself (a busy answer retried with waiting, another model tried when one is
-// gone or still busy, the key never logged) lives in geminicall.mjs, shared with
-// analyze-schedule-document. What stays here is the part only this function knows: an
-// answer that arrives but is empty or cut off is worth one more go, because the same PDF
-// that fails once usually succeeds on the next call.
-const MAX_ATTEMPTS = 2;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// The call itself lives in geminicall.mjs (callGeminiHedged, tested in tests/geminihedged.test.mjs): the accurate
+// model starts alone; if it has not answered after 35 s the next model starts in parallel and the first GOOD answer
+// wins; one clock for everything, so nothing runs past the platform's stop. What stays here is the part only this
+// function knows: what an answer is WORTH (below), and the one clock's length.
+//
+// Why this replaced "two rounds of up to 110 s": on 21 Nov 2026 the same PDF took 34 s, then 95 s, then failed at 160 s
+// and 112 s (status 503 / 546) because a slow call was cut off and a whole new one started from zero, and the second
+// round ran on a fresh clock past the 150 s the platform allows.
+
+/** The whole request may last this long, counted from when it arrived (the upload counts): the platform stops at 150 s. */
+const TOTAL_MS = 140_000;
+/** Less than this and a hedged second model has no time to finish: do not start the call at all. */
+const MIN_CALL_MS = 25_000;
 
 type Attempt =
-  | { ok: true; parsed: any }
-  | { ok: false; retry: boolean; detail: string; busy: boolean };
+  | { ok: true; parsed: any; model: string; hedged: boolean; tried: unknown }
+  | { ok: false; detail: string; busy: boolean };
 
 async function askGemini(
   apiKey: string,
   fileBase64: string,
   mimeType: string,
+  deadlineMs: number,
 ): Promise<Attempt> {
-  const call = await callGemini({
+  const call = await callGeminiHedged({
     apiKey,
     models: MODELS,
+    accept: judge,
+    deadlineMs,
     body: {
       contents: [
         {
@@ -285,33 +304,20 @@ async function askGemini(
   });
 
   if (!call.ok) {
+    // callGeminiHedged already retried, started the next model and kept to the one clock.
     return {
       ok: false,
-      retry: false, // geminicall already retried and tried the other models
       busy: call.busy,
       detail: `${call.detail} | tried: ${JSON.stringify(call.tried)}`,
     };
   }
 
+  // judge() has already parsed this answer once and found it usable, so this cannot fail on a good or usable answer.
   const rawText = call.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!rawText) {
-    return {
-      ok: false,
-      retry: true,
-      busy: false,
-      detail: `no usable content: ${JSON.stringify(call.data).slice(0, 500)}`,
-    };
-  }
-
   try {
-    return { ok: true, parsed: JSON.parse(rawText) };
+    return { ok: true, parsed: JSON.parse(rawText), model: call.model, hedged: call.hedged, tried: call.tried };
   } catch {
-    return {
-      ok: false,
-      retry: true,
-      busy: false,
-      detail: `response was not valid JSON (possibly cut off): ${rawText.slice(-200)}`,
-    };
+    return { ok: false, busy: false, detail: `response was not valid JSON (possibly cut off): ${String(rawText).slice(-200)}` };
   }
 }
 
@@ -319,6 +325,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  const requestStartedAt = Date.now();   // when the request arrived: the platform's limit counts the upload too
 
   try {
     const denied = await rejectCaller(req, ["department", "admin"]);
@@ -351,33 +359,34 @@ serve(async (req) => {
       );
     }
 
-    let parsed: any = null;
-    let lastDetail = "";
-    let lastBusy = false;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      const result = await askGemini(apiKey, fileBase64, mimeType);
-      if (result.ok) {
-        parsed = result.parsed;
-        if (attempt > 1) console.log(`Succeeded on attempt ${attempt}.`);
-        break;
-      }
-      lastDetail = result.detail;
-      lastBusy = result.busy;
-      console.error(`Gemini attempt ${attempt}/${MAX_ATTEMPTS} failed: ${result.detail}`);
-      if (!result.retry || attempt === MAX_ATTEMPTS) break;
-      await sleep(1500 * attempt);
+    // ONE clock for the whole request, counted from when it arrived: the upload has already used part of it.
+    const left = TOTAL_MS - (Date.now() - requestStartedAt);
+    if (left < MIN_CALL_MS) {
+      console.error(`Only ${Math.round(left / 1000)} s left after receiving the file: not starting the AI call.`);
+      return new Response(
+        JSON.stringify({ error: BUSY_MESSAGE }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
-    if (!parsed) {
-      console.error("Giving up after retries:", lastDetail);
+    const result = await askGemini(apiKey, fileBase64, mimeType, left);
+
+    if (!result.ok) {
+      console.error("Giving up:", result.detail);
       // 503 when Google is busy (the page shows "busy, try again in a few minutes"); 502 otherwise.
       return new Response(
         JSON.stringify({
-          error: lastBusy ? BUSY_MESSAGE : "The document analysis service failed. Try again.",
+          error: result.busy ? BUSY_MESSAGE : "The document analysis service failed. Try again.",
         }),
-        { status: lastBusy ? 503 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: result.busy ? 503 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
+    const parsed: any = result.parsed;
+    console.log(
+      `Answered by ${result.model}${result.hedged ? " (second model, started in parallel)" : ""} ` +
+      `after ${Math.round((Date.now() - requestStartedAt) / 1000)} s; tried: ${JSON.stringify(result.tried)}`,
+    );
 
     // Diagnostic: how many subjects Gemini itself returned, before this
     // response ever reaches the frontend. If a future upload comes back

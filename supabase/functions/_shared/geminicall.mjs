@@ -134,6 +134,174 @@ export async function callGemini({
     return done({});
 }
 
+/* ------------------------------------------------------------------------------------------------------------
+   callGeminiHedged: the call the CURRICULUM reader uses (21 Nov 2026).
+
+   WHY: callGemini asks one model at a time. When a model is slow, it waits 80 s, cuts it off, and starts the next model
+   FROM ZERO, so a slow day cost 160 s and then a 503; and the reader's own retry started a second round on a fresh clock,
+   past the platform's 150 s stop (status 546). The same PDF took 34 s one day and 95 s to 160 s the next.
+
+   THIS asks like a person who is in a hurry but wants the good answer:
+     * the first (most accurate) model starts alone;
+     * if it has not answered after hedgeAfterMs, the NEXT model starts too, in parallel, and the first GOOD answer wins
+       (the slow call is not cut off: it may still be the one that finishes first);
+     * a model that answers busy (503...) is retried once quickly, then the next model starts at once;
+     * ONE clock for everything: nothing runs past deadlineMs, counted from the start;
+     * the loser is aborted the moment there is a winner.
+
+   accept(data, model) decides what an answer is worth:
+     'good'    use it now
+     'usable'  an answer, but not checked: the first model's is taken at once; another model's waits up to graceMs for the
+               first model (so a quicker model does not replace the accurate one without a check), then it is used
+     'bad'     empty, cut off or not JSON: the same as a failure of that model
+   Returns the shape of callGemini: { ok: true, data, model, attempts, tried, hedged } or { ok: false, status, detail, busy, ... }.
+   ------------------------------------------------------------------------------------------------------------ */
+export async function callGeminiHedged({
+    apiKey,
+    body,
+    models = DEFAULT_MODELS,
+    accept = () => 'good',
+    fetchFn = fetch,
+    sleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    nowFn = () => Date.now(),
+    hedgeAfterMs = 35000,
+    graceMs = 15000,
+    deadlineMs = 135000,       // the platform stops a function at 150 s
+    quickRetries = 1,
+    retryWaitMs = 1500,
+    makeSignal = (ctrl, ms) => AbortSignal.any([ctrl.signal, AbortSignal.timeout(ms)]),
+} = {}) {
+    const started = nowFn();
+    const remaining = () => deadlineMs - (nowFn() - started);
+    const tried = [];
+    let attempts = 0;
+    let last = { status: 0, detail: 'no attempt was made' };
+    const scrub = (text) => String(text ?? '').split(apiKey).join('***').slice(0, 300);
+
+    let settle;
+    const settled = new Promise((resolve) => { settle = resolve; });
+    let finished = false;
+    let hedged = false;
+    let nextModel = 0;
+    let running = 0;
+    let fallback = null;                 // a usable answer from a model other than the first, waiting for the first
+    let firstModelDone = false;
+    const controllers = new Map();
+
+    const finish = (result) => {
+        if (finished) return;
+        finished = true;
+        for (const ctrl of controllers.values()) ctrl.abort();
+        settle(result);
+    };
+    const win = (data, model) => finish({ ok: true, data, model, attempts, tried, hedged });
+    const fail = () => finish(fallback
+        ? { ok: true, data: fallback.data, model: fallback.model, attempts, tried, hedged }
+        : { ok: false, attempts, tried, ...last, busy: isBusy(last.status) });
+
+    const answered = (data, model, index) => {
+        const worth = accept(data, model);
+        tried.push({ model, status: 200, worth });
+        if (worth === 'good') return win(data, model);
+        if (worth === 'usable') {
+            if (index === 0) return win(data, model);        // nothing better to wait for
+            if (!fallback) {
+                fallback = { data, model };
+                if (firstModelDone) return fail();            // the first model has already given up
+                // wait a little for the first model, then use this one
+                sleepFn(Math.min(graceMs, Math.max(0, remaining()))).then(() => { if (!finished) win(fallback.data, fallback.model); });
+            }
+            return;
+        }
+        last = { status: 200, detail: `unusable answer from ${model}` };       // 'bad'
+    };
+
+    const runModel = async (model, index) => {
+        running++;
+        try {
+            for (let attempt = 1; attempt <= 1 + quickRetries; attempt++) {
+                if (finished || remaining() < 2000) return;
+                attempts++;
+                const ctrl = new AbortController();
+                controllers.set(`${model}#${attempt}`, ctrl);
+                let res;
+                try {
+                    res = await fetchFn(urlFor(model, apiKey), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                        signal: makeSignal(ctrl, Math.max(1000, remaining())),
+                    });
+                } catch (err) {
+                    if (finished) return;
+                    if (isTimeout(err)) { last = { status: 0, detail: `no answer from ${model} in time` }; tried.push({ model, status: 0, timedOut: true }); return; }
+                    last = { status: 0, detail: `network error on ${model}` };
+                    tried.push({ model, status: 0 });
+                    if (attempt <= quickRetries) await sleepFn(retryWaitMs);
+                    continue;
+                }
+                if (finished) return;
+
+                if (res.ok) {
+                    let data;
+                    try { data = await res.json(); } catch (err) {
+                        if (finished) return;
+                        last = { status: isTimeout(err) ? 0 : res.status, detail: `unreadable answer from ${model}` };
+                        tried.push({ model, status: res.status });
+                        return;
+                    }
+                    if (finished) return;
+                    return answered(data, model, index);
+                }
+
+                const text = scrub(await res.text().catch(() => ''));
+                last = { status: res.status, detail: `HTTP ${res.status} from ${model}: ${text}` };
+                tried.push({ model, status: res.status });
+                if (res.status === 404) return;                                          // a model that is gone
+                if (res.status === 400 || res.status === 401 || res.status === 403) {    // every model would fail the same way
+                    return fail();
+                }
+                if (RETRY_STATUSES.has(res.status)) {
+                    if (attempt <= quickRetries) await sleepFn(retryWaitMs);
+                    continue;
+                }
+                return fail();
+            }
+        } finally {
+            running--;
+            if (index === 0) firstModelDone = true;
+            afterModel();
+        }
+    };
+
+    const startNext = () => {
+        if (finished || nextModel >= models.length || remaining() < 5000) return false;
+        const index = nextModel++;
+        runModel(models[index], index);
+        return true;
+    };
+
+    // When a model ends without a winner: if the first model is done and an unverified answer is waiting, use it;
+    // else if nothing is running, start the next model; if there is none left, the call has failed.
+    const afterModel = () => {
+        if (finished) return;
+        if (fallback && firstModelDone) return fail();
+        if (running === 0 && !startNext()) fail();
+    };
+
+    // The hedge: the next model starts too if the first has not answered in time.
+    sleepFn(hedgeAfterMs).then(() => { if (!finished && running > 0 && startNext()) hedged = true; });
+    // The one clock: whatever is running is stopped here.
+    sleepFn(deadlineMs).then(() => {
+        if (finished) return;
+        last = { status: last.status, detail: `time budget used (${last.detail})` };
+        fail();
+    });
+
+    startNext();
+    return settled;
+}
+
 /* The error a fetch throws when its time limit (AbortSignal.timeout) runs out, or when it is aborted. */
 export function isTimeout(err) {
     return err?.name === 'TimeoutError' || err?.name === 'AbortError';
