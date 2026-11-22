@@ -2,8 +2,8 @@
 // Academic Analytics for the Department: where students struggle, how far they have got, how requests are decided, and
 // which sections are in demand. It builds on the Programme report's data (ProgramReport.load) plus the term's section demand.
 //
-//   Analytics.loadDemand(supabase, { year, term })  -> rows of the section_demand function ([] when it cannot be read)
-//   Analytics.loadTotals(supabase, { year, term })  -> one row per section plus an overall row (section_demand_totals, db/125); null when unreadable
+//   Analytics.loadDemand(supabase, { year, term, programId })  -> rows of the section_demand function ([] when it cannot be read)
+//   Analytics.loadTotals(supabase, { year, term, programId })  -> one row per section plus an overall row (section_demand_totals, db/125); null when unreadable
 //   Analytics.build(raw, demandRows, { programName, generatedAt, topN, totals })  -> the analytics (plain data)
 //   Analytics.screen(a) / html(a) / rows(a) / print(a) / mount(el, getAnalytics)
 //
@@ -38,15 +38,22 @@ const UNIT_BANDS = [
     { label: '150 and over', from: 150, to: Infinity },
 ];
 
-async function loadDemand(supabase, { year, term } = {}) {
+/* programId (optional): only the sections of that programme (db/131). Left out, every programme the account covers, as before. */
+const demandArgs = (year, term, programId) => {
+    const args = { p_year: year, p_term: term };
+    if (programId != null) args.p_program_id = programId;
+    return args;
+};
+
+async function loadDemand(supabase, { year, term, programId } = {}) {
     if (year == null || term == null) return [];
-    const { data, error } = await supabase.rpc('section_demand', { p_year: year, p_term: term });
+    const { data, error } = await supabase.rpc('section_demand', demandArgs(year, term, programId));
     return error ? [] : (data ?? []);
 }
 
-async function loadTotals(supabase, { year, term } = {}) {
+async function loadTotals(supabase, { year, term, programId } = {}) {
     if (year == null || term == null) return null;
-    const { data, error } = await supabase.rpc('section_demand_totals', { p_year: year, p_term: term });
+    const { data, error } = await supabase.rpc('section_demand_totals', demandArgs(year, term, programId));
     return error ? null : (data ?? []);
 }
 

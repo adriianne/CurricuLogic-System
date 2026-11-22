@@ -111,7 +111,7 @@ describe('motion only plays for a person who has not asked for reduced motion', 
         assert.ok(rules.some(r => /\.demand-tile/.test(r.selector)));
     });
 
-    const NEW = /\.(attention-item|demand-board|demand-tile|demand-detail|demand-year|demand-names-row|demand-confirm|demand-help|prospectus-details|hero\b|hero-|setup-badge-dot)/;
+    const NEW = /\.(attention-item|demand-board|demand-tile|demand-detail|demand-year|demand-names-row|demand-confirm|demand-help|prospectus-details|hero\b|hero-)/;
 
     test('every animation of the new parts sits inside the no-preference block', () => {
         const offenders = rules

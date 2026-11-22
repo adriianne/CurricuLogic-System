@@ -39,6 +39,7 @@ let STAFF_ID    = null;   // department_staff.id — the created_by target
 let PROSPECTUS  = null;   /* the active version */
 let VERSIONS    = [];
 let EDITING     = null;   /* the version being edited — not always the active one */
+let PENDING_EDIT_ID = null; /* a year the builder has just created: the page does not know it until the list is fetched again */
 let SUBJECTS    = [];
 let RULES       = [];
 let OFFERINGS   = [];
@@ -340,8 +341,8 @@ async function initReports() {
         // The analytics reuse the same data, plus the current term's section demand.
         let term = null;
         try { term = await window.CurriculogicTerm?.load() ?? null; } catch (_) { term = null; }
-        const demand = await window.Analytics.loadDemand(supabase, { year: term?.year, term: term?.term });
-        const totals = await window.Analytics.loadTotals(supabase, { year: term?.year, term: term?.term });
+        const demand = await window.Analytics.loadDemand(supabase, { year: term?.year, term: term?.term, programId: PROGRAM?.id });
+        const totals = await window.Analytics.loadTotals(supabase, { year: term?.year, term: term?.term, programId: PROGRAM?.id });
         ANALYTICS = window.Analytics.build(raw, demand, { programName: name, totals });
         if (abody) abody.innerHTML = window.Analytics.screen(ANALYTICS);
     } catch (err) {
@@ -777,6 +778,14 @@ async function loadCurriculum() {
         console.warn('version list failed:', versionsError.message);
     } else {
         setVersions(allVersions);
+        /* The builder made a new year (Create Year, or the first save of a year that had no row). Now that the list holds it,
+           the page follows: the Subjects panel and the editing note were left on the OLD year (22 Nov 2026: after saving BSCS
+           2024-2025 the panel still listed the 2023 curriculum). */
+        if (PENDING_EDIT_ID !== null) {
+            const made = VERSIONS.find(v => v.id === PENDING_EDIT_ID);
+            if (made) { EDITING = made; renderEditingSelector(); }
+            PENDING_EDIT_ID = null;
+        }
     }
 
     const active = PROSPECTUS;
@@ -857,7 +866,6 @@ function afterLoad() {
     READY.prospectus = !!PROSPECTUS;
     READY.subjects   = SUBJECTS.length;
 
-    renderSetupBadge();
     renderTiles();
     renderProspectus();
     renderIntegrity();
@@ -2442,34 +2450,6 @@ async function loadReadiness() {
     READY.gradeFiles = gradeFiles.data?.length ?? 0;
 }
 
-/* Compact setup indicator in the page header. Four dots, one per
-   setup step. Disappears entirely once all four are done. */
-function renderSetupBadge() {
-    const badge = $('setup-badge');
-    if (!badge) return;
-
-    const done = [
-        READY.prospectus,
-        READY.subjects > 0,
-        READY.offerings > 0,
-        READY.students > 0,
-    ];
-
-    const complete = done.filter(Boolean).length;
-    const total    = done.length;
-
-    if (complete === total) {
-        badge.hidden = true;
-        return;
-    }
-
-    badge.hidden = false;
-    badge.innerHTML = `
-        ${done.map((on, n) => `<span class="setup-badge-dot${on ? ' on' : ''}" style="--d:${n}"></span>`).join('')}
-        <span class="setup-badge-text">Setup ${complete}/${total}</span>
-    `;
-}
-
 /* Shown in place of a module that cannot run yet. Says what is missing
    and links to the page that fixes it, rather than presenting a form that
    would reject everything submitted to it. */
@@ -2501,13 +2481,18 @@ function mountCurriculumBuilder() {
         staffId:      STAFF_ID,
         userId:       AUTH_UID,
         onVersionChange: (id) => {
-            if (id) EDITING = VERSIONS.find(v => v.id === id) ?? EDITING;
+            if (id) {
+                EDITING = VERSIONS.find(v => v.id === id) ?? EDITING;
+                if (EDITING?.id !== id) PENDING_EDIT_ID = id;       // a year this page has not heard of: loadCurriculum adopts it
+            }
             renderEditingSelector();
             loadCurriculum();
         },
         onError: (m) => showMsg('curriculum-msg', m),
         onDone:  (m) => {
             showMsg('curriculum-msg', m, 'success');
+            const current = window.CurriculumBuilder?.currentId?.();
+            if (current && current !== EDITING?.id) PENDING_EDIT_ID = current;     // a year saved for the first time
             loadProspectusList();
             loadCurriculum();
         },
@@ -6639,7 +6624,10 @@ async function loadSectionDemand() {
         return;
     }
 
-    const { data, error } = await supabase.rpc('section_demand', { p_year: DEMAND_TERM.year, p_term: DEMAND_TERM.term });
+    // Only the sections of the programme chosen at the top (BSCS never shows BSIT-1A): db/131.
+    const args = { p_year: DEMAND_TERM.year, p_term: DEMAND_TERM.term };
+    if (PROGRAM?.id != null) args.p_program_id = PROGRAM.id;
+    const { data, error } = await supabase.rpc('section_demand', args);
     if (error) {
         console.warn('section demand failed:', error.message);
         showDemandFailure('Section demand could not be loaded. Try again in a moment.');
