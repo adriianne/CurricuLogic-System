@@ -937,7 +937,20 @@ function renderStaff() {
     const picked = selectedStaff();
     const roleNoun = (MULTI_ROLES[STAFF_SEL.role]?.noun ?? 'account');
 
+    // Visible "Select all" buttons: one per role that is in the list (all roles shows both). They follow the search and
+    // the role filter and cover every page, and a role whose accounts are all ticked says so instead of offering again.
+    const pickButtons = BULK_ROLES.filter(r => roleFilter === 'all' || roleFilter === r).map(r => {
+        const mine = list.filter(s => s.role === r);
+        if (!mine.length) return '';
+        const noun = r === 'registrar' ? 'registrars' : 'faculty';
+        const every = STAFF_SEL.role === r && mine.every(s => STAFF_SEL.ids.has(s.id));
+        return every
+            ? `<span class="bulk-all-done"><i class="fa-solid fa-check" aria-hidden="true"></i> All ${mine.length} ${escapeHtml(noun)} selected</span>`
+            : `<button type="button" class="btn-small" data-bulk-selectrole="${escapeHtml(r)}">Select all ${escapeHtml(noun)} (${mine.length})</button>`;
+    }).join('');
+
     body.innerHTML = `
+        ${pickButtons ? `<div class="bulk-pickrow">${pickButtons}</div>` : ''}
         ${picked.length ? `
         <div class="bulk-bar" role="region" aria-label="Selected accounts">
             <span class="bulk-bar-text"><strong>${picked.length}</strong> ${escapeHtml(roleNoun)} account${picked.length === 1 ? '' : 's'} selected</span>
@@ -1297,6 +1310,14 @@ $('staff-body')?.addEventListener('change', (e) => {
 });
 
 $('staff-body')?.addEventListener('click', (e) => {
+    const sel = e.target.closest('[data-bulk-selectrole]');
+    if (sel && BULK_ROLES.includes(sel.dataset.bulkSelectrole)) {
+        const role = sel.dataset.bulkSelectrole;
+        clearStaffSelection();                     // one role at a time
+        STAFF_SEL.role = role;
+        filteredStaff().filter(s => s.role === role).forEach(s => STAFF_SEL.ids.add(s.id));
+        return renderStaff();
+    }
     if (e.target.closest('[data-bulk-clear]')) { clearStaffSelection(); return renderStaff(); }
     if (e.target.closest('[data-bulk-open]')) openBulkDialog();
 });

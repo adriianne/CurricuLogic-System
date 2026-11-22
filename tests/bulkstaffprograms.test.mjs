@@ -183,3 +183,31 @@ describe('the Staff management search finds people by programme', () => {
         assert.ok(html.includes('placeholder="Search name, email, employee ID, role, or programme"'));
     });
 });
+
+describe('the visible Select all buttons in Staff management', () => {
+    const render = js.slice(js.indexOf('const pickButtons'), js.indexOf('const picked = selectedStaff()') > 0 ? js.indexOf('body.innerHTML = `', js.indexOf('const pickButtons')) : 0);
+    test('there is one button per role in the list: both on All roles, one when the filter is a role', () => {
+        assert.ok(render.includes("BULK_ROLES.filter(r => roleFilter === 'all' || roleFilter === r)"));
+        assert.ok(render.includes('data-bulk-selectrole'));
+    });
+    test('each button counts only the accounts that match the search and the filter, across every page', () => {
+        assert.ok(render.includes('list.filter(s => s.role === r)'));
+    });
+    test('a role with nothing in the list gets no button, and one fully ticked says so instead', () => {
+        assert.ok(render.includes('if (!mine.length) return'));
+        assert.ok(render.includes('selected</span>'));
+    });
+    test('clicking it starts a new selection of that role only, from the same filtered list', () => {
+        const click = js.slice(js.indexOf("const sel = e.target.closest('[data-bulk-selectrole]')"), js.indexOf("if (e.target.closest('[data-bulk-clear]'))"));
+        assert.ok(click.includes('BULK_ROLES.includes(sel.dataset.bulkSelectrole)'));
+        assert.ok(click.indexOf('clearStaffSelection()') < click.indexOf('STAFF_SEL.role = role'));
+        assert.ok(click.includes('filteredStaff().filter(s => s.role === role)'));
+    });
+    test('a Department account can never be selected this way', () => {
+        assert.ok(!js.includes("data-bulk-selectrole=\"department\""));
+        assert.ok(js.includes("BULK_ROLES.includes(sel.dataset.bulkSelectrole)"));
+    });
+    test('the styles exist', () => {
+        assert.ok(css.includes('.bulk-pickrow') && css.includes('.bulk-all-done'));
+    });
+});
