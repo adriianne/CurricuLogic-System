@@ -111,6 +111,8 @@ let AI_BUSY         = false;   // an extraction is running: its button, the file
    shown only while ROWS is still that very array: loading another year, a reset or a new scan replaces ROWS and the
    report disappears with it, instead of describing rows that are no longer there. */
 let ISSUE_I         = 0;       // which issue the arrows on the Issues tile are at (0 = the first)
+let SCAN_RUN        = 0;       // the number of the scan that is current: pressing Stop moves it on, and a scan that finds it has changed ends quietly
+let LIVE_ABORT      = null;    // cuts the request that is in flight, when a scan is running
 let SCAN_DOC        = null;    // what the scanned FILE says about itself: { year, name } (its printed year and programme name)
 let SCAN_REPORT     = null;
 /* The circles while a scan runs (extractioncheck.js progress()): which stage the scan is at, or where it stopped.
@@ -252,6 +254,18 @@ if (code) {
 }
     }
 
+    /* A prerequisite must come in an EARLIER semester (candidatesFor): a subject that needs one taken in its own semester, or later, could
+       never be opened. The scan can produce one (the ACT PDF's Web Design 1 got Introduction to Computing, in the same semester, 22 Nov 2026)
+       and nothing said so. "Goes with" links are meant to be in the same term, so they are left out. */
+    for (const r of ROWS) {
+        for (const p of r.prereqs ?? []) {
+            if (!p.uid || p.co) continue;
+            const target = ROWS.find(x => x.uid === p.uid);
+            if (!target || candidatesFor(r).includes(target)) continue;     // a deleted target is reported elsewhere
+            r.errors.push(`${target.code || 'A subject'} is not in an earlier semester, so it cannot be a prerequisite. Untick it in the prerequisite list.`);
+        }
+    }
+
     return seen;
 }
 
@@ -351,6 +365,12 @@ function openPicker(row, anchor) {
         groups.get(key).push(o);
     }
 
+    // A prerequisite already on this row that is NOT allowed here (same or later semester) is not a candidate, so it would never be listed
+    // and could never be unticked. List it, ticked, so it can be removed.
+    const stray = row.prereqs.filter(p => p.uid && !p.co && !opts.some(o => o.uid === p.uid))
+        .map(p => ROWS.find(r => r.uid === p.uid)).filter(Boolean);
+    if (stray.length) groups.set('Not allowed here: untick to remove', stray);
+
     const list = [...groups].map(([label, rows]) => `
         <p class="cb-pick-group">${esc(label)}</p>
         ${rows.map(o => `
@@ -372,7 +392,7 @@ function openPicker(row, anchor) {
                     <span class="cb-pick-code">${'*'.repeat(s.threshold)}</span>
                     <span class="cb-pick-title">${esc(s.label)}</span>
                 </label>`).join('')}
-            ${opts.length ? list : '<p class="cb-pick-none">No earlier subjects yet.</p>'}
+            ${opts.length || stray.length ? list : '<p class="cb-pick-none">No earlier subjects yet.</p>'}
         </div>
         <div class="cb-pick-foot"><button class="cb-pick-done">Done</button></div>`;
 
@@ -441,7 +461,8 @@ function openPicker(row, anchor) {
     });
 
     el.addEventListener('click', (e) => {
-        if (e.target.closest('.cb-pick-done')) { closePicker(); render(); }
+        // Re-check before drawing: the prerequisites just changed, and a link that is not allowed is an error (an untick clears it).
+        if (e.target.closest('.cb-pick-done')) { closePicker(); validate(); render(); }
     });
 }
 
@@ -527,7 +548,7 @@ function showCustomYearInput() {
     const overlay = document.createElement('div');
     overlay.className = 'cbp-overlay';
     overlay.innerHTML = `
-        <div class="cbp-modal" role="dialog" aria-label="Create academic year">
+        <div class="cbp-modal cb-yearmodal" role="dialog" aria-label="Create academic year">
             <div class="cbp-bar">
                 <div>
                     <p class="cbp-title">Create Academic Year</p>
@@ -540,10 +561,9 @@ function showCustomYearInput() {
                     <label for="custom-year-input" style="display: block; font-weight: 600; margin-bottom: 0.35rem;">
                         Starting year (YYYY)
                     </label>
-                    <input type="number" id="custom-year-input" 
+                    <input type="number" id="custom-year-input" class="cb-year-input"
                            min="2000" max="2100" step="1"
-                           placeholder="e.g., 2027"
-                           style="width: 100%; padding: 0.7rem; border: 1.5px solid var(--line); border-radius: 8px; font-size: 0.95rem;">
+                           placeholder="2027">
                     <p id="custom-year-range" aria-live="polite" style="font-weight: 600; margin-top: 0.35rem; min-height: 1.2em;"></p>
                     <p id="custom-year-error" style="color: #dc2626; font-size: 0.85rem; margin-top: 0.35rem; display: none;"></p>
                 </div>
@@ -849,11 +869,52 @@ function showTab(tab) {
 /* The action bar repaints on every keystroke, so it lives in its own
    function. Leaving it inside render() froze the hint and the Create
    button at whatever they were when the view was first drawn. */
+/* THE NOTE BY THE BUTTONS (22 Nov 2026). Create used to say what it did in a green line at the TOP of the page, while the button is at the
+   bottom: after a save the table blanked and refilled and nothing visible said it worked, so people pressed Create again and read
+   "0 subjects and 0 rules created". Now the answer sits beside the buttons and the page scrolls to it.
+     kind  saving | saved | nothing | warn          text  the sentence          it goes away on the next edit, or after a while */
+let SAVE_NOTE = null;
+let SAVE_NOTE_TIMER = null;
+
+function refreshActions() {
+    const bar = MOUNT?.querySelector('.cb-actions');
+    if (bar) bar.outerHTML = actionsHtml();
+}
+
+function setSaveNote(kind, text, ms = 20000) {
+    clearTimeout(SAVE_NOTE_TIMER);
+    SAVE_NOTE = { kind, text, programId: OPTS?.programId ?? null, prospectusId: OPTS?.prospectusId ?? null };
+    SAVE_NOTE_TIMER = setTimeout(clearSaveNote, kind === 'saving' ? 90000 : ms);
+    refreshActions();
+}
+
+function clearSaveNote() {
+    clearTimeout(SAVE_NOTE_TIMER);
+    if (!SAVE_NOTE) return;
+    SAVE_NOTE = null;
+    refreshActions();
+}
+
+function focusActions() {
+    MOUNT?.querySelector('.cb-actions')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
 function actionsHtml() {
-    const n   = filled().length;
+    const rows = filled();
+    const n   = rows.length;
     const bad = badRows().length;
-    const hasExisting = filled().some(r => r.dbId);
-    let edited = 0;   // saved subjects whose prerequisites were changed on screen and not stored yet
+    const hasExisting = rows.some(r => r.dbId);
+    const unsaved = rows.filter(r => !r.dbId).length;
+    // saved subjects whose prerequisites were changed on screen and not stored yet
+    const edited = n ? window.CurriculogicRuleSync.changedRows(rows, RULE_DEPS).length : 0;
+    // Everything on screen is what the database holds: there is nothing for Create to do, and the button says so.
+    const settled = n > 0 && !unsaved && !edited && !isDirty();
+    const ICON = { saving: '…', saved: '✓', nothing: 'i', warn: '!' };
+    // Only ever for the year it was written about: switching year must not show another year's "Saved".
+    const noteIsHere = SAVE_NOTE && SAVE_NOTE.prospectusId === (OPTS?.prospectusId ?? null) && SAVE_NOTE.programId === (OPTS?.programId ?? null);
+    const note = noteIsHere
+        ? `<span class="cb-hint cb-note is-${esc(SAVE_NOTE.kind)}" role="status"><b aria-hidden="true">${ICON[SAVE_NOTE.kind] ?? ''}</b> ${esc(SAVE_NOTE.text)}</span>`
+        : '';
 
     // Create Curriculum must stay available even when every row was
     // already saved by Save (unpublished) -- "already saved to the
@@ -864,18 +925,18 @@ function actionsHtml() {
     // trying to publish it left nothing clickable at all.
     return `<div class="cb-actions">
         <button id="cb-draft" ${!n ? 'disabled' : ''}>Save (unpublished)</button>
-        <button class="btn-primary" id="cb-create" ${bad || !n ? 'disabled' : ''}>
-            Create curriculum
+        <button class="btn-primary${settled ? ' is-saved' : ''}" id="cb-create" ${bad || !n ? 'disabled' : ''}>
+            ${settled ? 'Saved \u2713' : 'Create curriculum'}
         </button>
         <button id="cb-preview" ${!n ? 'disabled' : ''}>Preview</button>
-        <span class="cb-hint">${
+        ${note || `<span class="cb-hint">${
             !n ? 'Add at least one subject'
             : bad ? `Fix ${bad} issue${bad === 1 ? '' : 's'}`
-            : (edited = window.CurriculogicRuleSync.changedRows(filled(), RULE_DEPS).length)
+            : edited
                 ? `${edited} saved subject${edited === 1 ? ' has' : 's have'} edited prerequisites \u2014 press Save (unpublished) to store ${edited === 1 ? 'it' : 'them'}`
             : hasExisting ? `${n} subject${n === 1 ? '' : 's'} saved \u2014 ready to publish`
             : 'Ready'
-        }</span>
+        }</span>`}
     </div>`;
 }
 
@@ -934,7 +995,7 @@ function aiUploadHtml() {
 
         ${hasFile || SCAN_REPORT ? `
             <div class="cb-ai-actions">
-                <button class="cb-ai-cancel" id="ai-cancel" title="Remove the file and clear the table"${AI_BUSY ? ' disabled' : ''}>Cancel</button>
+                <button class="cb-ai-cancel${AI_BUSY ? ' is-stop' : ''}" id="ai-cancel" title="${AI_BUSY ? 'Stop reading the file (Esc)' : 'Remove the file and clear the table'}">${AI_BUSY ? 'Stop' : 'Cancel'}</button>
                 ${hasFile ? `<button class="btn-primary" id="ai-extract"${AI_BUSY ? ' disabled' : ''}>${AI_BUSY ? 'Extracting…' : 'Extract Subjects'}</button>` : ''}
             </div>
         ` : ''}
@@ -1245,7 +1306,11 @@ function preflight(taken, others = [], elsewhere = []) {
        year 3 missing is not a partial curriculum — it is one that would
        tell a student they have nothing to take. Incomplete work belongs
        in Save progress, which is what that button is for. */
-    for (const y of [1, 2, 3, 4]) {
+    /* Only the years the curriculum reaches: a two-year programme (the ACT associate course) has no 3rd or 4th year, and was refused for it
+       (22 Nov 2026). A gap BEFORE the last year is still an error. Stopping short of four years is only a warning below, so a four-year
+       curriculum that lost its last years still gets a word about it. */
+    const lastYear = years.length ? Math.max(...years) : 0;
+    for (const y of [1, 2, 3, 4].filter(n => n <= lastYear)) {
         const missing = [1, 2].filter(t => !inCell(y, t).some(r => r.code.trim()));
 
         if (missing.length === 2) {
@@ -1253,6 +1318,11 @@ function preflight(taken, others = [], elsewhere = []) {
         } else if (missing.length === 1) {
             blockers.push(`${YEARS[y]} has no ${TERMS[missing[0]].toLowerCase()} subjects.`);
         }
+    }
+    if (lastYear >= 1 && lastYear < 4) {
+        const ordinal = { 2: '2nd', 3: '3rd' }[lastYear];
+        warnings.push(`This curriculum covers ${lastYear === 1 ? 'the 1st year only' : `the 1st to ${ordinal} year`}. ` +
+                      'If the programme runs longer, the later years are missing.');
     }
 
     for (const y of years) {
@@ -1521,6 +1591,9 @@ async function postDocument(base64, { onProgress, onUploaded, onRetry = () => {}
             }
         }, 1000);
 
+        // Stop: the page can cut this request at any moment. The answer, if the server still sends one, is never read.
+        LIVE_ABORT = () => { stop(); try { x.abort(); } catch (_) { /* already finished */ } resolve({ status: 0, data: null, cancelled: true, uploaded }); };
+
         x.send(JSON.stringify({ fileBase64: base64, mimeType: 'application/pdf' }));
     });
 
@@ -1528,9 +1601,10 @@ async function postDocument(base64, { onProgress, onUploaded, onRetry = () => {}
     let reply;
     for (let n = 1; n <= UPLOAD_TRIES; n++) {
         reply = await attempt();
-        if (!reply.stalled || n === UPLOAD_TRIES) break;
+        if (reply.cancelled || !reply.stalled || n === UPLOAD_TRIES) break;
         onRetry(n + 1);
     }
+    LIVE_ABORT = null;
     return reply;
 }
 
@@ -1540,10 +1614,12 @@ const UPLOAD_STALL_MS = 30000;
 const UPLOAD_TRIES = 3;
 
 async function analyzeDocumentRun(file) {
+    const myRun = ++SCAN_RUN;      // this scan's number; Stop moves SCAN_RUN on, and this scan then ends without a word
     // Whatever breaks inside, the circle that was running turns red and the person is told, never a card that just stops.
     try {
-        await analyzeDocumentSteps(file);
+        await analyzeDocumentSteps(file, myRun);
     } catch (err) {
+        if (myRun !== SCAN_RUN) return;      // stopped: whatever broke was only the scan being cut off
         console.error('scan failed:', err);
         stopProgress();
         const at = SCAN_STAGE && SCAN_STAGE.stage >= 1 && SCAN_STAGE.stage <= 6 ? SCAN_STAGE.stage : 4;
@@ -1552,8 +1628,9 @@ async function analyzeDocumentRun(file) {
     }
 }
 
-async function analyzeDocumentSteps(file) {
+async function analyzeDocumentSteps(file, myRun) {
     if (!file) return;
+    const stale = () => myRun !== SCAN_RUN;      // true once Stop was pressed (or a newer scan began): nothing more may touch the page
 
     const fileIssue = CurriculogicUploadLimits.fileProblem(file, 'pdf');
     if (fileIssue) return showAiStatus(fileIssue, 'error');
@@ -1562,6 +1639,7 @@ async function analyzeDocumentSteps(file) {
     SCAN_DOC = null;
     ISSUE_I = 0;
     removeBackPill();
+    if (SAVE_NOTE && SAVE_NOTE.kind !== 'saving') clearSaveNote();      // a new scan: what the last save said is old news
     SCAN_STAGE = null;
     document.querySelector('.cb-scan')?.remove();      // ...and its card must not stay on screen while the new scan runs
 
@@ -1575,12 +1653,15 @@ async function analyzeDocumentSteps(file) {
     try {
         base64 = await fileToBase64(file);
     } catch (err) {
+        if (stale()) return;
         console.error('file read failed:', err);
         stopProgress();
         failScan(1, 'Could not read the file');
         return showAiStatus('Could not read that file.', 'error');
     }
+    if (stale()) return;
     await finishStage(1, began);   // 1 is done and was seen; 2 begins
+    if (stale()) return;
 
     // 2 Sent: the file goes up. Its percentage is the real upload. When the last byte is sent, 2 is done and 3 begins.
     showAiStatus('Sending the file\u2026');
@@ -1590,16 +1671,21 @@ async function analyzeDocumentSteps(file) {
     let uploadStarted = began;
     const reply = await postDocument(base64, {
         onProgress: (pct) => {
+            if (stale()) return;
             if (SCAN_STAGE && SCAN_STAGE.stage === 2) { SCAN_STAGE.uploadPct = pct; paintScanSteps(); }
         },
         // The upload stopped moving and was cancelled: circle 2 says so and starts again from 0% on a fresh connection.
         onRetry: (n) => {
+            if (stale()) return;
             if (SCAN_STAGE && SCAN_STAGE.stage === 2) { SCAN_STAGE.uploadPct = 0; SCAN_STAGE.retry = n; paintScanSteps(); }
             showAiStatus(`The upload stalled. Trying again (${n} of ${UPLOAD_TRIES})…`);
         },
         onUploaded: () => {
             // The whole file is up. Show stage 2 long enough to be seen, then the AI circle starts and counts its seconds.
+            // (Stopped meanwhile: nothing is painted, but the wait below is still released so the scan can end.)
+            if (stale()) return entered3();
             finishStage(2, uploadStarted).then(() => {
+                if (stale()) return entered3();
                 SCAN_STAGE = { ...SCAN_STAGE, t3: Date.now() };
                 paintScanSteps();
                 showAiStatus('Analyzing with AI\u2026 this can take a moment.');
@@ -1607,6 +1693,9 @@ async function analyzeDocumentSteps(file) {
             });
         },
     });
+
+    // Stopped while it was in flight: the answer, if one ever comes, is not read, and nothing turns red.
+    if (stale() || reply.cancelled) return;
 
     if (reply.status === 0 || reply.status >= 400 || !reply.data) {
         console.error('analyze-curriculum-document failed:', reply.status);
@@ -1644,6 +1733,7 @@ async function analyzeDocumentSteps(file) {
     }
 
     await inAIStage;               // never leave stage 2 unfinished, however fast the answer came back
+    if (stale()) return;
     const data = reply.data;
     began = SCAN_STAGE?.t3 ?? Date.now();
 
@@ -1656,6 +1746,7 @@ async function analyzeDocumentSteps(file) {
 
     // 3 AI reading is done (the answer is in); 4 Table built begins.
     await finishStage(3, began);
+    if (stale()) return;
     began = Date.now();
 
     const extracted = Array.isArray(data.subjects) ? data.subjects : [];
@@ -1803,11 +1894,14 @@ async function analyzeDocumentSteps(file) {
         // A footnote mark meaning "finish years 1 to N" is a year-standing
         // gate. It is held to before the subject's own semester so a
         // subject can never be asked to pass itself first.
-        if (row._aiMarker && row.year !== null) {
+        if (row._aiMarker) {         // catalogue electives too: they have no semester, so their gate is through year N (22, 32...)
             const y = FN.throughYear(row._aiMarker, footnotes);
             if (y) {
                 const pos = FN.standingPositionFor(y, row.year, row.term);
-                if (pos) { row.prereqs.push({ standing: Math.floor(pos / 10), pos }); gatesAdded++; }
+                // Not twice: a prerequisite that says "must finish 1st to 2nd year" in WORDS was already turned into this same gate
+                // above (the ACT PDF's Internship and Capstone rows each got two identical gates, 22 Nov 2026).
+                const already = row.prereqs.some(p => p.standing && (p.pos ?? p.standing * 10 + 2) === pos);
+                if (pos && !already) { row.prereqs.push({ standing: Math.floor(pos / 10), pos }); gatesAdded++; }
             } else if (footnotes.some(f => String(f?.marker ?? '').trim() === String(row._aiMarker).trim())) {
                 followUps.push(`${row.code}: "${row._aiMarker}"`);
             }
@@ -1822,6 +1916,7 @@ async function analyzeDocumentSteps(file) {
     TAB = ROWS.find(r => r.year)?.year ?? 1;
     validate();                    // the new rows are checked like any row the builder holds
     await finishStage(4, began);   // 4 Table built is done and was seen; 5 begins
+    if (stale()) return;           // stopped while the table was being built: the table was already cleared by Stop
     began = Date.now();
 
     // 5 Totals checked: the rows against the totals the document itself prints (shared/js/curriculum/extractioncheck.js).
@@ -1844,17 +1939,20 @@ async function analyzeDocumentSteps(file) {
     // What the file says about itself, kept for the pre-flight: the year and the programme it is printed for.
     SCAN_DOC = { year: data.academic_year ?? null, name: data.program_name ?? null };
     await finishStage(5, began);   // 5 Totals checked is done; 6 begins
+    if (stale()) return;
     began = Date.now();
 
     // 6 Ready: what the person is told, prepared from the checks above.
     const needFixing = badRows().length;
     const needsLook = selfCheck.warnings.length > 0 || SCAN_REPORT?.verdict === 'warn';
     await finishStage(6, began);   // 6 is done: all six circles are green (stage 7)
+    if (stale()) return;
 
     // All six green and the bar at 100%, held for a beat so it is seen, then the result's own circles take over. Without
     // the hold, render() would replace the card in the same tick and the finished row would never appear on screen.
     finishProgress();
     await new Promise((r) => setTimeout(r, 700));
+    if (stale()) return;
 
     PENDING_AI_FILE = null;
     SCAN_STAGE = null;             // the live circles give way to the result's circles (SCAN_REPORT)
@@ -1881,8 +1979,9 @@ const analyzeDocument = SingleFlight.guard(analyzeDocumentRun, {
 
 /* CANCEL (21 Nov 2026): the file goes, the scan's card and circles go, and the table is cleared. The table then shows what the
    DATABASE holds for the selected year (its saved subjects, or nothing for a new year); nothing saved is ever deleted here. */
-function discardUpload() {
+function discardUpload(message = 'Cancelled. The file was removed and the table cleared.') {
     PENDING_AI_FILE = null;
+    if (SAVE_NOTE && SAVE_NOTE.kind !== 'saving') clearSaveNote();
     SCAN_DOC = null;
     ISSUE_I = 0;
     removeBackPill();
@@ -1901,7 +2000,30 @@ function discardUpload() {
         const mine = ROWS;
         loadExisting(OPTS.prospectusId).then((data) => { if (data && ROWS === mine) applyExisting(data); });
     }
-    showAiStatus('Cancelled. The file was removed and the table cleared.', 'success');
+    showAiStatus(message, 'success');
+}
+
+/* STOP (22 Nov 2026): the scan is cut while the AI is still reading. The request is aborted in the browser and the scan is told it
+   is no longer current, so whatever answer comes back later is never read and cannot refill the table. The file, the circles, the bar
+   and the table go, as with Cancel. The server may still finish its one AI call; nothing is saved either way. */
+function stopScan() {
+    if (!AI_BUSY) return;
+    SCAN_RUN++;
+    LIVE_ABORT?.();
+    LIVE_ABORT = null;
+    discardUpload('Scan stopped. Nothing was saved.');
+}
+
+/* Esc stops a scan that is running, unless a dialog is open (Esc closes that first). Bound once. */
+let STOP_KEY_BOUND = false;
+function bindStopKey() {
+    if (STOP_KEY_BOUND) return;
+    STOP_KEY_BOUND = true;
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || !AI_BUSY) return;
+        if (document.querySelector('.cbp-overlay')) return;
+        stopScan();
+    });
 }
 
 /* Asks first when the table holds subjects that are not saved (a scan, or typing); with nothing to lose it just clears. */
@@ -1951,9 +2073,16 @@ function setAiBusy(on) {
         extract.disabled = on;
         extract.textContent = on ? 'Extracting…' : 'Extract Subjects';
     }
-    for (const id of ['ai-trash', 'ai-close', 'ai-cancel']) {
+    for (const id of ['ai-trash', 'ai-close']) {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = on;
+    }
+    // Cancel stays pressable while a scan runs: it becomes Stop, which cuts the scan (stopScan).
+    const stop = document.getElementById('ai-cancel');
+    if (stop) {
+        stop.textContent = on ? 'Stop' : 'Cancel';
+        stop.classList.toggle('is-stop', on);
+        stop.title = on ? 'Stop reading the file (Esc)' : 'Remove the file and clear the table';
     }
     // A run that ended without filling the grid (rejected or failed) must not leave the bar frozen part-way; a finished
     // run redraws the card, which starts with the bar hidden.
@@ -2077,7 +2206,10 @@ function bind() {
     });
 
     /* The "Unsaved changes" badge follows typing. A tick later, so the row has taken the new value first. */
-    MOUNT.addEventListener('input',  () => setTimeout(refreshDirty, 0));
+    MOUNT.addEventListener('input',  () => {
+        if (SAVE_NOTE && SAVE_NOTE.kind !== 'saving') clearSaveNote();      // an edit makes "Saved" / "Nothing new" old news
+        setTimeout(refreshDirty, 0);
+    });
     MOUNT.addEventListener('change', () => setTimeout(refreshDirty, 0));
 
     MOUNT.addEventListener('change', (e) => {
@@ -2261,7 +2393,7 @@ function bind() {
             return;
         }
         if (e.target.closest('#ai-cancel')) {
-            return cancelUpload();
+            return AI_BUSY ? stopScan() : cancelUpload();
         }
         if (e.target.closest('#ai-extract')) {
             return runAiExtraction();
@@ -2956,6 +3088,25 @@ let CREATE_BUSY = false;       // the check, or the save, is running: a second p
 
 async function create() {
     if (CREATE_BUSY) return;
+
+    /* Nothing new to write: every subject on screen is already in the database. Say so plainly instead of opening a dialog that ends in
+       "0 subjects and 0 rules created", which reads like a failure. Create and Save only ADD subjects and store prerequisite changes: an
+       edit to the code, title, units or semester of a subject that is already saved is not stored by either, and must not be passed off
+       as "saved". */
+    const rows = filled();
+    const unsaved = rows.filter(r => !r.dbId).length;
+    const ruleEdits = rows.length ? window.CurriculogicRuleSync.changedRows(rows, RULE_DEPS).length : 0;
+    if (rows.length && !unsaved && !ruleEdits) {
+        if (!isDirty()) {
+            setSaveNote('nothing', `Everything is already saved (${rows.length} subject${rows.length === 1 ? '' : 's'}). Nothing new to create.`);
+        } else {
+            setSaveNote('warn', 'You changed subjects that are already saved. Create and Save only add new subjects and store prerequisite changes: '
+                + 'a changed code, title, units or semester is not stored from this table.', 30000);
+        }
+        focusActions();
+        return;
+    }
+
     CREATE_BUSY = true;
     try { await createCheck(); } finally { CREATE_BUSY = false; }
 }
@@ -2984,7 +3135,12 @@ let COMMITTING = false;        // a save is running: a second confirm must not s
 async function commit() {
     if (COMMITTING) return;
     COMMITTING = true;
-    try { await commitRows(); } finally { COMMITTING = false; }
+    setSaveNote('saving', 'Saving… the table will refresh when it is done.');
+    try { await commitRows(); }
+    finally {
+        COMMITTING = false;
+        if (SAVE_NOTE?.kind === 'saving') clearSaveNote();      // it did not finish: the error, if any, is shown by the page
+    }
 }
 
 async function commitRows() {
@@ -3111,6 +3267,11 @@ async function commitRows() {
     SCAN_DOC = null;               // the file's claims belonged to the table that was just saved
     ISSUE_I = 0;
     removeBackPill();
+    // The answer, by the buttons, where the person is looking. The page re-mounts the builder right after this; the note survives that
+    // (it is kept while the programme and the year are the same), and the scroll is repeated once the saved table has come back.
+    setSaveNote('saved', `Saved: ${n} subject${n === 1 ? '' : 's'} and ${rules.length} rule${rules.length === 1 ? '' : 's'}.`);
+    focusActions();
+    setTimeout(focusActions, 900);
     OPTS.onDone?.(`${n} subjects and ${rules.length} rules created.`
         + (syncedExisting.count ? ' ' + window.CurriculogicRuleSync.message(syncedExisting.count, syncedExisting.dropped) : ''));
     render();
@@ -3120,6 +3281,7 @@ async function commitRows() {
 /* ---- entry point ---- */
 
 function mount(supabase, opts) {
+    bindStopKey();
     // The page re-mounts the builder after many things (a save, a version list refresh). If the table holds work the
     // database does not have, and the programme is the same, keep the rows: only refresh what the page passed in.
     if (MOUNT && opts?.mountEl && MOUNTED_PROGRAM === (opts.programId ?? null) && isDirty() && filled().length) {
@@ -3137,6 +3299,11 @@ function mount(supabase, opts) {
     SCAN_DOC = null;               // a fresh mount holds the database's rows, not a scan: no file is making claims
     ISSUE_I = 0;
     removeBackPill();
+    // The "Saved" note must outlive the re-mount that follows a save, but not a move to another year or programme.
+    if (SAVE_NOTE && (SAVE_NOTE.programId !== (opts.programId ?? null) || SAVE_NOTE.prospectusId !== (opts.prospectusId ?? null))) {
+        clearTimeout(SAVE_NOTE_TIMER);
+        SAVE_NOTE = null;
+    }
 
     if (!MOUNT) return console.error('CurriculumBuilder: no mount element');
 
@@ -3230,6 +3397,9 @@ window.CurriculumBuilder = {
     mount,
     open,
     isDirty,
+    /* The curriculum year the builder is working on (its prospectus id), which can be a year it has just created and the page
+       has not heard of yet. The page uses it to follow the builder to a new year. */
+    currentId: () => OPTS?.prospectusId ?? null,
     reset: () => { ROWS = []; SEQ = 1; SELECTED_YEAR = null; markClean(); render(); },
 };
 

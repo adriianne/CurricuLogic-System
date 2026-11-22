@@ -120,7 +120,7 @@ describe('the builder: open(), remembering the year, and unsaved changes', () =>
     });
     test('the badge is in the page, hidden when clean, and follows typing a tick later', () => {
         assert.ok(builder.includes('id="cb-unsaved" role="status"${isDirty() ? \'\' : \' hidden\'}>Unsaved changes'));
-        assert.ok(builder.includes("MOUNT.addEventListener('input',  () => setTimeout(refreshDirty, 0));"));
+        assert.match(builder, /MOUNT\.addEventListener\('input',  \(\) => \{\s+if \(SAVE_NOTE && SAVE_NOTE\.kind !== 'saving'\) clearSaveNote\(\);[^\n]*\s+setTimeout\(refreshDirty, 0\);\s+\}\);/);
         assert.ok(builder.includes("MOUNT.addEventListener('change', () => setTimeout(refreshDirty, 0));"));
         assert.ok(bcss.includes('.cb-unsaved {') && bcss.includes('.cb-unsaved[hidden] { display: none; }'));
     });

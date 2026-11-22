@@ -139,7 +139,7 @@ describe('the builder drives the circles from real events', () => {
     });
     test('anything unexpected turns the circle that was running red, instead of a card that just stops', () => {
         const wrap = builder.slice(builder.indexOf('async function analyzeDocumentRun'), builder.indexOf('async function analyzeDocumentSteps'));
-        assert.ok(wrap.includes('await analyzeDocumentSteps(file);'));
+        assert.ok(wrap.includes('await analyzeDocumentSteps(file, myRun);'));
         assert.ok(wrap.includes('failScan(at, \'Something went wrong\')'));
         assert.ok(wrap.includes('SCAN_STAGE.stage >= 1 && SCAN_STAGE.stage <= 6'));
     });
@@ -277,7 +277,7 @@ describe('an upload that stalls is retried instead of waited for (21 Nov 2026: 9
     test('only a stalled upload is retried, each time on a new connection, at most three tries', () => {
         assert.ok(post.includes('const UPLOAD_TRIES = 3;'));
         assert.ok(post.includes('for (let n = 1; n <= UPLOAD_TRIES; n++) {'));
-        assert.ok(post.includes('if (!reply.stalled || n === UPLOAD_TRIES) break;'));
+        assert.ok(post.includes('if (reply.cancelled || !reply.stalled || n === UPLOAD_TRIES) break;'));
         assert.ok(post.includes('onRetry(n + 1);'));
         assert.equal((post.match(/new XMLHttpRequest\(\)/g) || []).length, 1);        // made inside attempt(), so once per try
     });

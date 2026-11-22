@@ -76,6 +76,9 @@ function clampStanding(position, subjectYear, subjectTerm) {
    own first semester). */
 function standingPositionFor(year, subjectYear, subjectTerm) {
     if (!Number.isInteger(year) || year < 1) return null;
+    // A catalogue elective belongs to no year or semester (subjectYear is null), so there is no semester of its own to stay
+    // before: "finish years 1 to N" is simply through the 2nd semester of year N (22, 32...), as db/121 stored them for BSIT.
+    if (subjectYear === null || subjectYear === undefined || subjectYear === '') return year * 10 + 2;
     const pos = clampStanding(year * 10 + 2, subjectYear, subjectTerm);
     return pos >= 11 ? pos : null;
 }

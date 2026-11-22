@@ -925,6 +925,35 @@
 }
 .cb-ai-cancel:hover:not(:disabled) { border-color: #DC2626; color: #DC2626; }
 .cb-ai-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+/* While the AI is reading, Cancel is Stop: red, so it is clearly the way out. */
+.cb-ai-cancel.is-stop { border-color: #DC2626; color: #DC2626; font-weight: 700; }
+.cb-ai-cancel.is-stop:hover { background: #DC2626; color: #FFF; }
+
+/* The note by the buttons: what Create just did. */
+.cb-note { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.65rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+.cb-note b { display: inline-flex; align-items: center; justify-content: center; width: 1.1rem; height: 1.1rem; border-radius: 50%; font-size: 0.7rem; background: currentColor; }
+.cb-note b { color: inherit; }
+.cb-note.is-saved   { background: rgba(5, 150, 105, 0.12); color: #047857; animation: cb-note-in 0.35s ease-out; }
+.cb-note.is-nothing { background: rgba(100, 116, 139, 0.14); color: #475569; animation: cb-note-in 0.35s ease-out; }
+.cb-note.is-warn    { background: rgba(217, 119, 6, 0.14); color: #b45309; animation: cb-note-in 0.35s ease-out; }
+.cb-note.is-saving  { background: rgba(79, 70, 229, 0.1); color: #4338CA; }
+.cb-note b { -webkit-text-fill-color: #FFF; }
+@keyframes cb-note-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cb-note { animation: none !important; } }
+/* The Create button when there is nothing left to create. */
+.cb .cb-actions .btn-primary.is-saved,
+.cb .cb-actions .btn-primary.is-saved:hover { background: transparent; color: #047857; border: 1px solid rgba(5, 150, 105, 0.5); box-shadow: none; }
+.cb .cb-actions .btn-primary.is-saved:hover { background: rgba(5, 150, 105, 0.1); }
 .cb-cancel { max-width: 30rem; }
+
+/* "Create Academic Year": a small card, not a window-wide bar. The year box is only as wide as four digits need. */
+.cbp-modal.cb-yearmodal { width: min(22rem, calc(100vw - 2rem)); max-width: 22rem; }
+.cb-year-input {
+    width: 9rem; padding: 0.6rem 0.75rem; border: 1.5px solid var(--line, #E2E8F0); border-radius: 8px;
+    font: 600 1.25rem/1.2 var(--font-display, 'Space Grotesk', sans-serif); letter-spacing: 0.05em; text-align: center;
+    font-variant-numeric: tabular-nums; background: var(--surface, #FFF); color: inherit;
+}
+.cb-year-input:focus { outline: 2px solid var(--accent, #4F46E5); outline-offset: 1px; }
+.cb-yearmodal .cbp-body { padding-bottom: 0.5rem; }
 .cb-cf-foot .cb-cf-danger { background: #DC2626; border-color: #DC2626; color: #FFF; }
 .cb-cf-foot .cb-cf-danger:hover { background: #B91C1C; }

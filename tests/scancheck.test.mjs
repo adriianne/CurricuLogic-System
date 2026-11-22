@@ -151,7 +151,7 @@ describe('the builder shows the scan check under the upload', () => {
     });
     test('it is shown only while the rows are the ones that scan made, and a new scan clears it', () => {
         assert.ok(builder.includes('SCAN_REPORT.rowsRef !== ROWS'));
-        const start = builder.slice(builder.indexOf('async function analyzeDocumentRun'), builder.indexOf('async function analyzeDocumentRun') + 900);
+        const start = builder.slice(builder.indexOf('async function analyzeDocumentSteps'), builder.indexOf('async function analyzeDocumentSteps') + 900);
         assert.ok(start.includes('SCAN_REPORT = null;'));
     });
     test('the old single self-check is computed once, not twice', () => {

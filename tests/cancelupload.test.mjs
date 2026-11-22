@@ -14,24 +14,26 @@ const between = (a, b) => builder.slice(builder.indexOf(a), builder.indexOf(b, b
 
 describe('the button', () => {
     const card = between('function aiUploadHtml()', '/* ---- the circles while the scan runs ---- */');
-    test('shows while there is a file or a scan result, and is disabled while a scan is being read', () => {
+    test('shows while there is a file or a scan result, and is never disabled: while a scan is read it is Stop', () => {
         assert.match(card, /\$\{hasFile \|\| SCAN_REPORT \? `/);
         assert.ok(card.includes('id="ai-cancel"'));
-        assert.match(card, /id="ai-cancel" title="Remove the file and clear the table"\$\{AI_BUSY \? ' disabled' : ''\}>Cancel<\/button>/);
+        assert.ok(!/id="ai-cancel"[^>]*disabled/.test(card));
+        assert.ok(card.includes("${AI_BUSY ? 'Stop' : 'Cancel'}</button>"));
     });
     test('Extract Subjects is still there with a file, and not without one', () => {
         assert.match(card, /\$\{hasFile \? `<button class="btn-primary" id="ai-extract"/);
     });
-    test('it is locked and unlocked together with the other upload buttons', () => {
-        assert.ok(builder.includes("for (const id of ['ai-trash', 'ai-close', 'ai-cancel']) {"));
+    test('the X and the trash can stay locked during a scan, and Cancel is not one of them', () => {
+        assert.ok(builder.includes("for (const id of ['ai-trash', 'ai-close']) {"));
+        assert.ok(!builder.includes("'ai-trash', 'ai-close', 'ai-cancel'"));
     });
-    test('a click on it calls cancelUpload', () => {
-        assert.match(builder, /if \(e\.target\.closest\('#ai-cancel'\)\) \{\s+return cancelUpload\(\);/);
+    test('a click on it stops the scan while one runs, and cancels the upload otherwise', () => {
+        assert.match(builder, /if \(e\.target\.closest\('#ai-cancel'\)\) \{\s+return AI_BUSY \? stopScan\(\) : cancelUpload\(\);/);
     });
 });
 
 describe('what Cancel does', () => {
-    const fn = between('function discardUpload()', 'function cancelUpload()');
+    const fn = between('function discardUpload(', 'function cancelUpload()');
     test('forgets the file, what the file said, the scan card and the circles, and stops the bar', () => {
         for (const part of ['PENDING_AI_FILE = null;', 'SCAN_DOC = null;', 'SCAN_REPORT = null;', 'SCAN_STAGE = null;', 'stopProgress();']) {
             assert.ok(fn.includes(part), part);
@@ -48,7 +50,8 @@ describe('what Cancel does', () => {
         assert.ok(fn.includes('if (data && ROWS === mine) applyExisting(data);'));
     });
     test('says what happened', () => {
-        assert.ok(fn.includes("showAiStatus('Cancelled. The file was removed and the table cleared.', 'success');"));
+        assert.ok(fn.includes("message = 'Cancelled. The file was removed and the table cleared.'"));
+        assert.ok(fn.includes("showAiStatus(message, 'success');"));
     });
     test('never deletes from the database', () => {
         assert.ok(!/\.delete\(\)|\.from\('subject'\)\.delete|\.rpc\(/.test(fn));

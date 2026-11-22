@@ -31,14 +31,16 @@ describe('one check dialog at a time', () => {
     });
     test('pressing Create again while the check is running does nothing', () => {
         assert.match(builder, /let CREATE_BUSY = false;/);
-        assert.match(builder, /async function create\(\) \{\s+if \(CREATE_BUSY\) return;\s+CREATE_BUSY = true;\s+try \{ await createCheck\(\); \} finally \{ CREATE_BUSY = false; \}/);
+        assert.match(builder, /async function create\(\) \{\s+if \(CREATE_BUSY\) return;/);
+        assert.match(builder, /CREATE_BUSY = true;\s+try \{ await createCheck\(\); \} finally \{ CREATE_BUSY = false; \}/);
     });
 });
 
 describe('one save at a time', () => {
     test('a second confirm while a save runs does nothing, and the flag is always released', () => {
         assert.match(builder, /let COMMITTING = false;/);
-        assert.match(builder, /async function commit\(\) \{\s+if \(COMMITTING\) return;\s+COMMITTING = true;\s+try \{ await commitRows\(\); \} finally \{ COMMITTING = false; \}/);
+        assert.match(builder, /async function commit\(\) \{\s+if \(COMMITTING\) return;\s+COMMITTING = true;/);
+        assert.match(builder, /try \{ await commitRows\(\); \}\s+finally \{\s+COMMITTING = false;/);
     });
     test('the confirm button still calls commit, and the Create button still calls create', () => {
         assert.ok(builder.includes("if (e.target.closest('.cb-cf-go')) { close(); commit(); }"));

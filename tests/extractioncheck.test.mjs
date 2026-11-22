@@ -179,6 +179,6 @@ describe('the curriculum page shows the result', () => {
     });
     test('the check never blocks saving: it only warns', () => {
         const block = js.slice(js.indexOf('const selfCheck'), js.indexOf('showAiStatus(', js.indexOf('const selfCheck')));
-        assert.doesNotMatch(block, /return;|throw|disabled/);
+        assert.doesNotMatch(block.replace(/if \(stale\(\)\) return;/g, ''), /return;|throw|disabled/);    // a stopped scan ends quietly; that is not the check blocking
     });
 });
