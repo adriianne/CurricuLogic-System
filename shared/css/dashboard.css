@@ -685,6 +685,12 @@ dl:has(> .detail) { container: detail-list / inline-size; }
     vertical-align: middle;
 }
 
+/* Sections this term (Department → Schedule): the section being worked on is marked, and the two buttons sit together. */
+.sections-table tr.is-current td:first-child { box-shadow: inset 3px 0 0 var(--indigo); }
+.sections-table .sections-actions { white-space: nowrap; text-align: right; }
+.sections-table .sections-actions .btn-small + .btn-small { margin-left: 0.4rem; }
+.sections-table .dim { font-size: 0.82em; }
+
 .data-table tbody tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--canvas); }
 

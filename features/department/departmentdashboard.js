@@ -2779,6 +2779,7 @@ async function loadOfferings() {
     if (!year || !term) {
         OFFERINGS = [];
         PENDING = [];
+        renderSectionList();
         DIRTY.clear();
         body.innerHTML = `
             <div class="empty">
@@ -2931,6 +2932,90 @@ async function reloadScheduleView() {
     renderOfferings();
 }
 
+/* Sections this term: one line per section with saved offerings for the chosen year and term (shared/js/schedule/sectionlist.js).
+   View loads the section into the table below; Print opens its timetable. It reads OFFERINGS, the saved rows, so a section
+   with edits that are not saved yet says so rather than showing numbers nobody has stored. */
+function renderSectionList() {
+    const body = $('sections-body');
+    if (!body) return;
+    const note = $('sections-note');
+    const { year, term } = schedTerm();
+    const SL = window.CurriculogicSectionList;
+    if (!year || !term) {
+        if (note) note.textContent = '';
+        body.innerHTML = '<p class="dim">Choose an academic year and term below to list its sections.</p>';
+        return;
+    }
+    const termText = `${termLabel(term)} · AY ${year}–${year + 1}`;
+    const list = SL.summarize(OFFERINGS, subjectById);
+    if (note) note.textContent = termText;
+    if (!list.length) {
+        body.innerHTML = `<p class="dim">No section has a saved schedule for ${escapeHtml(termText)} yet. Pick a year and section below to build one.</p>`;
+        return;
+    }
+    const current = currentSection();
+    const stateLabel = { ready: ['ok', 'Complete'], partial: ['waiting', 'Some times missing'], empty: ['bad', 'No times yet'] };
+    body.innerHTML = `
+        <div class="table-wrap"><table class="data-table sections-table">
+            <thead><tr><th>Section</th><th>Subjects</th><th>Meetings</th><th>Units</th><th>Status</th><th></th></tr></thead>
+            <tbody>${list.map(s => {
+                const [cls, label] = stateLabel[s.state];
+                const unsaved = DIRTY.has(s.section);
+                return `<tr class="${escapeHtml(s.section === current ? 'is-current' : '')}">
+                    <td><strong>${escapeHtml(s.section)}</strong></td>
+                    <td>${s.subjects}</td>
+                    <td>${s.rows}${s.labs ? ` <span class="dim">(${s.lectures} lecture, ${s.labs} lab)</span>` : ''}</td>
+                    <td>${s.units}</td>
+                    <td><span class="pill ${cls}">${escapeHtml(label)}</span>${unsaved ? ' <span class="pill info">Unsaved edits</span>' : ''}</td>
+                    <td class="sections-actions">
+                        <button type="button" class="btn-small" data-section-view="${escapeHtml(s.section)}">View</button>
+                        <button type="button" class="btn-small" data-section-print="${escapeHtml(s.section)}">Print</button>
+                    </td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table></div>`;
+}
+
+/* View: select the section in the dropdowns below and bring the table into view. */
+function viewSection(section) {
+    const p = window.CurriculogicSectionList.parts(section);
+    if (!p) return;
+    const yearSel = $('sched-year-level');
+    if (yearSel) yearSel.value = String(p.level);
+    renderSectionLetterOptions();
+    const letterSel = $('sched-section-letter');
+    if (letterSel && [...letterSel.options].some(o => o.value === p.letter)) letterSel.value = p.letter;
+    refreshTemplateCount();
+    renderOfferings();
+    $('build-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* Print: the saved rows of one section as a timetable in a new window. */
+function printSection(section) {
+    const { year, term } = schedTerm();
+    const rows = OFFERINGS.filter(o => o.section === section);
+    if (!rows.length) return showMsg('sched-msg', `${section} has no saved schedule to print.`);
+    const w = window.open('', '_blank', 'width=900,height=1000');
+    if (!w) return showMsg('sched-msg', 'The print window was blocked. Allow pop-ups for this site.');
+    w.document.write(window.CurriculogicSectionList.timetableHtml({
+        section,
+        termText: `${termLabel(term)} · AY ${year}–${year + 1}`,
+        rows,
+        subjectOf: subjectById,
+        programName: PROGRAM?.name || PROGRAM_CODE,
+    }));
+    w.document.close();
+    w.onload = () => { w.focus(); w.print(); };
+    setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 400);
+}
+
+$('sections-body')?.addEventListener('click', (e) => {
+    const v = e.target.closest('[data-section-view]');
+    if (v) return viewSection(v.dataset.sectionView);
+    const p = e.target.closest('[data-section-print]');
+    if (p) return printSection(p.dataset.sectionPrint);
+});
+
 function renderOfferings() {
     const body  = $('offerings-body');
     const stats = $('schedule-stats');
@@ -2939,6 +3024,8 @@ function renderOfferings() {
 
     const { year, term } = schedTerm();
     const section = currentSection();
+
+    renderSectionList();
 
     const visible = section
         ? PENDING.filter(o => o.section === section)
