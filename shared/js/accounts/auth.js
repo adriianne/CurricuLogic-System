@@ -344,6 +344,16 @@ if (new URLSearchParams(window.location.search).get('confirmed') === '1') {
     history.replaceState(null, '', window.location.pathname);
 }
 
+// An e-mail link that was refused (already used, or expired): the reason arrives after a "#" in the address. Say what it
+// means and what to do, then drop it from the address bar. See shared/js/accounts/linkerror.js.
+{
+    const linkProblem = window.CurriculogicLinkError?.read(window.location.hash, window.location.search);
+    if (linkProblem) {
+        showMsg(linkProblem.message, 'error');
+        history.replaceState(null, '', window.location.pathname);
+    }
+}
+
 // Back from the Set password page: say the password was changed, and which one to use.
 if (new URLSearchParams(window.location.search).get('reset') === '1') {
     showMsg('Your password has been changed. Log in with your new password.', 'success');
