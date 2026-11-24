@@ -1825,7 +1825,32 @@ async function analyzeDocumentSteps(file, myRun) {
     let gatesAdded = 0;
     let coreqsAdded = 0;
 
+    // A link between two subjects of the SAME semester can only mean "taken together": nobody can pass a subject before the
+    // one they are taking beside it. A "Pre / Co-requisite" column (the BSHM prospectus) lists such links with the
+    // prerequisites, and the scan read them as prerequisites, which the earlier-semester check then rejected. They become
+    // "goes with" links, and each is listed on the check card so a misread cannot slip through unseen.
+    const sameTerm = (a, b) => a.year != null && a.term != null && a.year === b.year && a.term === b.term;
+    const linkTo = (row, target, wording) => {
+        if (target === row || row.prereqs.some(p => p.uid === target.uid)) return;
+        if (sameTerm(row, target)) {
+            row.prereqs.push({ uid: target.uid, co: true });
+            coreqsAdded++;
+            interpreted.push(`${row.code}: ${wording} is in the same semester, so it was read as a goes-with (co-requisite) link with ${target.code}`);
+        } else {
+            row.prereqs.push({ uid: target.uid });
+        }
+    };
+
     for (const row of ROWS) {
+        // "HM 111, 112, 113" arrives as "HM 111", "112", "113": a bare number takes the letters of the code before it, when
+        // that is a subject of this document (shared/js/curriculum/prereqshorthand.js).
+        const shorthand = window.CurriculogicPrereqShorthand?.expand(row._aiPrereqCodes, (c) => byCode.has(SC.key(c)));
+        if (shorthand) {
+            row._aiPrereqCodes = shorthand.codes;
+            if (shorthand.expanded.length) {
+                interpreted.push(`${row.code}: ${shorthand.expanded.map(e => `"${e.from}"`).join(', ')} read as ${shorthand.expanded.map(e => e.to).join(', ')}`);
+            }
+        }
         for (const prereqCode of row._aiPrereqCodes) {
             let target = byCode.get(SC.key(prereqCode));
             // A subject never requires itself. When the code is shared by two rows (the BSCS 2023-2024 PDF prints ELDNET1 for both
@@ -1842,7 +1867,7 @@ async function analyzeDocumentSteps(file, myRun) {
             // reviewer sees the row with that prerequisite simply absent
             // and can add it manually via the existing picker if needed.
             // It is now listed below so it is not lost without a word.
-            if (target) row.prereqs.push({ uid: target.uid });
+            if (target) linkTo(row, target, `"${prereqCode}"`);
             else followUps.push(`${row.code}: prerequisite "${prereqCode}" is not a subject in this document`);
         }
 
@@ -1865,11 +1890,7 @@ async function analyzeDocumentSteps(file, myRun) {
         // space: "LEA111") is resolved to its subject; what is left is real
         // non-code text ("All prof courses", "GEC") that has no rule form.
         const { matched, leftover } = FN.resolveNotes(row._aiNotes, looseIndex);
-        for (const target of matched) {
-            if (target !== row && !row.prereqs.some(p => p.uid === target.uid)) {
-                row.prereqs.push({ uid: target.uid });
-            }
-        }
+        for (const target of matched) linkTo(row, target, `"${target.code}"`);
         // Wording such as "All CLJ/CDI Subjects" or "Finished Third Year
         // Subjects" is turned into a rule the engine understands. The result
         // is listed for review; text with no defined meaning ("GEC") is left
@@ -1913,6 +1934,19 @@ async function analyzeDocumentSteps(file, myRun) {
         delete row._aiCoreqCodes;
     }
 
+    // A summer block printed under the wrong year (the BSHM prospectus prints the summer between years 1 and 2 under SECOND YEAR) breaks
+    // the order of the prerequisites. It is moved to the neighbouring year only when that is what makes them hold, and each move is
+    // listed on the check card (shared/js/curriculum/summerplacement.js).
+    const moved = [];
+    for (const m of window.CurriculogicSummerPlacement?.analyze(ROWS).moves ?? []) {
+        m.row.year = m.to;
+        moved.push(`${m.row.code}: printed under year ${m.from} summer, placed in year ${m.to} summer because ${m.because}`);
+    }
+
+    // What the chains say about the document, from the subjects themselves (shared/js/curriculum/chainanalysis.js): a later part
+    // of a sequence that does not lead back to the earlier part, one that comes too early, and the longest chain. Reported only.
+    const chain = window.CurriculogicChainAnalysis?.analyze(ROWS) ?? { sequels: [], outOfOrder: [], longest: null };
+
     TAB = ROWS.find(r => r.year)?.year ?? 1;
     validate();                    // the new rows are checked like any row the builder holds
     await finishStage(4, began);   // 4 Table built is done and was seen; 5 begins
@@ -1933,6 +1967,8 @@ async function analyzeDocumentSteps(file, myRun) {
         coreqs: coreqsAdded,
         followUps,
         interpreted,
+        moved,
+        chain,
         rowsWithErrors: badRows().length,
     }) ?? null;
     if (SCAN_REPORT) SCAN_REPORT.rowsRef = ROWS;

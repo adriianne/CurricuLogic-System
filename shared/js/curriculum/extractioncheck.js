@@ -51,15 +51,20 @@ function check(subjects, printedTotals) {
 
     // ---- the printed totals ----
     const printed = printedTotals && typeof printedTotals === 'object' ? printedTotals : {};
-    const grand = num(printed.grand_total_units);
+    const totals = grandTotals(printed);
+    const grand = totals.length ? totals[0].units : NaN;
 
-    if (whole(grand) && grand > 0) {
+    if (totals.length) {
         checked = true;
-        if (actualTotal !== grand) {
+        // A document may print one total per track (BSHM: ABM Track 165, non-ABM Academic Track 180): the subjects only have to
+        // add up to ONE of them.
+        if (!totals.some((t) => t.units === actualTotal)) {
             const diff = grand - actualTotal;
+            const others = totals.slice(1).map((t) => t.units);
             warnings.push(
                 `The subjects add up to ${actualTotal} units, but the document's total is ${grand} `
-                + `(${Math.abs(diff)} unit${Math.abs(diff) === 1 ? '' : 's'} ${diff > 0 ? 'short' : 'over'}). `
+                + `(${Math.abs(diff)} unit${Math.abs(diff) === 1 ? '' : 's'} ${diff > 0 ? 'short' : 'over'}`
+                + `${others.length ? `; it also prints ${others.join(' and ')}` : ''}). `
                 + `Check that no subject, or a whole block such as a summer term, is missing or counted twice.`);
         }
     }
@@ -105,7 +110,7 @@ function check(subjects, printedTotals) {
 
      overview(subjects, printedTotals, extras) -> { verdict: 'ok' | 'warn', headline, sub, checks: [{ status, title, detail, items }],
                                                    blocks: [{ label, printed, read, ok }], note, passed, warned }
-       extras: { prereqLinks, gates, coreqs, followUps: [text], interpreted: [text], rowsWithErrors }
+       extras: { prereqLinks, gates, coreqs, followUps: [text], interpreted: [text], moved: [text], chain: { sequels, outOfOrder, longest }, rowsWithErrors }
 
    It can only compare the reading with what the document prints and with the builder's own rules. A prerequisite
    that was read wrongly but still names a real subject, or a mis-read title, is invisible to it: the note says so.
@@ -115,6 +120,21 @@ const NOTE = 'These checks compare the scan with the totals printed in the docum
     + 'They cannot tell whether a prerequisite or a title was read wrongly, so still skim the rows below before you save.';
 
 const plural = (n, one, many) => (n === 1 ? one : many);
+
+/* Every programme total the document prints: the main one (grand_total_units) and any others it prints with a label, such as one per
+   track ("Total units for ABM Track: 165", "Total units for non-ABM Academic Track: 180", the BSHM prospectus, 23 Nov 2026).
+   Returns [{ units, label }], the main one first; a total printed twice counts once. */
+function grandTotals(printed) {
+    const out = [];
+    const main = num(printed?.grand_total_units);
+    if (whole(main) && main > 0) out.push({ units: main, label: null });
+    for (const g of Array.isArray(printed?.other_grand_totals) ? printed.other_grand_totals : []) {
+        const u = num(g?.total_units);
+        if (!whole(u) || u <= 0 || out.some((o) => o.units === u)) continue;
+        out.push({ units: u, label: String(g?.label ?? '').trim() || null });
+    }
+    return out;
+}
 const UNRESOLVED = /is not a subject in this document/;
 
 function overview(subjects, printedTotals, extras) {
@@ -124,8 +144,9 @@ function overview(subjects, printedTotals, extras) {
     const scheduled = subs.filter((s) => Number.isInteger(s?.year_level) && Number.isInteger(s?.term));
     const catalogue = subs.length - scheduled.length;
     const printed = printedTotals && typeof printedTotals === 'object' ? printedTotals : {};
-    const grand = num(printed.grand_total_units);
-    const hasGrand = whole(grand) && grand > 0;
+    const totals = grandTotals(printed);
+    const grand = totals.length ? totals[0].units : NaN;
+    const hasGrand = totals.length > 0;
 
     const checks = [];
     // jump: which rows of the table this check is about, so the card can take the person to them: { kind: 'issues' } (every row
@@ -141,13 +162,23 @@ function overview(subjects, printedTotals, extras) {
 
     // 2. units against the grand total
     if (hasGrand) {
-        if (base.actualTotal === grand) {
+        const hit = totals.find((t) => t.units === base.actualTotal);
+        const rest = totals.filter((t) => t !== hit);
+        const name = (t) => (t.label ? `${t.units} (${t.label})` : String(t.units));
+        if (hit && !rest.length) {
             add('ok', 'Units match the document', `The subjects add up to ${base.actualTotal} of the ${grand} units the document prints.`);
+        } else if (hit) {
+            // The document prints a total for each track: this reading matches one of them, and the others differ by a known amount.
+            const gaps = rest.map((t) => `${name(t)}, ${Math.abs(t.units - hit.units)} ${plural(Math.abs(t.units - hit.units), 'unit', 'units')} ${t.units > hit.units ? 'more' : 'fewer'}`);
+            add('ok', 'Units match the document',
+                `The subjects add up to ${base.actualTotal} units${hit.label ? `, the ${hit.label} total` : ', one of the totals the document prints'}. `
+                + `It also prints ${gaps.join(' and ')}: a total for another track, whose extra subjects are not in these tables.`);
         } else {
             const diff = grand - base.actualTotal;
+            const others = rest.slice(1).map((t) => t.units);
             add('warn', 'Units do not match the document',
                 `The subjects add up to ${base.actualTotal} units; the document prints ${grand} `
-                + `(${Math.abs(diff)} ${plural(Math.abs(diff), 'unit', 'units')} ${diff > 0 ? 'short' : 'over'}).`);
+                + `(${Math.abs(diff)} ${plural(Math.abs(diff), 'unit', 'units')} ${diff > 0 ? 'short' : 'over'}${others.length ? `; it also prints ${others.join(' and ')}` : ''}).`);
         }
     }
 
@@ -242,6 +273,31 @@ function overview(subjects, printedTotals, extras) {
     const interpreted = Array.isArray(x.interpreted) ? x.interpreted.map(String) : [];
     if (interpreted.length) {
         add('info', `${interpreted.length} ${plural(interpreted.length, 'note', 'notes')} turned into rules`, 'The wording was read as a rule. Check each one.', interpreted, { kind: 'codes', codes: codesOf(interpreted) });
+    }
+    // A summer block moved to another year because its prerequisites only work there (shared/js/curriculum/summerplacement.js).
+    const moved = Array.isArray(x.moved) ? x.moved.map(String) : [];
+    if (moved.length) {
+        add('info', `${moved.length} summer ${plural(moved.length, 'subject was', 'subjects were')} placed by the prerequisites`,
+            'The document prints the summer under one year, but the prerequisites only work in another. Check that this matches what the document means.',
+            moved, { kind: 'codes', codes: codesOf(moved) });
+    }
+    // What the chains say, read from the subjects themselves (shared/js/curriculum/chainanalysis.js). Reported only: nothing is changed.
+    const chain = x.chain && typeof x.chain === 'object' ? x.chain : {};
+    const outOfOrder = Array.isArray(chain.outOfOrder) ? chain.outOfOrder.map(String) : [];
+    if (outOfOrder.length) {
+        add('warn', `${outOfOrder.length} later ${plural(outOfOrder.length, 'part comes', 'parts come')} too early`,
+            'Part 2 of a subject must be taken after part 1. Check the semester of each one against the document.',
+            outOfOrder, { kind: 'codes', codes: codesOf(outOfOrder) });
+    }
+    const sequels = Array.isArray(chain.sequels) ? chain.sequels.map(String) : [];
+    if (sequels.length) {
+        add('info', `${sequels.length} later ${plural(sequels.length, 'part has', 'parts have')} no link back to the earlier part`,
+            'Part 2 of a subject normally needs part 1. The document may not print it, or it may have been missed: check each one, and add the link by hand if it is needed.',
+            sequels, { kind: 'codes', codes: codesOf(sequels) });
+    }
+    if (chain.longest && Array.isArray(chain.longest.codes) && chain.longest.codes.length >= 3) {
+        add('info', `Longest chain of prerequisites: ${chain.longest.codes.length} subjects`,
+            chain.longest.codes.join(' → '), null, { kind: 'codes', codes: chain.longest.codes });
     }
     if (byHand.length) {
         add('warn', `${byHand.length} ${plural(byHand.length, 'note needs', 'notes need')} adding by hand`, 'The document states these in words that have no rule form.', byHand, { kind: 'codes', codes: codesOf(byHand) });
