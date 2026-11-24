@@ -123,6 +123,37 @@ function programmeFit(printedName, program) {
     return { fits: score >= FIT_AT, score };
 }
 
-return { NEAR, MIN_SUBJECTS, compare, findSame, fromBuilderRow, fromDbRow, printedYear, yearMismatch, programmeFit };
+/** A file whose printed programme has NOTHING in common with this one: no shared meaningful word and no programme code in its name
+    (the Criminology prospectus read into BSHM, 24 Nov 2026: "Criminology" against "Hospitality Management"). Close names that only share
+    some words (BSCS against BSCSAI) are not a clash: they stay a warning, because the wording of a programme's name varies. */
+function programmeClash(printedName, program) {
+    const fit = programmeFit(printedName, program);
+    if (!(fit.score === 0 && !fit.fits)) return false;
+    // A name that is only an abbreviation ("BSCS-AI", "BS IT") says nothing a word comparison can judge: it shares no word with the full
+    // name by nature. Only a name with a real programme word in it ("Criminology", "Hospitality") can clash, since a false stop cannot be overridden.
+    return [...nameWords(printedName)].some((w) => w.length >= 6);
+}
+
+/** What must stop a save before anything is written, as plain sentences (empty when it may go ahead).
+      hasVersion   a curriculum version (a year's row) is already open, so the year is known
+      year         the curriculum year chosen, when no version exists yet
+      printedName  the programme name printed in the scanned file ('' when nothing was scanned)
+      program      { code, name } of the programme being worked on
+    Two things happened on 24 Nov 2026: the same Criminology file was saved into BSHM twice (the second time published and active), and a
+    version was saved with no year at all. Both are refused here instead of being left to a warning someone can click through. */
+function saveGuard({ hasVersion, year, printedName, program } = {}) {
+    const out = [];
+    if (!hasVersion && !(Number(year) >= 2000)) {
+        out.push('Choose the curriculum year first. A curriculum cannot be saved without a year.');
+    }
+    if (printedName && programmeClash(printedName, program)) {
+        const own = [program?.code, program?.name].filter(Boolean).join(' ');
+        out.push(`This file is for “${printedName}”, which has nothing in common with ${own || 'this programme'}. ` +
+                 `It belongs to another programme: sign in with that programme’s Department account, or choose the right file. Nothing was saved.`);
+    }
+    return out;
+}
+
+return { NEAR, MIN_SUBJECTS, compare, findSame, fromBuilderRow, fromDbRow, printedYear, yearMismatch, programmeFit, programmeClash, saveGuard };
 
 }));

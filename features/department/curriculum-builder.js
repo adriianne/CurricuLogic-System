@@ -1202,6 +1202,16 @@ function yearTaken(error) {
         : null;
 }
 
+/* What must stop a save before anything is written: the plain sentences from samecurriculum.js saveGuard(), for the state of this page. */
+function saveProblems() {
+    return window.CurriculogicSameCurriculum.saveGuard({
+        hasVersion: !!OPTS.prospectusId,
+        year: SELECTED_YEAR,
+        printedName: SCAN_DOC?.name ?? '',
+        program: { code: OPTS.programCode, name: OPTS.programName },
+    });
+}
+
 function preflight(taken, others = [], elsewhere = []) {
     const blockers = [];
     const warnings = [];
@@ -1211,6 +1221,9 @@ function preflight(taken, others = [], elsewhere = []) {
         blockers.push('There are no subjects to save.');
         return { blockers, warnings };
     }
+
+    // Refused outright, not left to a warning: a file for another programme, and a curriculum with no year (shared/js/curriculum/samecurriculum.js).
+    blockers.push(...saveProblems());
 
     // NOTE: previously this blocked Create Curriculum outright once every
     // row already had a dbId (i.e. Save (unpublished) had already saved them
@@ -1288,7 +1301,8 @@ function preflight(taken, others = [], elsewhere = []) {
         }
         if (SCAN_DOC?.name && (OPTS.programName || OPTS.programCode)) {
             const fit = SAME.programmeFit(SCAN_DOC.name, { code: OPTS.programCode, name: OPTS.programName });
-            if (!fit.fits) {
+            // A file with nothing in common is already a blocker above; this is for names that share some words.
+            if (!fit.fits && !SAME.programmeClash(SCAN_DOC.name, { code: OPTS.programCode, name: OPTS.programName })) {
                 warnings.push(`This file is for “${SCAN_DOC.name}”, but this curriculum is for ` +
                               `${OPTS.programCode ? OPTS.programCode + ' ' : ''}${OPTS.programName ?? ''}`.trim() + '. Check that it is the right file.');
             }
@@ -2694,6 +2708,10 @@ async function saveDraft() {
         return OPTS.onError?.('Nothing to save yet — add a subject first.');
     }
 
+    // Save (unpublished) writes too: it gets the same two refusals as Create.
+    const stopped = saveProblems();
+    if (stopped.length) return OPTS.onError?.(stopped[0]);
+
     // Prerequisites refer to rows by uid. Creating the curriculum year in
     // step 1 makes the host remount the builder, which replaces ROWS, so
     // a lookup against ROWS in step 6 found nothing and every prerequisite
@@ -3181,6 +3199,11 @@ async function commit() {
 
 async function commitRows() {
     if (badRows().length || !filled().length) return;
+
+    // The same refusals as the pre-flight, once more at the last moment: a file for another programme and a curriculum with no year must
+    // never reach the database, whichever way this was started.
+    const stopped = saveProblems();
+    if (stopped.length) { setSaveNote('warn', stopped[0], 30000); return; }
 
     const btn = MOUNT.querySelector('#cb-create');
     if (btn) { btn.disabled = true; btn.textContent = 'Creating\u2026'; }
