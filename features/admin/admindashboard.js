@@ -1353,9 +1353,14 @@ function bdRender() {
         : `<p class="prog-dlg-empty">${term ? 'No programme matches that search.' : 'No programmes yet.'}</p>`;
 
     const n = BD.chosen.size;
-    $('bulk-dlg-count').textContent = n ? `${n} programme${n === 1 ? '' : 's'} chosen` : 'Choose at least one programme';
+    // Apply is greyed until the choice has been previewed and the preview found a change: say what to do next, so it does not look broken.
+    const next = window.CurriculogicBulkApplyHint?.nextStep({
+        chosen: n, busy: BD.busy, done: BD.done, previewKey: BD.previewKey, key: bdKey(), previewChanged: BD.previewChanged,
+    }) ?? '';
+    $('bulk-dlg-count').textContent = n ? `${n} programme${n === 1 ? '' : 's'} chosen${next ? ' · ' + next : ''}` : 'Choose at least one programme';
     $('bulk-dlg-preview-btn').disabled = BD.busy || BD.done || n === 0;
     $('bulk-dlg-apply').disabled = BD.busy || BD.done || BD.previewKey !== bdKey() || BD.previewChanged === 0;
+    $('bulk-dlg-apply').title = $('bulk-dlg-apply').disabled && next ? next.charAt(0).toUpperCase() + next.slice(1) + '.' : '';
 }
 
 /* The answer of bulk_set_staff_programs, as a summary line and a table: who changes, who is skipped and why. */
@@ -2991,7 +2996,9 @@ async function loadPrograms() {
         supabase.from('program').select('id, code, name, college, max_units, max_units_graduating, target_units').order('code'),
         supabase.from('faculty_program').select('program_id'),
         supabase.from('registrar_program').select('program_id'),
-        supabase.from('department_staff').select('program_id'),
+        // Every programme a Department account covers (db/114), the main one included: Pedro covers ACT, BSCS, BSCSAI and BSIT, and the table
+        // showed only BSIT, because department_staff.program_id holds just the MAIN programme (24 Nov 2026). Faculty and Registrar already read theirs this way.
+        supabase.from('department_program').select('program_id'),
         supabase.from('university_student').select('program_id'),
         supabase.from('prospectus').select('program_id').eq('is_active', true),
     ]);
