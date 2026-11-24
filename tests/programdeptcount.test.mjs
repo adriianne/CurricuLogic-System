@@ -14,15 +14,17 @@ const load = js.slice(js.indexOf('async function loadPrograms()'), js.indexOf('f
 
 describe('where the Department count comes from', () => {
     test('the programme page reads department_program, not the staff table\'s single main programme', () => {
-        assert.ok(load.includes("supabase.from('department_program').select('program_id')"));
+        assert.ok(load.includes("supabase.from('department_program').select('program_id, department_staff(is_approved)')"));
         assert.equal(load.includes("supabase.from('department_staff').select('program_id')"), false);
     });
     test('Faculty and Registrar are still read from their own many-programme tables', () => {
-        assert.ok(load.includes("supabase.from('faculty_program').select('program_id')"));
-        assert.ok(load.includes("supabase.from('registrar_program').select('program_id')"));
+        assert.ok(load.includes("supabase.from('faculty_program').select('program_id, faculty_staff(is_approved)')"));
+        assert.ok(load.includes("supabase.from('registrar_program').select('program_id, registrar_staff(is_approved)')"));
     });
-    test('each row of the table adds one to its programme, as before', () => {
-        assert.ok(load.includes('for (const d of department.data ?? []) { const s = PROGRAM_STATS.get(d.program_id); if (s) s.department++; }'));
+    test('each active account adds one to its programme; a stopped one adds nothing (db/130)', () => {
+        assert.ok(load.includes('if (s && d.department_staff?.is_approved === true) s.department++; }'));
+        assert.ok(load.includes('if (s && f.faculty_staff?.is_approved === true) s.faculty++; }'));
+        assert.ok(load.includes('if (s && r.registrar_staff?.is_approved === true) s.registrar++; }'));
     });
     test('the cap shown is still one Department account per programme', () => {
         assert.ok(js.includes('department: 1 }') || /ROLE_LIMIT = \{[^}]*department: 1/.test(js));

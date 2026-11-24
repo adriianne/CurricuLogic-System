@@ -2278,6 +2278,7 @@ async function loadRequestPicker() {
 
     // The Auto-select card is always on this page. A result from an earlier press is cleared here.
     if ($('auto-plan-result')) $('auto-plan-result').hidden = true;
+    if ($('swap-result')) $('swap-result').hidden = true;
 
     // Wishes from Cura are used once, on this load. They are dropped on the early exits below,
     // where the page already says why there is nothing to pick.
@@ -2424,6 +2425,8 @@ async function loadRequestPicker() {
 
         $('req-submit')?.addEventListener('click', submitAdvisingRequest);
         $('auto-plan-btn')?.addEventListener('click', () => runAutoPlan());
+        $('swap-suggest-btn')?.addEventListener('click', () => runSwapSuggestion());
+        $('swap-result')?.addEventListener('click', (e) => { if (e.target.closest('[data-apply-swap]')) applySwapSuggestion(); });
         // Morning / Afternoon / Evening schedules: the same Auto-select, limited to that part of the day.
         document.querySelectorAll('[data-auto-period]').forEach(b => {
             b.addEventListener('click', () => {
@@ -2510,6 +2513,75 @@ async function runAutoPlan(wishes = null, period = null) {
 
     // Ready to read and submit.
     if (plan.picks.length) $('req-submit')?.focus({ preventScroll: false });
+}
+
+/* ---- Suggest a swap to cut vacant time ----
+   shared/js/enrolment/vacanttime.js finds it; this feeds it the subjects the student has ticked and
+   the sections they are in, then shows the answer. A swap moves one subject to another section of
+   the same subject (lecture and lab together), only when nothing in the plan overlaps. "Apply" sets
+   the same section boxes the student could have changed by hand. Nothing is sent. */
+const fmtHours = (h) => `${Math.round(h * 10) / 10} h`;
+
+function swapPlanPicks() {
+    return pickerCandidates()
+        .filter(entry => SELECTED_SUBJECT_IDS.has(entry.subject.id))
+        .map(entry => ({
+            subjectId: entry.subject.id,
+            code: entry.subject.code,
+            section: chosenSection(entry)?.section ?? null,
+            sections: entry.sections ?? [],
+        }));
+}
+
+function runSwapSuggestion(afterApply = false) {
+    const box = $('swap-result');
+    if (!box || !window.CurriculogicVacantTime || !window.ScheduleConflicts) return;
+    const picks = swapPlanPicks();
+    if (!picks.length) {
+        box.className = 'auto-plan-result';
+        box.innerHTML = '<p>Pick your subjects first, or press Auto-select plan, then ask for a swap.</p>';
+        box.hidden = false;
+        return;
+    }
+    const res = window.CurriculogicVacantTime.suggestSwaps({ picks, sc: window.ScheduleConflicts });
+
+    if (!res.swaps.length) {
+        const nothing = res.status === 'no-gap';
+        box.className = 'auto-plan-result' + (nothing ? ' is-ok' : '');
+        box.innerHTML = afterApply
+            ? `<p>Applied. Your vacant time is now ${escapeHtml(fmtHours(res.before))} a week, and no other swap would reduce it.</p>`
+            : `<p>${escapeHtml(res.reason)}</p>`
+              + (nothing || res.status === 'none-posted' ? '' : `<p class="dim">Vacant time now: ${escapeHtml(fmtHours(res.before))} a week.</p>`);
+        box.hidden = false;
+        return;
+    }
+
+    const lines = res.swaps.map(s => `
+        <li>Take <strong>${escapeHtml(s.code)}</strong> in section <strong>${escapeHtml(s.to)}</strong>
+            instead of ${escapeHtml(s.from)}: ${escapeHtml(s.meetings.map(fmtMeeting).join(' + '))}</li>`).join('');
+    box.className = 'auto-plan-result is-ok';
+    box.innerHTML = `
+        <p>You have <strong>${escapeHtml(fmtHours(res.before))}</strong> of vacant time between classes each week.
+           This swap brings it to <strong>${escapeHtml(fmtHours(res.after))}</strong>, saving ${escapeHtml(fmtHours(res.before - res.after))},
+           with no overlaps and no subject repeated.</p>
+        <ul class="auto-plan-left">${lines}</ul>
+        <button type="button" class="btn-primary" data-apply-swap>Apply this swap</button>`;
+    box.hidden = false;
+    box._swaps = res.swaps;
+}
+
+function applySwapSuggestion() {
+    const box = $('swap-result');
+    const swaps = box?._swaps;
+    if (!swaps?.length) return;
+    for (const s of swaps) {
+        SELECTED_SECTIONS.set(s.subjectId, s.to);
+        const sel = document.querySelector(`#req-picker select[data-section-for="${s.subjectId}"]`);
+        if (sel) sel.value = s.to;
+    }
+    box._swaps = null;
+    updateRequestCount();
+    runSwapSuggestion(true);
 }
 
 function renderAutoPlanResult(plan, period = null) {

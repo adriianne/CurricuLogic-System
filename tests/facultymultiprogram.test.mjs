@@ -87,7 +87,7 @@ describe('Admin screen', () => {
         assert.match(html, /id="prog-dlg-search"/);
     });
     test('the dialog groups by college, greys out a full programme, and stars the main one', () => {
-        assert.match(admin, /const full = !on && !otherCollege && used >= cap/);
+        assert.match(admin, /const full = !on && !otherCollege && PD\.staff\.is_approved !== false && used >= cap/);   // db/130: a stopped person takes no seat
         assert.match(admin, /data-pd-main=/);
         assert.match(admin, /Full \\u00b7 \$\{used\} of \$\{cap\}/);
     });
@@ -107,7 +107,7 @@ describe('Admin screen', () => {
         assert.match(admin, /\/maximum of\/\.test\(error\.message\)/);
     });
     test('programme counts on the Programs tab count faculty by every programme they cover', () => {
-        assert.match(admin, /supabase\.from\('faculty_program'\)\.select\('program_id'\)/);
+        assert.match(admin, /supabase\.from\('faculty_program'\)\.select\('program_id, faculty_staff\(is_approved\)'\)/);   // active accounts only (db/130)
     });
 });
 
@@ -193,7 +193,7 @@ describe('Registrar: any programmes, no college rule (db/110)', () => {
         assert.match(admin, /supabase\.rpc\(cfg\.rpc, \{ \[cfg\.idArg\]: staffId, p_program_ids: ids \}\)/);
         assert.match(admin, /const lock = MULTI_ROLES\[PD\.staff\.role\]\.oneCollege \? pdCollege\(\) : null/);
         assert.match(admin, /const cap = ROLE_LIMIT\[PD\.staff\.role\]/);
-        assert.match(admin, /supabase\.from\('registrar_program'\)\.select\('program_id'\)/);
+        assert.match(admin, /supabase\.from\('registrar_program'\)\.select\('program_id, registrar_staff\(is_approved\)'\)/);   // active accounts only (db/130)
     });
     test('Registrar page: shows every programme in the header and in the profile', () => {
         assert.match(registrar, /from\('registrar_program'\)\.select\('program_id'\)\.eq\('registrar_id', REGISTRAR\.id\)/);

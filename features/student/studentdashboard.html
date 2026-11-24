@@ -310,6 +310,11 @@
                             </div>
                         </div>
                         <div class="auto-plan-result" id="auto-plan-result" role="status" aria-live="polite" hidden></div>
+                        <div class="auto-plan-times">
+                            <span class="auto-plan-times-label">Long waits between classes?</span>
+                            <button type="button" class="pref-choice" id="swap-suggest-btn">Suggest a swap to cut vacant time</button>
+                        </div>
+                        <div class="auto-plan-result" id="swap-result" role="status" aria-live="polite" hidden></div>
                     </section>
 
                     <section class="card">
@@ -566,6 +571,7 @@
     <script src="../../shared/js/accounts/passwordrules.js"></script>
 <script src="../../shared/js/app/forcepasswordchange.js"></script>
     <script src="../../shared/js/enrolment/autoplan.js"></script>
+    <script src="../../shared/js/enrolment/vacanttime.js"></script>
     <script src="../../shared/js/enrolment/chatplan.js"></script>
     <script src="../../shared/js/app/motion.js"></script>
     <script src="../../shared/js/app/profilephoto.js"></script>

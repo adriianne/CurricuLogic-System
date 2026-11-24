@@ -1076,7 +1076,7 @@ async function saveSingleProgram(staff, role, programId) {
     const limit = ROLE_LIMIT[role];
     const { count, error: countError } = await supabase
         .from(table).select('id', { count: 'exact', head: true })
-        .eq('program_id', programId).neq('id', staff.id);
+        .eq('program_id', programId).eq('is_approved', true).neq('id', staff.id);   // a stopped account holds no seat (db/130)
     if (countError) {
         console.warn('program count check failed:', countError.message);
         return { ok: false, error: 'Could not check the programme cap. Please try again.' };
@@ -1150,7 +1150,8 @@ const PD = { staff: null, chosen: new Set(), main: null, start: '', search: '', 
 const pdOriginal = () => staffProgramIds(PD.staff);
 
 function pdCount(programId) {
-    return STAFF.filter(x => x.role === PD.staff.role && x.id !== PD.staff.id && staffProgramIds(x).includes(programId)).length;
+    // Only active accounts hold a seat: a stopped one has given it up (db/130), so it does not make a programme "Full".
+    return STAFF.filter(x => x.role === PD.staff.role && x.id !== PD.staff.id && x.is_approved === true && staffProgramIds(x).includes(programId)).length;
 }
 
 const collegeKey = (p) => String(p?.college ?? '').trim().toLowerCase();
@@ -1181,7 +1182,7 @@ function pdRender() {
             const lock = MULTI_ROLES[PD.staff.role].oneCollege ? pdCollege() : null;
             const cap = ROLE_LIMIT[PD.staff.role];
             const otherCollege = !on && lock !== null && collegeKey(p) !== lock;
-            const full = !on && !otherCollege && used >= cap;
+            const full = !on && !otherCollege && PD.staff.is_approved !== false && used >= cap;   // a stopped person takes no seat
             const isMain = on && PD.main === p.id;
             return `
             <div class="prog-dlg-row${on ? ' is-on' : ''}${full || otherCollege ? ' is-full' : ''}">
@@ -2994,11 +2995,12 @@ async function loadPrograms() {
 
     const [progs, faculty, registrar, department, studs, actives] = await Promise.all([
         supabase.from('program').select('id, code, name, college, max_units, max_units_graduating, target_units').order('code'),
-        supabase.from('faculty_program').select('program_id'),
-        supabase.from('registrar_program').select('program_id'),
+        // Each link comes with its account's is_approved: a stopped account holds no seat (db/130), so it is not counted in the n / cap.
+        supabase.from('faculty_program').select('program_id, faculty_staff(is_approved)'),
+        supabase.from('registrar_program').select('program_id, registrar_staff(is_approved)'),
         // Every programme a Department account covers (db/114), the main one included: Pedro covers ACT, BSCS, BSCSAI and BSIT, and the table
         // showed only BSIT, because department_staff.program_id holds just the MAIN programme (24 Nov 2026). Faculty and Registrar already read theirs this way.
-        supabase.from('department_program').select('program_id'),
+        supabase.from('department_program').select('program_id, department_staff(is_approved)'),
         supabase.from('university_student').select('program_id'),
         supabase.from('prospectus').select('program_id').eq('is_active', true),
     ]);
@@ -3016,9 +3018,9 @@ async function loadPrograms() {
 
     PROGRAMS = progs.data ?? [];
     PROGRAM_STATS = new Map(PROGRAMS.map(p => [p.id, { faculty: 0, registrar: 0, department: 0, students: 0, curriculum: false }]));
-    for (const f of faculty.data ?? [])    { const s = PROGRAM_STATS.get(f.program_id); if (s) s.faculty++; }
-    for (const r of registrar.data ?? [])  { const s = PROGRAM_STATS.get(r.program_id); if (s) s.registrar++; }
-    for (const d of department.data ?? []) { const s = PROGRAM_STATS.get(d.program_id); if (s) s.department++; }
+    for (const f of faculty.data ?? [])    { const s = PROGRAM_STATS.get(f.program_id); if (s && f.faculty_staff?.is_approved === true) s.faculty++; }
+    for (const r of registrar.data ?? [])  { const s = PROGRAM_STATS.get(r.program_id); if (s && r.registrar_staff?.is_approved === true) s.registrar++; }
+    for (const d of department.data ?? []) { const s = PROGRAM_STATS.get(d.program_id); if (s && d.department_staff?.is_approved === true) s.department++; }
     for (const s of studs.data ?? []) { const x = PROGRAM_STATS.get(s.program_id); if (x) x.students++; }
     for (const a of actives.data ?? []) { const x = PROGRAM_STATS.get(a.program_id); if (x) x.curriculum = true; }
 
