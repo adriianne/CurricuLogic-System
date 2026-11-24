@@ -1906,6 +1906,23 @@ async function fillCurriculumYears() {
 }
 $('a-program')?.addEventListener('change', fillCurriculumYears);
 
+/* "Department / college" follows the programme (shared/js/accounts/departmentfill.js): a faculty member or a department head is linked to
+   programmes THROUGH the college name, so the box takes the college set for the chosen programme on the Programs page. A programme change
+   always refills it; a role change fills it only when it is empty. A Registrar's and a student's department are not colleges: left alone. */
+function fillDepartmentFromProgramme(onlyIfEmpty) {
+    const box = $('a-department');
+    if (!box) return;
+    const next = window.CurriculogicDepartmentFill?.pick({
+        role: $('a-role')?.value,
+        programmes: PROGRAMS,
+        code: resolveProgramCode($('a-program')?.value ?? '').value,
+        current: box.value,
+        onlyIfEmpty,
+    });
+    if (next) box.value = next;
+}
+$('a-program')?.addEventListener('change', () => fillDepartmentFromProgramme(false));
+
 function clearCreateForm() {
     ['a-first-name', 'a-middle-name', 'a-last-name', 'a-email', 'a-employee-id', 'a-student-id', 'a-department', 'a-password', 'a-confirm']
         .forEach(id => { const el = $(id); if (el) el.value = ''; });
@@ -1940,6 +1957,7 @@ function updateRoleFields() {
     $('a-program-wrap').hidden         = false;
     // A student's department is not used; their programme is what matters.
     $('a-department-wrap').hidden      = isStudent;
+    fillDepartmentFromProgramme(true);        // a role change fills a blank box from the chosen programme; it never overwrites one
 }
 
 /* The programme code to send for a student, from what was typed or picked.
