@@ -216,6 +216,10 @@ if you are not sure what the document prints, leave it out. "grand_total_units" 
 total, or null if none is printed. "blocks" has one entry for every printed per-block "Total" line, with the
 "year_level" and "term" (1, 2, or 3 for summer) of the block it sits under and its "total_units". When the document
 prints no totals, "grand_total_units" is null and "blocks" is an empty array.
+Some documents print MORE THAN ONE programme total, for example one per track ("Total Units for ABM Track: 165" and
+"Total Units for non-ABM Academic Track: 180"). Report every programme total that is printed: put the first one in
+"grand_total_units" and each other one in "other_grand_totals" with its printed "label" and its "total_units". When
+the document prints only one programme total, "other_grand_totals" is an empty array.
 
 Respond with ONLY valid JSON, no other text, in exactly this shape:
 
@@ -229,6 +233,7 @@ Respond with ONLY valid JSON, no other text, in exactly this shape:
   ],
   "printed_totals": {
     "grand_total_units": number or null,
+    "other_grand_totals": [ { "label": "string as printed, e.g. non-ABM Academic Track", "total_units": number } ],
     "blocks": [ { "year_level": number, "term": number, "total_units": number } ]
   },
   "subjects": [

@@ -29,15 +29,25 @@ export function unitsOf(subjects) {
     return { blocks, total };
 }
 
-/** True only when the document printed totals AND the subjects add up to every one of them. */
+/** Every programme total the document printed: the main one and any others it prints with a label, such as one per track
+    (the BSHM prospectus: ABM Track 165, non-ABM Academic Track 180). */
+export function grandTotalsOf(printed) {
+    const out = [];
+    const add = (v) => { const n = Number(v); if (Number.isFinite(n) && n > 0 && !out.includes(n)) out.push(n); };
+    add(printed?.grand_total_units);
+    for (const g of Array.isArray(printed?.other_grand_totals) ? printed.other_grand_totals : []) add(g?.total_units);
+    return out;
+}
+
+/** True only when the document printed totals AND the subjects add up to every one of them (to one of the programme totals, when it prints several). */
 export function totalsMatch(parsed) {
     const printed = parsed?.printed_totals;
-    const grand = Number(printed?.grand_total_units);
+    const grands = grandTotalsOf(printed);
     const printedBlocks = Array.isArray(printed?.blocks) ? printed.blocks : [];
-    const hasGrand = Number.isFinite(grand) && grand > 0;
+    const hasGrand = grands.length > 0;
     if (!hasGrand && !printedBlocks.length) return false;          // nothing to check against
     const { blocks, total } = unitsOf(parsed?.subjects);
-    if (hasGrand && total !== grand) return false;
+    if (hasGrand && !grands.includes(total)) return false;         // a document with one total per track: matching ONE is enough
     for (const b of printedBlocks) {
         const y = Number(b?.year_level), t = Number(b?.term), want = Number(b?.total_units);
         if (!Number.isInteger(y) || !Number.isInteger(t) || !Number.isFinite(want)) continue;
@@ -57,8 +67,16 @@ export function linksResolve(parsed) {
     const known = new Set(subjects.map((s) => codeKey(s?.code)));
     for (const s of subjects) {
         for (const list of [s?.prerequisites, s?.corequisites]) {
-            for (const code of Array.isArray(list) ? list : []) {
-                if (codeKey(code) && !known.has(codeKey(code))) return false;
+            let prefix = null;                                 // letters before the digits of the last full code in this list
+            for (const raw of Array.isArray(list) ? list : []) {
+                const code = String(raw ?? '').trim();
+                if (!codeKey(code)) continue;
+                // "HM 111, 112, 113" is printed in shorthand and read as "HM 111", "112", "113": a bare number takes the letters of the
+                // code before it. The page expands it the same way (shared/js/curriculum/prereqshorthand.js), so it is not a broken link.
+                if (/^\d+[A-Za-z]?$/.test(code) && prefix !== null && known.has(codeKey(prefix + code))) continue;
+                if (!known.has(codeKey(code))) return false;
+                const m = /^(.*?)(\d+[A-Za-z]?)$/.exec(code);
+                if (m && m[1].trim()) prefix = m[1];
             }
         }
     }
