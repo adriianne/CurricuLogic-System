@@ -2423,7 +2423,7 @@ async function loadRequestPicker() {
             updateRequestCount();
         });
 
-        $('req-submit')?.addEventListener('click', submitAdvisingRequest);
+        $('req-submit')?.addEventListener('click', onSubmitClick);
         $('auto-plan-btn')?.addEventListener('click', () => runAutoPlan());
         $('swap-suggest-btn')?.addEventListener('click', () => runSwapSuggestion());
         $('swap-result')?.addEventListener('click', (e) => { if (e.target.closest('[data-apply-swap]')) applySwapSuggestion(); });
@@ -2533,7 +2533,24 @@ function swapPlanPicks() {
         }));
 }
 
-function runSwapSuggestion(afterApply = false) {
+/* The subjects already sent this term, with the meetings of the sections they were sent in. They count toward the
+   vacant time and nothing may overlap them, but the swap never moves them. Pending and approved subjects only. */
+async function sentMeetingsThisTerm() {
+    try { await attachRequestSections(MY_REQUESTS); } catch (e) { console.warn('sections of sent subjects:', e.message); }
+    const meetings = [];
+    let subjects = 0;
+    for (const r of MY_REQUESTS) {
+        if (r.requested_term !== CURRENT_TERM || r.requested_year !== CURRENT_YEAR) continue;
+        for (const i of r.request_item ?? []) {
+            if (i.status === 'rejected' || !i._section || !SUBJECT_LOCKS.locked.has(i.subject_id)) continue;
+            meetings.push(...i._section.meetings);
+            subjects++;
+        }
+    }
+    return { meetings, subjects };
+}
+
+async function runSwapSuggestion(afterApply = false) {
     const box = $('swap-result');
     if (!box || !window.CurriculogicVacantTime || !window.ScheduleConflicts) return;
     const picks = swapPlanPicks();
@@ -2543,7 +2560,10 @@ function runSwapSuggestion(afterApply = false) {
         box.hidden = false;
         return;
     }
-    const res = window.CurriculogicVacantTime.suggestSwaps({ picks, sc: window.ScheduleConflicts });
+    const sent = await sentMeetingsThisTerm();
+    const res = window.CurriculogicVacantTime.suggestSwaps({ picks, fixed: sent.meetings, sc: window.ScheduleConflicts });
+    const counted = sent.subjects
+        ? `<p class="dim">Counting the ${sent.subjects} subject${sent.subjects === 1 ? '' : 's'} you already sent.</p>` : '';
 
     if (!res.swaps.length) {
         const nothing = res.status === 'no-gap';
@@ -2551,7 +2571,7 @@ function runSwapSuggestion(afterApply = false) {
         box.innerHTML = afterApply
             ? `<p>Applied. Your vacant time is now ${escapeHtml(fmtHours(res.before))} a week, and no other swap would reduce it.</p>`
             : `<p>${escapeHtml(res.reason)}</p>`
-              + (nothing || res.status === 'none-posted' ? '' : `<p class="dim">Vacant time now: ${escapeHtml(fmtHours(res.before))} a week.</p>`);
+              + (nothing || res.status === 'none-posted' ? '' : `<p class="dim">Vacant time now: ${escapeHtml(fmtHours(res.before))} a week.</p>`) + counted;
         box.hidden = false;
         return;
     }
@@ -2564,7 +2584,7 @@ function runSwapSuggestion(afterApply = false) {
         <p>You have <strong>${escapeHtml(fmtHours(res.before))}</strong> of vacant time between classes each week.
            This swap brings it to <strong>${escapeHtml(fmtHours(res.after))}</strong>, saving ${escapeHtml(fmtHours(res.before - res.after))},
            with no overlaps and no subject repeated.</p>
-        <ul class="auto-plan-left">${lines}</ul>
+        <ul class="auto-plan-left">${lines}</ul>${counted}
         <button type="button" class="btn-primary" data-apply-swap>Apply this swap</button>`;
     box.hidden = false;
     box._swaps = res.swaps;
@@ -2687,6 +2707,14 @@ function markScheduleClashes(candidates) {
     });
 
     return pairs;
+}
+
+/* The Submit button. A student who already has subjects with the adviser this term is making a second request: that is
+   allowed, but usually a slip, so ask first (shared/js/enrolment/sentplan.js). Cura's "send this plan" has its own question. */
+async function onSubmitClick() {
+    const sent = window.CurriculogicSentPlan?.countThisTerm(MY_REQUESTS, CURRENT_TERM, CURRENT_YEAR) ?? { subjects: 0 };
+    if (sent.subjects > 0 && !window.confirm(window.CurriculogicSentPlan.secondRequestNote(sent.subjects))) return;
+    return submitAdvisingRequest();
 }
 
 async function submitAdvisingRequest() {
