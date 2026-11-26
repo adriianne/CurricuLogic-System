@@ -68,6 +68,21 @@ function stateBadge(role, state) {
 const canStop = (state) => state === 'active';
 const canRestore = (state) => state === 'stopped';
 
+/* Deleting (db/131) is a second step after stopping: only a stopped account can be deleted, never an administrator. */
+const canDelete = (state, role) => state === 'stopped' && role !== 'admin';
+
+/* What the Admin types to confirm a delete: the account's own ID (student ID, or employee ID; the email when it has no ID). */
+function deleteIdentifier(role, row) {
+    const id = role === 'student' ? row?.student_id : row?.employee_id;
+    return String(id ?? row?.email ?? '').trim();
+}
+
+/* True when what was typed is exactly the ID (case does not matter, spaces at the ends do not count). The database checks it again. */
+function deleteConfirmMatches(typed, identifier) {
+    const want = String(identifier ?? '').trim().toUpperCase();
+    return want !== '' && String(typed ?? '').trim().toUpperCase() === want;
+}
+
 /* What a sign-in page says to someone whose account is not active. The default is the old wording, for a
    person whose request is still being reviewed. A stopped account says so plainly and says who to ask.
    roleKey is the key of the sign-in page's role table (university_student, faculty_staff, ...). */
@@ -85,6 +100,6 @@ function notActiveMessage(roleKey, row) {
     return PENDING_MESSAGE;
 }
 
-return { REASON_MAX, reasonProblem, latestStops, accountState, stateBadge, canStop, canRestore, notActiveMessage, PENDING_MESSAGE };
+return { REASON_MAX, reasonProblem, latestStops, accountState, stateBadge, canStop, canRestore, canDelete, deleteIdentifier, deleteConfirmMatches, notActiveMessage, PENDING_MESSAGE };
 
 }));

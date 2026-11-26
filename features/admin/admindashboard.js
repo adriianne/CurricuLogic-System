@@ -717,7 +717,11 @@ function acctActionCell(role, row, state) {
         return `<button type="button" class="btn-small" data-acct="stop" data-role="${role}" data-id="${escapeHtml(row.id)}" aria-expanded="${open === 'stop'}">Stop</button>`;
     }
     if (A.canRestore(state)) {
-        return `<button type="button" class="btn-small" data-acct="restore" data-role="${role}" data-id="${escapeHtml(row.id)}" aria-expanded="${open === 'restore'}">Restore</button>`;
+        // Delete is a second step after Stop (db/131); it is only offered on a stopped account.
+        const del = A.canDelete(state, role)
+            ? ` <button type="button" class="btn-small btn-danger" data-acct="delete" data-role="${role}" data-id="${escapeHtml(row.id)}" aria-expanded="${open === 'delete'}">Delete</button>`
+            : '';
+        return `<button type="button" class="btn-small" data-acct="restore" data-role="${role}" data-id="${escapeHtml(row.id)}" aria-expanded="${open === 'restore'}">Restore</button>${del}`;
     }
     return '';
 }
@@ -741,6 +745,25 @@ function acctPanelRow(role, row, state, colspan) {
                 <p class="decline-error" data-acct-error="${role}:${id}" role="alert" hidden></p>
                 <div class="review-actions">
                     <button type="button" class="btn-danger" data-acct-confirm="stop" data-role="${role}" data-id="${id}">Stop account</button>
+                    <button type="button" class="btn-small" data-acct-cancel="${role}" data-id="${id}">Cancel</button>
+                </div>
+            </div>
+        </td></tr>`;
+    }
+    if (ui.mode === 'delete' && A.canDelete(state, role)) {
+        const ident = A.deleteIdentifier(role, row);
+        const ok = A.deleteConfirmMatches(ui.typed, ident);
+        return `
+        <tr class="acct-row"><td colspan="${colspan}">
+            <div class="decline-panel acct-delete">
+                <p class="decline-label">Delete ${who} for good? <span class="dim">This cannot be undone. The sign-in and the account are removed.
+                    An account that has records, decisions or uploads on file is refused: keep it stopped instead.</span></p>
+                <label for="ad-${id}" class="decline-label">Type <strong>${escapeHtml(ident)}</strong> to confirm</label>
+                <input id="ad-${id}" class="decline-text" type="text" autocomplete="off" spellcheck="false" data-acct-typed="${role}" data-id="${id}"
+                       value="${escapeHtml(ui.typed ?? '')}" placeholder="${escapeHtml(ident)}">
+                <p class="decline-error" data-acct-error="${role}:${id}" role="alert" hidden></p>
+                <div class="review-actions">
+                    <button type="button" class="btn-danger" data-acct-delete="${role}" data-id="${id}" ${ok ? '' : 'disabled'}>Delete account</button>
                     <button type="button" class="btn-small" data-acct-cancel="${role}" data-id="${id}">Cancel</button>
                 </div>
             </div>
@@ -772,8 +795,11 @@ function onAcctClick(e) {
         ui.mode = ui.mode === mode ? null : mode;
         acctRedraw(role);
         if (ui.mode === 'stop') document.getElementById('as-' + id)?.focus();
+        if (ui.mode === 'delete') document.getElementById('ad-' + id)?.focus();
         return;
     }
+    const del = e.target.closest('[data-acct-delete]');
+    if (del) return deleteAcct(del.dataset.acctDelete, del.dataset.id);
     const cancel = e.target.closest('[data-acct-cancel]');
     if (cancel) {
         acctUi(cancel.dataset.acctCancel, cancel.dataset.id).mode = null;
@@ -784,6 +810,19 @@ function onAcctClick(e) {
 }
 
 function onAcctInput(e) {
+    // Delete: the typed ID switches the button on only when it matches exactly (the database checks it again).
+    const typed = e.target.closest('[data-acct-typed]');
+    if (typed) {
+        const { acctTyped: tRole, id: tId } = typed.dataset;
+        const ui = acctUi(tRole, tId);
+        ui.typed = typed.value;
+        const row = (tRole === 'student' ? STUDENTS : STAFF).find(r => r.id === tId);
+        const btn = document.querySelector(`[data-acct-delete="${CSS.escape(tRole)}"][data-id="${CSS.escape(tId)}"]`);
+        if (btn) btn.disabled = !CurriculogicAccountStop.deleteConfirmMatches(typed.value, CurriculogicAccountStop.deleteIdentifier(tRole, row));
+        const err = document.querySelector(`[data-acct-error="${CSS.escape(tRole + ':' + tId)}"]`);
+        if (err) err.hidden = true;
+        return;
+    }
     const box = e.target.closest('[data-acct-reason]');
     if (!box) return;
     const { acctReason: role, id } = box.dataset;
@@ -831,6 +870,43 @@ async function confirmAcct(role, id, stop) {
     } catch (err) {
         console.error('stop/restore failed:', err);
         showMsg(box, 'Could not save that. ' + err.message);
+    } finally {
+        ACCT_BUSY = false;
+    }
+}
+
+/* Delete for good (db/131): only a stopped account, with its ID typed. The database refuses an account that has history
+   and says why; that message is shown as it is. */
+async function deleteAcct(role, id) {
+    if (ACCT_BUSY) return;
+    const ui = acctUi(role, id);
+    const list = role === 'student' ? STUDENTS : STAFF;
+    const row = list.find(r => r.id === id);
+    if (!row) return;
+    const ident = CurriculogicAccountStop.deleteIdentifier(role, row);
+    if (!CurriculogicAccountStop.deleteConfirmMatches(ui.typed, ident)) return;
+
+    ACCT_BUSY = true;
+    const box = acctMsgBox(role);
+    const name = fullName(row);
+    try {
+        if (!PREVIEW) {
+            const { error } = await supabase.rpc('delete_account', { p_role: role, p_target: id, p_confirm: ui.typed.trim() });
+            if (error) {
+                const err = document.querySelector(`[data-acct-error="${CSS.escape(role + ':' + id)}"]`);
+                if (err) { err.textContent = error.message; err.hidden = false; } else showMsg(box, error.message);
+                return;
+            }
+        }
+        const at = list.findIndex(r => r.id === id);
+        if (at >= 0) list.splice(at, 1);
+        delete ACCT_UI[acctKey(role, id)];
+        await loadStopLog();
+        showMsg(box, `${name} was deleted.`, 'success');
+        acctRedraw(role);
+    } catch (err) {
+        console.error('delete failed:', err);
+        showMsg(box, 'Could not delete that. ' + err.message);
     } finally {
         ACCT_BUSY = false;
     }
