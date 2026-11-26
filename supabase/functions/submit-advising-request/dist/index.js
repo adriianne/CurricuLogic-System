@@ -111,6 +111,9 @@ var require_core = __commonJS({
           const why = entry.scheduleState === "not-run" ? "The department is not running this subject this term." : entry.subject.year_level == null ? "No section is open for this elective this term." : "This subject belongs to another semester and has no section this term.";
           return { ...no(why), unavailable: true };
         }
+        if (base.offeringId == null) {
+          return { ...no(`No section is posted for ${entry.subject.code} yet.`), unavailable: true, noSection: true };
+        }
         const missing = (entry.alongside ?? []).filter((a) => !picked.has(a.id));
         if (missing.length) {
           return no(`${entry.subject.code} must be taken together with ${missing.map((m) => m.code).join(" and ")}. Add it to the same request.`);
@@ -813,6 +816,14 @@ serve(async (req) => {
       selections
     });
     const flaggedCount = evaluated.filter((e) => !e.valid).length;
+    const noSection = evaluated.filter((e) => e.noSection);
+    if (noSection.length > 0) {
+      const byId = new Map((subjects ?? []).map((s) => [s.id, s]));
+      const codes = noSection.map((e) => byId.get(e.subjectId)?.code).filter(Boolean);
+      return json(422, {
+        error: `No section is posted yet for: ${codes.join(", ")}. The schedule for this term is not posted, so these cannot be sent. Try again once the schedule is posted.`
+      });
+    }
     const unavailable = evaluated.filter((e) => e.unavailable);
     if (unavailable.length > 0) {
       const byId = new Map((subjects ?? []).map((s) => [s.id, s]));

@@ -776,10 +776,12 @@ describe('co-requisites through preferences, the phone answer and a request', ()
         assert.deepEqual(out.recommended.find(r => r.code === 'LEC').alongside, []);
     });
 
+    // Each subject has a section: a subject with no section is refused (nothing to print), so these tests give them one.
+    const sectionOf = (s) => 7000 + s.id;
     const submit = (selected, records = []) => evaluateSelections({ engine: E }, {
         student: { id: 'stu-1', year_level: 1 }, program, records,
-        subjects: [lec, lab, other], rules, offerings: [], term: 1,
-        selections: selected.map(s => ({ subjectId: s.id })),
+        subjects: [lec, lab, other], rules, offerings: [lec, lab, other].map(s => ({ id: sectionOf(s), subject_id: s.id })), term: 1,
+        selections: selected.map(s => ({ subjectId: s.id, offeringId: sectionOf(s) })),
     });
 
     test('a request with the lab but not its lecture is refused, with the reason', () => {

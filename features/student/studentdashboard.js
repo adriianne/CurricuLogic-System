@@ -2758,6 +2758,17 @@ async function submitAdvisingRequest() {
         return { ok: false, message: 'Those subjects are no longer available to request.' };
     }
 
+    // A subject with no section posted cannot be sent: the enrollment form would have no schedule, EDP code or room.
+    // The server refuses it too (so does the app); this says so before anything is sent.
+    const noSection = items.filter(i => i.offeringId == null)
+        .map(i => candidates.find(c => c.subject.id === i.subjectId)?.subject.code).filter(Boolean);
+    if (noSection.length) {
+        const msg = `No section is posted yet for: ${noSection.join(', ')}. The schedule for this term is not posted, so these cannot be sent. Try again once the schedule is posted.`;
+        showMsg('req-msg', msg);
+        if (btn) { btn.disabled = false; btn.textContent = 'Submit for review'; }
+        return { ok: false, message: msg };
+    }
+
     try {
         const { data, error } = await supabase.functions.invoke('submit-advising-request', {
             body: { items, term: CURRENT_TERM, year: CURRENT_YEAR },

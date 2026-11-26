@@ -52,11 +52,20 @@ describe('evaluateSelections', () => {
         assert.match(r.reason, /section/);
     });
 
-    test('a missing section is allowed and order is kept', () => {
+    test('a missing section is refused, because there would be no schedule, EDP code or room, and order is kept', () => {
         const out = run([{ subjectId: C.id }, { subjectId: A.id }]);
         assert.deepEqual(out.map(r => r.subjectId), [C.id, A.id]);
         assert.equal(out[1].offeringId, null);
-        assert.equal(out[1].valid, true);
+        assert.equal(out[1].valid, false);
+        assert.equal(out[1].noSection, true);
+        assert.equal(out[1].unavailable, true);
+        assert.match(out[1].reason, /No section is posted for A yet/);
+    });
+
+    test('the same subject with its section is still valid', () => {
+        const [r] = run([{ subjectId: A.id, offeringId: 9001 }]);
+        assert.equal(r.valid, true);
+        assert.ok(!r.noSection);
     });
 
     test('the same engine gates a later-year subject', () => {
@@ -155,8 +164,9 @@ describe('evaluateSelections: availability this semester', () => {
         assert.match(r.reason, /another semester/);
     });
 
-    test('a subject of this semester in an unscheduled block is still accepted', () => {
+    test('a subject of this semester in an unscheduled block is refused until a section is posted', () => {
         const [r] = go([{ subjectId: x.id, offeringId: null }]);
-        assert.equal(r.valid, true);
+        assert.equal(r.valid, false);
+        assert.equal(r.noSection, true);
     });
 });

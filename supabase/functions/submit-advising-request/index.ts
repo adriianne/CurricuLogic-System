@@ -176,6 +176,16 @@ serve(async (req) => {
 
     // A subject that cannot be enrolled in this semester is refused outright
     // rather than flagged for the adviser: it should never reach the queue.
+    // A subject with no section posted is refused with its own sentence: there would be no schedule, EDP code or room.
+    const noSection = evaluated.filter((e: { noSection?: boolean }) => e.noSection);
+    if (noSection.length > 0) {
+      const byId = new Map((subjects ?? []).map((s: { id: number; code: string }) => [s.id, s]));
+      const codes = noSection.map((e: { subjectId: number }) => (byId.get(e.subjectId) as any)?.code).filter(Boolean);
+      return json(422, {
+        error: `No section is posted yet for: ${codes.join(", ")}. The schedule for this term is not posted, so these cannot be sent. Try again once the schedule is posted.`,
+      });
+    }
+
     const unavailable = evaluated.filter((e: { unavailable?: boolean }) => e.unavailable);
     if (unavailable.length > 0) {
       const byId = new Map((subjects ?? []).map((s: { id: number; code: string }) => [s.id, s]));

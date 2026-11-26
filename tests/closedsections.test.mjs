@@ -109,7 +109,9 @@ describe('choosing a section when submitting a plan', () => {
         assert.match(r.reason, /not offered/);
     });
 
-    test('a subject with no offering named is still accepted when it has an open section', () => {
-        assert.equal(submit(null).valid, true);
+    test('a subject with no offering named is refused, even when it has an open section: the form needs a section to print', () => {
+        const r = submit(null);
+        assert.equal(r.valid, false);
+        assert.equal(r.noSection, true);
     });
 });

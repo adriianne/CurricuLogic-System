@@ -124,6 +124,12 @@ function evaluateSelections(deps, input) {
             return { ...no(why), unavailable: true };
         }
 
+        // A subject with no section cannot be enrolled in: without one the enrollment form has no schedule, no EDP code and
+        // no room, and the adviser would be approving a plan that cannot be printed. Refused here, for every client.
+        if (base.offeringId == null) {
+            return { ...no(`No section is posted for ${entry.subject.code} yet.`), unavailable: true, noSection: true };
+        }
+
         // A subject that must be taken together with another needs it in the same request.
         const missing = (entry.alongside ?? []).filter(a => !picked.has(a.id));
         if (missing.length) {
