@@ -3646,6 +3646,37 @@ $('notif-mark-read')?.addEventListener('click', async () => {
     loadNotifications();
 });
 
+/* Keeps the page current (shared/js/app/autorefresh.js): once a minute, and when the student comes back to the tab, it asks
+   whether a decision or a notice has arrived, and redraws only if one has. */
+
+async function probeStudentUpdates() {
+    if (PREVIEW || !supabase || !AUTH_UID || !STUDENT_ROW_ID) return null;
+    const [notes, reqs] = await Promise.all([
+        supabase.from('notification').select('id, is_read').eq('user_id', AUTH_UID).order('created_at', { ascending: false }).limit(10),
+        supabase.from('request')
+            .select('id, status, registrar_status, updated_at, request_item(id, status, offering_id, updated_at)')
+            .eq('student_id', STUDENT_ROW_ID).order('id', { ascending: false }).limit(30),
+    ]);
+    if (notes.error || reqs.error) return null;
+    return JSON.stringify([notes.data, reqs.data]);
+}
+
+async function applyStudentUpdates() {
+    const view = currentView();
+    // Build your plan is left alone: a plan being built must never be redrawn under the student.
+    if (view === 'plan') return;
+    await loadDashboardRequestSummary();
+    await loadNotifications();
+    if (view === 'myrequests') await loadRequestHistory();
+}
+
+// Not while a dialog is open or a field is being typed in; the redraw happens at the next check.
+function studentIsBusy() {
+    if (document.querySelector('dialog[open]')) return true;
+    const a = document.activeElement;
+    return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+}
+
 /* boot */
 
 function render(student, email) {
@@ -3761,6 +3792,7 @@ function render(student, email) {
     renderEligibility(student);
 
     route();
+    window.AutoRefresh?.start({ probe: probeStudentUpdates, onChange: applyStudentUpdates, isBusy: studentIsBusy });
 })();
 
 })();
