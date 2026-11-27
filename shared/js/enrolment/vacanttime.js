@@ -10,9 +10,11 @@
 // and a suggestion is only made when the whole plan stays free of overlaps.
 //
 //   vacantTime(meetings, sc)            -> { hours, gaps: [{ day, from, to, hours }] }
-//   suggestSwaps({ picks, sc, maxSwaps }) -> { before, after, swaps: [...], reason }
+//   suggestSwaps({ picks, fixed, sc, maxSwaps }) -> { before, after, swaps: [...], reason }
 //
 //   picks    [{ subjectId, code, section, sections: [flat meeting rows of the subject, all sections] }]
+//   fixed    flat meeting rows of subjects already sent or approved this term: counted in the vacant time and
+//            never overlapped, never moved (optional)
 //   sc       { groupSections, meetingsClash, parseDays, minutesOf }  (scheduleconflicts.js)
 //   swaps    [{ subjectId, code, from, to, meetings: [flat rows of the new section] }], best plan first
 //   status   'found' | 'no-gap' | 'none-posted' | 'one-section' | 'no-help'
@@ -58,15 +60,17 @@ function vacantTime(meetings, sc) {
 
 const flat = (groups) => groups.flatMap(g => g.meetings);
 
-function planClashes(groupsChosen, sc) {
-    const all = flat(groupsChosen);
+/* [fixed]: meetings of subjects already sent to the adviser (or approved). They count in the plan, and nothing may
+   overlap them, but they are never moved. */
+function planClashes(groupsChosen, sc, fixed = []) {
+    const all = flat(groupsChosen).concat(fixed);
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
         if (sc.meetingsClash(all[i], all[j])) return true;
     }
     return false;
 }
 
-function suggestSwaps({ picks, sc, maxSwaps = 2 }) {
+function suggestSwaps({ picks, fixed = [], sc, maxSwaps = 2 }) {
     const items = (picks ?? []).map(p => {
         const groups = sc.groupSections(p.sections);
         const current = groups.find(g => g.section === p.section) ?? null;
@@ -74,7 +78,7 @@ function suggestSwaps({ picks, sc, maxSwaps = 2 }) {
     }).filter(it => it.current);                       // a subject with no posted times has nothing to move
 
     const base = items.map(it => it.current);
-    const before = vacantTime(flat(base), sc).hours;
+    const before = vacantTime(flat(base).concat(fixed), sc).hours;
 
     const movable = items.filter(it => it.groups.length > 1);
     if (!items.length) return { before: 0, after: 0, swaps: [], status: 'none-posted', reason: 'None of the selected subjects has a posted schedule yet.' };
@@ -85,8 +89,8 @@ function suggestSwaps({ picks, sc, maxSwaps = 2 }) {
     let best = null;
     const consider = (moves) => {
         const chosen = items.map(it => moves.find(m => m.it === it)?.group ?? it.current);
-        if (planClashes(chosen, sc)) return;
-        const after = vacantTime(flat(chosen), sc).hours;
+        if (planClashes(chosen, sc, fixed)) return;
+        const after = vacantTime(flat(chosen).concat(fixed), sc).hours;
         if (after >= before - EPS) return;
         if (!best || after < best.after - EPS || (Math.abs(after - best.after) <= EPS && moves.length < best.moves.length)) best = { after, moves };
     };

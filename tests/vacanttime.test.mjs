@@ -6,6 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const { vacantTime, suggestSwaps } = require('../shared/js/enrolment/vacanttime.js');
@@ -117,5 +118,56 @@ describe('suggestSwaps', () => {
     test('a subject without posted times is ignored, not an error', () => {
         const r = suggestSwaps({ picks: [pick('HIST', 'A', hist), pick('NONE', 'A', [])], sc });
         assert.ok(Array.isArray(r.swaps));
+    });
+});
+
+describe('subjects already sent (fixed meetings)', () => {
+    const early = row('A', 'LEC', 'M', '07:30', '09:00');            // already approved: Monday 7:30
+    const a1 = [row('A', 'LEC', 'M', '13:00', '14:30'), row('B', 'LEC', 'M', '09:00', '10:30')];
+
+    test('they count in the vacant time: a lone new subject after lunch has a gap with the approved morning class', () => {
+        const r = suggestSwaps({ picks: [pick('NEW', 'A', a1)], fixed: [early], sc });
+        assert.equal(r.before, 3);           // 09:00 to 13:00 is 4 h, minus the lunch hour
+    });
+
+    test('and a swap that closes the gap with them is suggested', () => {
+        const r = suggestSwaps({ picks: [pick('NEW', 'A', a1)], fixed: [early], sc });
+        assert.equal(r.status, 'found');
+        assert.deepEqual(r.swaps.map(s => [s.code, s.from, s.to]), [['NEW', 'A', 'B']]);
+        assert.equal(r.after, 0);
+    });
+
+    test('without them the same plan has no vacant time at all', () => {
+        const r = suggestSwaps({ picks: [pick('NEW', 'A', a1)], sc });
+        assert.equal(r.status, 'no-gap');
+    });
+
+    test('a swap that would overlap an already sent subject is never suggested', () => {
+        const nine = row('A', 'LEC', 'M', '09:00', '10:30');          // sent: Monday 9:00
+        const r = suggestSwaps({ picks: [pick('NEW', 'A', a1)], fixed: [early, nine], sc });
+        for (const s of r.swaps) assert.notEqual(s.to, 'B');
+    });
+
+    test('they are never moved: only the picked subjects appear in the swaps', () => {
+        const r = suggestSwaps({ picks: [pick('NEW', 'A', a1)], fixed: [early], sc });
+        assert.ok(r.swaps.every(s => s.code === 'NEW'));
+    });
+
+    test('fixed meetings alone, with nothing picked, give nothing to swap', () => {
+        const r = suggestSwaps({ picks: [], fixed: [early], sc });
+        assert.equal(r.status, 'none-posted');
+    });
+});
+
+describe('the Build your plan page passes the sent subjects in', () => {
+    const page = readFileSync(new URL('../features/student/studentdashboard.js', import.meta.url), 'utf8');
+    test('it gathers this term\'s pending and approved subjects, with their sections, and never a rejected one', () => {
+        assert.match(page, /async function sentMeetingsThisTerm\(\)/);
+        assert.match(page, /r\.requested_term !== CURRENT_TERM \|\| r\.requested_year !== CURRENT_YEAR/);
+        assert.match(page, /i\.status === 'rejected' \|\| !i\._section \|\| !SUBJECT_LOCKS\.locked\.has\(i\.subject_id\)/);
+    });
+    test('they go to suggestSwaps as fixed meetings, and the answer says they were counted', () => {
+        assert.match(page, /suggestSwaps\(\{ picks, fixed: sent\.meetings, sc: window\.ScheduleConflicts \}\)/);
+        assert.match(page, /you already sent\./);
     });
 });
