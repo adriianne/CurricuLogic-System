@@ -55,6 +55,9 @@
             <a href="#programs" data-view="programs">
                 <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i> Programs
             </a>
+            <a href="#offsem" data-view="offsem">
+                <i class="fa-solid fa-calendar-plus" aria-hidden="true"></i> Off-sem sections
+            </a>
             <a href="#backup" data-view="backup">
                 <i class="fa-solid fa-database" aria-hidden="true"></i> Backup
             </a>
@@ -748,6 +751,23 @@
 
             </section>
 
+            <!--  OFF-SEMESTER SECTIONS (src: shared/js/schedule/offsem.js, db/133) -->
+            <section class="view view-wide" id="view-offsem" hidden>
+
+                <div class="page-head">
+                    <h1 class="page-title">Off-semester sections</h1>
+                    <p class="page-sub">
+                        Post a section of a subject from another semester in the current term, so a student who failed it can retake it.
+                    </p>
+                </div>
+
+                <section class="card">
+                    <div class="card-head"><span class="card-title">Add an off-semester section</span></div>
+                    <div class="card-body" id="offsem-body"></div>
+                </section>
+
+            </section>
+
             <!--  BACKUP (manual; src: shared/js/reports/backup.js, db/127) -->
             <section class="view view-wide" id="view-backup" hidden>
 
@@ -1150,6 +1170,7 @@
 <script src="../../shared/js/app/profilephoto.js"></script>
 <script src="../../shared/js/app/theme.js"></script>
 <script src="../../shared/js/records/systemlogs.js"></script>
+<script src="../../shared/js/schedule/offsem.js"></script>
 <script src="../../shared/js/reports/reportfile.js"></script>
 <script src="../../shared/js/reports/backup.js"></script>
 <dialog id="prog-dialog" class="prog-dlg" aria-labelledby="prog-dlg-title">

@@ -298,7 +298,7 @@ function showView(name, param) {
     if (name === 'curriculum') renderSubjects();
     if (name === 'subject' && param) openSubject(Number(param));
     if (name === 'dashboard') loadSectionDemand();
-    if (name === 'schedule') initSchedule();
+    if (name === 'schedule') { initSchedule(); initOffsemCard(); }
     if (name === 'students') openStudentList();
     if (name === 'student' && param) openStudent(param);
     if (name === 'reports') initReports();
@@ -2623,6 +2623,16 @@ function shortYear(y) {
     const n = Number(y);
     if (!Number.isFinite(n)) return String(y ?? '');
     return `${n}\u2013${String(n + 1).slice(-2)}`;
+}
+
+/* Off-semester sections (db/133, shared/js/schedule/offsem.js): a subject of another semester offered in the current term,
+   for a student who failed it. For the programme being worked on; drawn again when the programme is switched. */
+let OFFSEM_FOR = null;
+async function initOffsemCard() {
+    const body = $('offsem-body');
+    if (!body || !window.OffsemSections || PREVIEW || !supabase || !PROGRAM?.id || OFFSEM_FOR === PROGRAM.id) return;
+    OFFSEM_FOR = PROGRAM.id;
+    await window.OffsemSections.mount(body, { supabase, programs: [{ id: PROGRAM.id, code: PROGRAM.code, name: PROGRAM.name }] });
 }
 
 async function initSchedule() {

@@ -118,6 +118,7 @@ const VIEWS = {
     programs:  'Programs',
     students:  'Students',
     edplist:   'EDP student list',
+    offsem:    'Off-semester sections',
     backup:    'Backup',
     logs:      'System logs',
     profile:   'Profile',
@@ -164,6 +165,7 @@ function showView(name) {
     if (name === 'students') loadStudents();
     if (name === 'bulk')     initBulkUpload();
     if (name === 'edplist')  initEdpList();
+    if (name === 'offsem')   initOffsem();
     if (name === 'backup')   initBackup();
     if (name === 'logs')     initLogs();
 }
@@ -4871,6 +4873,17 @@ async function checkBackupFile(file) {
         }
     } catch (err) { /* not JSON: the problem list already says so */ }
     out.innerHTML = head + contents;
+}
+
+/* Off-semester sections (db/133): the panel is the same one the Department uses (shared/js/schedule/offsem.js). The admin
+   may post one for any programme, so the list is every programme. Drawn once; the panel reloads its own data. */
+let OFFSEM_PANEL = null;
+async function initOffsem() {
+    const body = $('offsem-body');
+    if (!body || OFFSEM_PANEL || !window.OffsemSections || !supabase) return;
+    const { data: programs, error } = await supabase.from('program').select('id, code, name').order('code');
+    if (error || !(programs ?? []).length) { body.innerHTML = '<p class="dim">Could not load the programmes.</p>'; return; }
+    OFFSEM_PANEL = await window.OffsemSections.mount(body, { supabase, programs });
 }
 
 function initBackup() {
